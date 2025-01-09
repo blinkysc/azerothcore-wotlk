@@ -93,7 +93,11 @@ public:
     uint32 GetLastError();
 
 protected:
+    /// Tries to acquire lock. If lock is acquired by another thread
+    /// the calling parent will just try another connection
     bool LockIfReady();
+
+    /// Called by parent databasepool. Will let other threads access this connection
     void Unlock();
 
     [[nodiscard]] uint32 GetServerVersion() const;
