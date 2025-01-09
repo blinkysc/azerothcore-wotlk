@@ -73,6 +73,7 @@ public:
 
     bool Execute(std::string_view sql);
     bool Execute(PreparedStatementBase* stmt);
+    // Batch transactions 
     bool ExecuteBatch(const std::vector<std::string_view>& queries);
     bool ExecutePreparedBatch(PreparedStatementBase* stmt, const std::vector<std::vector<Field>>& paramSets);
     
@@ -85,6 +86,8 @@ public:
     void RollbackTransaction();
     void CommitTransaction();
     int ExecuteTransaction(std::shared_ptr<TransactionBase> transaction);
+
+    // Add async transaction support; improve throughput while maintaining thread safety
     std::future<int> ExecuteTransactionAsync(std::shared_ptr<TransactionBase> transaction);
     
     std::size_t EscapeString(char* to, const char* from, std::size_t length);
