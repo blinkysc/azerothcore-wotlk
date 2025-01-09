@@ -136,7 +136,12 @@ private:
 
     // Connection pool support
     static std::atomic<size_t> s_connectionIndex;
-    static constexpr size_t MAX_CONNECTIONS = 16;  //? Not sure if should be more or less tbh
+
+    // compile-time constant that limits the maximum number of MySQL connections in the pool
+    // Default 151 https://dev.mysql.com/doc/refman/8.4/en/server-system-variables.html#sysvar_max_connections
+    // Avoid Max connection errors with concurrency 
+    static constexpr size_t MAX_CONNECTIONS = 16;  
+
     static std::vector<std::unique_ptr<MySQLConnection>> s_connections;
 
     void ProcessBatch();
