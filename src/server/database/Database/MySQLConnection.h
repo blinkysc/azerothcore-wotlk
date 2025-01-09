@@ -26,7 +26,7 @@
 #include <vector>
 #include <future>
 #include <unordered_map>
-#include <concurrentqueue/concurrentqueue.h>
+#include <queue>
 
 template <typename T>
 class ProducerConsumerQueue;
@@ -63,7 +63,7 @@ friend class PingOperation;
 
 public:
     MySQLConnection(MySQLConnectionInfo& connInfo);
-    MySQLConnection(moodycamel::ConcurrentQueue<SQLOperation*>* queue, MySQLConnectionInfo& connInfo);
+    MySQLConnection(ProducerConsumerQueue<SQLOperation*>* queue, MySQLConnectionInfo& connInfo);
     virtual ~MySQLConnection();
 
     virtual uint32 Open();
@@ -93,11 +93,7 @@ public:
     uint32 GetLastError();
 
 protected:
-    /// Tries to acquire lock. If lock is acquired by another thread
-    /// the calling parent will just try another connection
     bool LockIfReady();
-
-    /// Called by parent databasepool. Will let other threads access this connection
     void Unlock();
 
     [[nodiscard]] uint32 GetServerVersion() const;
@@ -124,7 +120,7 @@ protected:
     std::vector<std::vector<Field>> m_paramBatch;
 
 private:
-    moodycamel::ConcurrentQueue<SQLOperation*>* m_queue;
+    ProducerConsumerQueue<SQLOperation*>* m_queue;
     std::unique_ptr<DatabaseWorker> m_worker;
     MySQLConnectionInfo& m_connectionInfo;
     ConnectionFlags m_connectionFlags;
