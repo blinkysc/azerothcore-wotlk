@@ -24,6 +24,9 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <future>
+#include <unordered_map>
+#include <concurrentqueue/concurrentqueue.h>
 
 template <typename T>
 class ProducerConsumerQueue;
@@ -59,8 +62,8 @@ friend class DatabaseWorkerPool;
 friend class PingOperation;
 
 public:
-    MySQLConnection(MySQLConnectionInfo& connInfo);                               //! Constructor for synchronous connections.
-    MySQLConnection(ProducerConsumerQueue<SQLOperation*>* queue, MySQLConnectionInfo& connInfo);  //! Constructor for asynchronous connections.
+    MySQLConnection(MySQLConnectionInfo& connInfo);
+    MySQLConnection(moodycamel::ConcurrentQueue<SQLOperation*>* queue, MySQLConnectionInfo& connInfo);
     virtual ~MySQLConnection();
 
     virtual uint32 Open();
@@ -70,6 +73,9 @@ public:
 
     bool Execute(std::string_view sql);
     bool Execute(PreparedStatementBase* stmt);
+    bool ExecuteBatch(const std::vector<std::string_view>& queries);
+    bool ExecutePreparedBatch(PreparedStatementBase* stmt, const std::vector<std::vector<Field>>& paramSets);
+    
     ResultSet* Query(std::string_view sql);
     PreparedResultSet* Query(PreparedStatementBase* stmt);
     bool _Query(std::string_view sql, MySQLResult** pResult, MySQLField** pFields, uint64* pRowCount, uint32* pFieldCount);
@@ -79,17 +85,15 @@ public:
     void RollbackTransaction();
     void CommitTransaction();
     int ExecuteTransaction(std::shared_ptr<TransactionBase> transaction);
+    std::future<int> ExecuteTransactionAsync(std::shared_ptr<TransactionBase> transaction);
+    
     std::size_t EscapeString(char* to, const char* from, std::size_t length);
     void Ping();
 
     uint32 GetLastError();
 
 protected:
-    /// Tries to acquire lock. If lock is acquired by another thread
-    /// the calling parent will just try another connection
     bool LockIfReady();
-
-    /// Called by parent databasepool. Will let other threads access this connection
     void Unlock();
 
     [[nodiscard]] uint32 GetServerVersion() const;
@@ -101,21 +105,38 @@ protected:
     virtual bool _HandleMySQLErrno(uint32 errNo, char const* err = "", uint8 attempts = 5);
 
     typedef std::vector<std::unique_ptr<MySQLPreparedStatement>> PreparedStatementContainer;
+    typedef std::unordered_map<uint32, std::shared_ptr<MySQLPreparedStatement>> PreparedStatementCache;
 
-    PreparedStatementContainer m_stmts; //! PreparedStatements storage
-    bool m_reconnecting;  //! Are we reconnecting?
-    bool m_prepareError;  //! Was there any error while preparing statements?
-    MySQLHandle* m_Mysql; //! MySQL Handle.
+    PreparedStatementContainer m_stmts;
+    PreparedStatementCache m_stmtCache;
+    
+    bool m_reconnecting;
+    bool m_prepareError;
+    MySQLHandle* m_Mysql;
+
+    // Batch processing
+    static constexpr size_t BATCH_SIZE = 1000;
+    std::vector<std::string_view> m_queryBatch;
+    std::vector<std::vector<Field>> m_paramBatch;
 
 private:
-    ProducerConsumerQueue<SQLOperation*>* m_queue;      //! Queue shared with other asynchronous connections.
-    std::unique_ptr<DatabaseWorker> m_worker;           //! Core worker task.
-    MySQLConnectionInfo& m_connectionInfo;              //! Connection info (used for logging)
-    ConnectionFlags m_connectionFlags;                  //! Connection flags (for preparing relevant statements)
+    moodycamel::ConcurrentQueue<SQLOperation*>* m_queue;
+    std::unique_ptr<DatabaseWorker> m_worker;
+    MySQLConnectionInfo& m_connectionInfo;
+    ConnectionFlags m_connectionFlags;
     std::mutex m_Mutex;
+    std::atomic<size_t> m_operationCount{0};
 
+    // Connection pool support
+    static std::atomic<size_t> s_connectionIndex;
+    static constexpr size_t MAX_CONNECTIONS = 16;
+    static std::vector<std::unique_ptr<MySQLConnection>> s_connections;
+
+    void ProcessBatch();
+    void ProcessParamBatch(PreparedStatementBase* stmt);
+    
     MySQLConnection(MySQLConnection const& right) = delete;
     MySQLConnection& operator=(MySQLConnection const& right) = delete;
 };
 
-#endif
+#endif // _MYSQLCONNECTION_H
