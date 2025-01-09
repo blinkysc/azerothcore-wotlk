@@ -136,7 +136,7 @@ private:
 
     // Connection pool support
     static std::atomic<size_t> s_connectionIndex;
-    static constexpr size_t MAX_CONNECTIONS = 16;
+    static constexpr size_t MAX_CONNECTIONS = 16;  //? Not sure if should be more or less tbh
     static std::vector<std::unique_ptr<MySQLConnection>> s_connections;
 
     void ProcessBatch();
