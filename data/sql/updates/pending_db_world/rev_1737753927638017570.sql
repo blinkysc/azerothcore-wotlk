@@ -1,5 +1,4 @@
 -- Add pure energy immune script for Vex
-DELETE FROM `creature_template` WHERE `ScriptName` = 'npc_pure_energy' AND entry = 24745;
 UPDATE `creature_template` SET `ScriptName` = 'npc_pure_energy' WHERE (`entry` = 24745);
 
 -- AOE_IMMUNE Flag for pure energy
