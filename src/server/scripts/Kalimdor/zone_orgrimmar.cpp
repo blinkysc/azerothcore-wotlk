@@ -148,6 +148,10 @@ enum ThrallWarchief : uint32
     SAY_THRALL_ON_QUEST_REWARD_0   = 0,
     SAY_THRALL_ON_QUEST_REWARD_1   = 1,
 
+    // World buff spell IDs
+    SPELL_RALLYING_CRY_OF_THE_DRAGONSLAYER = 22888,  // Onyxia/Nefarian head buff
+    SPELL_SPIRIT_OF_ZANDALAR              = 24425,  // Hakkar heart buff
+
     AREA_ORGRIMMAR                 = 1637,
     AREA_RAZOR_HILL                = 362,
     AREA_CAMP_TAURAJO              = 378,
@@ -237,6 +241,15 @@ public:
         {
             ChainLightningTimer = 2000;
             ShockTimer = 8000;
+            
+            // Clear any existing scheduled tasks and set up the hourly blessing
+            scheduler.CancelAll();
+            scheduler.Schedule(10s, [this](TaskContext context)
+            {
+                ApplyHourlyBlessing();
+                // Repeat the task every 2 minutes for testing
+                context.Repeat(2min);
+            });
         }
 
         void JustEngagedWith(Unit* /*who*/) override { }
@@ -287,6 +300,21 @@ public:
                     });
                 });
             }
+        }
+
+        // Method for applying hourly blessing and other world buffs to all players in Orgrimmar
+        void ApplyHourlyBlessing()
+        {
+            // Visual effect and emote for Thrall
+            me->HandleEmoteCommand(EMOTE_ONESHOT_SHOUT);
+            
+            // Cast all world buffs
+            DoCastAOE(SPELL_WARCHIEF_BLESSING, true);
+            DoCastAOE(SPELL_RALLYING_CRY_OF_THE_DRAGONSLAYER, true);
+            DoCastAOE(SPELL_SPIRIT_OF_ZANDALAR, true);
+            
+            // Announce to the zone
+            me->TextEmote("Thrall bestows powerful blessings upon all in Orgrimmar!", nullptr, true);
         }
 
         void UpdateAI(uint32 diff) override
