@@ -33,7 +33,8 @@ EndContentData */
 #include "CreatureScript.h"
 #include "Player.h"
 #include "ScriptedCreature.h"
-#include "ScriptedEscortAI.h"
+#include "ScriptedGossip.h"
+#include "TaskScheduler.h"
 
 /*######
 ## npc_lord_gregor_lescovar
@@ -82,7 +83,32 @@ public:
 
             MarzonGUID.Clear();
         }
-
+enum StormwindWorldBuffs : uint32
+{
+    // Combat buffs
+    SPELL_RALLYING_CRY_OF_THE_DRAGONSLAYER = 22888,  // Onyxia/Nefarian head buff
+    SPELL_SPIRIT_OF_ZANDALAR              = 24425,  // Hakkar heart buff
+    SPELL_SONGFLOWER_SERENADE             = 15366,  // Songflower buff from Felwood
+    
+    // Dire Maul tribute buffs
+    SPELL_MOLDAR_MOXIE                    = 22818,  // Mol'dar's Moxie (Dire Maul +15% Stamina)
+    SPELL_FENGUS_FEROCITY                 = 22817,  // Fengus' Ferocity (Dire Maul +50 AP)
+    SPELL_SLIPKIK_SAVVY                   = 22820,  // Slip'kik's Savvy (Dire Maul +3% spell crit)
+    
+    // Darkmoon Faire buffs
+    SPELL_SAYGE_FORTUNE_DMG               = 23768,  // Sayge's Dark Fortune of Damage
+    SPELL_DMF_INTELLIGENCE                = 23766,  // Sayge's Dark Fortune of Intelligence
+    SPELL_DMF_SPIRIT                      = 23738,  // Sayge's Dark Fortune of Spirit
+    SPELL_DMF_STAMINA                     = 23737,  // Sayge's Dark Fortune of Stamina
+    
+    // Misc buffs
+    SPELL_MOL_FIRE_RESISTANCE             = 21564,  // Molten Core fire resistance buff
+    SPELL_BLESSING_OF_KINGS               = 20217,  // Blessing of Kings (Alliance-themed buff)
+    
+    // Areas
+    AREA_STORMWIND_CITY                   = 1519,
+    AREA_ELWYNN_FOREST                    = 12,
+};
         void EnterEvadeMode(EvadeReason /*why*/) override
         {
             me->DisappearAndDie();
@@ -279,7 +305,32 @@ public:
                     //me->ChangeOrient(0.0f, summoner);
                 }
             }
-        }
+        }enum StormwindWorldBuffs : uint32
+{
+    // Combat buffs
+    SPELL_RALLYING_CRY_OF_THE_DRAGONSLAYER = 22888,  // Onyxia/Nefarian head buff
+    SPELL_SPIRIT_OF_ZANDALAR              = 24425,  // Hakkar heart buff
+    SPELL_SONGFLOWER_SERENADE             = 15366,  // Songflower buff from Felwood
+    
+    // Dire Maul tribute buffs
+    SPELL_MOLDAR_MOXIE                    = 22818,  // Mol'dar's Moxie (Dire Maul +15% Stamina)
+    SPELL_FENGUS_FEROCITY                 = 22817,  // Fengus' Ferocity (Dire Maul +50 AP)
+    SPELL_SLIPKIK_SAVVY                   = 22820,  // Slip'kik's Savvy (Dire Maul +3% spell crit)
+    
+    // Darkmoon Faire buffs
+    SPELL_SAYGE_FORTUNE_DMG               = 23768,  // Sayge's Dark Fortune of Damage
+    SPELL_DMF_INTELLIGENCE                = 23766,  // Sayge's Dark Fortune of Intelligence
+    SPELL_DMF_SPIRIT                      = 23738,  // Sayge's Dark Fortune of Spirit
+    SPELL_DMF_STAMINA                     = 23737,  // Sayge's Dark Fortune of Stamina
+    
+    // Misc buffs
+    SPELL_MOL_FIRE_RESISTANCE             = 21564,  // Molten Core fire resistance buff
+    SPELL_BLESSING_OF_KINGS               = 20217,  // Blessing of Kings (Alliance-themed buff)
+    
+    // Areas
+    AREA_STORMWIND_CITY                   = 1519,
+    AREA_ELWYNN_FOREST                    = 12,
+};
 
         void UpdateAI(uint32 /*diff*/) override
         {
@@ -472,10 +523,83 @@ public:
     }
 };
 
+enum StormwindWorldBuffs : uint32
+{
+    // Combat buffs
+    SPELL_RALLYING_CRY_OF_THE_DRAGONSLAYER = 22888,  // Onyxia/Nefarian head buff
+    SPELL_SPIRIT_OF_ZANDALAR              = 24425,  // Hakkar heart buff
+    
+    // Areas
+    AREA_STORMWIND_CITY                   = 1519,
+};
+
+lass npc_highlord_bolvar_fordragon : public CreatureScript
+{
+public:
+    npc_highlord_bolvar_fordragon() : CreatureScript("npc_highlord_bolvar_fordragon") { }
+
+    bool OnGossipHello(Player* player, Creature* creature) override
+    {
+        // Handle existing gossip options if any
+        if (creature->IsQuestGiver())
+            player->PrepareQuestMenu(creature->GetGUID());
+
+        SendGossipMenuFor(player, player->GetGossipTextId(creature), creature->GetGUID());
+        return true;
+    }
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_highlord_bolvar_fordragonAI(creature);
+    }
+
+    struct npc_highlord_bolvar_fordragonAI : public ScriptedAI
+    {
+        npc_highlord_bolvar_fordragonAI(Creature* creature) : ScriptedAI(creature) { }
+
+        void Reset() override
+        {
+            // Clear any existing scheduled tasks and set up the hourly blessing
+            scheduler.CancelAll();
+            scheduler.Schedule(10s, [this](TaskContext context)
+            {
+                ApplyHourlyBlessing();
+                // Repeat the task every 2 minutes for testing
+                context.Repeat(2min);
+            });
+        }
+
+        // Method for applying hourly blessing and other world buffs to all players in Stormwind
+        void ApplyHourlyBlessing()
+        {
+            // Visual effect and emote for Bolvar
+            me->HandleEmoteCommand(EMOTE_ONESHOT_SHOUT);
+            
+            // Cast all world buffs
+            DoCastAOE(SPELL_RALLYING_CRY_OF_THE_DRAGONSLAYER, true);
+            DoCastAOE(SPELL_SPIRIT_OF_ZANDALAR, true);
+            
+            // Announce to the zone
+            me->TextEmote("Highlord Bolvar Fordragon bestows powerful blessings upon all in Stormwind!", nullptr, true);
+        }
+
+        void UpdateAI(uint32 diff) override
+        {
+            scheduler.Update(diff);
+
+            if (!UpdateVictim())
+                return;
+
+            DoMeleeAttackIfReady();
+        }
+    };
+};
+
 void AddSC_stormwind_city()
 {
     new npc_tyrion();
     new npc_tyrion_spybot();
     new npc_lord_gregor_lescovar();
     new npc_marzon_silent_blade();
+    new npc_highlord_bolvar_fordragon();
 }
