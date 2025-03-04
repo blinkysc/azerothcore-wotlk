@@ -830,28 +830,29 @@ void SmartAI::SummonedCreatureEvade(Creature* summon)
 
 void SmartAI::AttackStart(Unit* who)
 {
+    if (!who)
+        return;
+        
     // xinef: dont allow charmed npcs to act on their own
     if (me->HasUnitFlag(UNIT_FLAG_POSSESSED))
     {
-        if (who)
-            me->Attack(who, mCanAutoAttack);
+        me->Attack(who, mCanAutoAttack);
         return;
     }
 
-    if (who && me->Attack(who, me->IsWithinMeleeRange(who)))
+    me->Attack(who, me->IsWithinMeleeRange(who));
+    
+    if (mCanCombatMove)
     {
-        if (mCanCombatMove)
+        SetRun(mRun);
+        MovementGeneratorType type = me->GetMotionMaster()->GetMotionSlotType(MOTION_SLOT_ACTIVE);
+        if (type == ESCORT_MOTION_TYPE || type == POINT_MOTION_TYPE)
         {
-            SetRun(mRun);
-            MovementGeneratorType type = me->GetMotionMaster()->GetMotionSlotType(MOTION_SLOT_ACTIVE);
-            if (type == ESCORT_MOTION_TYPE || type == POINT_MOTION_TYPE)
-            {
-                me->GetMotionMaster()->MovementExpired();
-                me->StopMoving();
-            }
-
-            me->GetMotionMaster()->MoveChase(who);
+            me->GetMotionMaster()->MovementExpired();
+            me->StopMoving();
         }
+
+        me->GetMotionMaster()->MoveChase(who);
     }
 }
 
