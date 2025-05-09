@@ -153,11 +153,6 @@ enum ThrallWarchief : uint32
     SPELL_RALLYING_CRY_OF_THE_DRAGONSLAYER = 22888,  // Onyxia/Nefarian head buff
     SPELL_SPIRIT_OF_ZANDALAR              = 24425,  // Hakkar heart buff
 
-    AREA_ORGRIMMAR                 = 1637,
-    AREA_RAZOR_HILL                = 362,
-    AREA_CAMP_TAURAJO              = 378,
-    AREA_CROSSROADS                = 380,
-
     GO_UNADORNED_SPIKE             = 175787,
 
     // What the Wind Carries (ID: 6566)
