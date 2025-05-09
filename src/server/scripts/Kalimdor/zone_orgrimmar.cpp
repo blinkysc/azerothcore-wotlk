@@ -27,6 +27,7 @@ npc_shenthul
 npc_thrall_warchief
 EndContentData */
 
+#include "AreaDefines.h"
 #include "CreatureScript.h"
 #include "Player.h"
 #include "ScriptedCreature.h"
@@ -292,7 +293,7 @@ public:
                     {
                         if (player->IsAlive() && !player->IsGameMaster())
                         {
-                            if (player->GetAreaId() == AREA_CROSSROADS)
+                            if (player->GetAreaId() == AREA_THE_CROSSROADS)
                             {
                                 player->CastSpell(player, SPELL_WARCHIEF_BLESSING, true);
                             }
