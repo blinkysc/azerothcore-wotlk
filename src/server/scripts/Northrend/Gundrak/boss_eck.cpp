@@ -36,7 +36,8 @@ enum Misc
     EVENT_ECK_BITE                      = 2,
     EVENT_ECK_SPIT                      = 3,
     EVENT_ECK_SPRING                    = 4,
-    EVENT_ECK_HEALTH                    = 5
+    EVENT_ECK_HEALTH                    = 5,
+    EVENT_ECK_SPRING_RESUME             = 6
 };
 
 class boss_eck : public CreatureScript
@@ -78,6 +79,9 @@ public:
             {
                 me->GetThreatMgr().ResetAllThreat();
                 me->AddThreat(target, 1.0f);
+                me->AttackStop();
+                me->SetReactState(REACT_PASSIVE);
+                events.ScheduleEvent(EVENT_ECK_SPRING_RESUME, 1s, 2s);
             }
         }
 
@@ -138,6 +142,13 @@ public:
                         me->CastSpell(target, SPELL_ECK_SPRING, false);
                     }
                     events.ScheduleEvent(EVENT_ECK_SPRING, 10s, 24s);
+                    break;
+                case EVENT_ECK_SPRING_RESUME:
+                    me->SetReactState(REACT_AGGRESSIVE);
+                    if (Unit* victim = me->GetVictim())
+                    {
+                        me->Attack(victim, true);
+                    }
                     break;
             }
 
