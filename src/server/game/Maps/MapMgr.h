@@ -25,14 +25,10 @@
 #include "MapUpdater.h"
 #include "Object.h"
 #include "Timer.h"
-#include <mutex>
-#include <unordered_map>
-#include <vector>
 
 class Transport;
 class StaticTransport;
 class MotionTransport;
-class Player;
 struct TransportCreatureProto;
 
 class MapMgr
