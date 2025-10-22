@@ -554,10 +554,9 @@ void Map::UpdateParallel(const uint32 t_diff, const uint32 s_diff)
     resetMarkedCells();
     
     // Phase 2: Parallel player updates
-    auto rootTask = scheduler->Spawn([](void*){}, nullptr);
-    
     uint32 grainSize = sConfigMgr->GetOption<uint32>("WorkStealing.GrainSize", 64);
     std::vector<PlayerUpdateTask> playerTasks;
+    std::vector<TaskHandle*> taskHandles;
     
     // Collect players and update sessions (must be sequential)
     for (m_mapRefIter = m_mapRefMgr.begin(); m_mapRefIter != m_mapRefMgr.end(); ++m_mapRefIter)
@@ -588,7 +587,7 @@ void Map::UpdateParallel(const uint32 t_diff, const uint32 s_diff)
         
         auto* taskData = new TaskData{&playerTasks, i, end};
         
-        scheduler->Spawn(
+        auto* handle = scheduler->Spawn(
             [](void* data) {
                 auto* td = static_cast<TaskData*>(data);
                 for (size_t idx = td->start; idx < td->end; ++idx)
@@ -599,13 +598,17 @@ void Map::UpdateParallel(const uint32 t_diff, const uint32 s_diff)
                 }
                 delete td;
             },
-            taskData,
-            rootTask
+            taskData
         );
+        
+        taskHandles.push_back(handle);
     }
     
     // Wait for all player updates
-    scheduler->Wait(rootTask);
+    for (auto* handle : taskHandles)
+    {
+        scheduler->Wait(handle);
+    }
     
     // Update marked cells
     if (_updatableObjectListRecheckTimer.Passed())
@@ -657,9 +660,6 @@ void Map::UpdateParallel(const uint32 t_diff, const uint32 s_diff)
     METRIC_VALUE("map_gameobjects", uint64(GetObjectsStore().Size<GameObject>()),
         METRIC_TAG("map_id", std::to_string(GetId())),
         METRIC_TAG("map_instanceid", std::to_string(GetInstanceId())));
-    
-    // Reset frame allocator
-    scheduler->ResetFrame();
 }
 
 void Map::UpdateNonPlayerObjects(uint32 const diff)
