@@ -32,14 +32,15 @@ namespace Acore
         }
         
         LOG_INFO("server.worldserver", "Initializing WorkStealingScheduler with {} threads", numThreads);
-        
-        _workers.resize(numThreads);
+
+        _workers.reserve(numThreads);
         for (uint32 i = 0; i < numThreads; ++i)
         {
-            _workers[i].threadId = i;
-            _workers[i].rng.seed(i);  // Seed RNG per thread
-            _workers[i].thread = std::thread(&WorkStealingScheduler::WorkerMain, this, i);
-        }
+            _workers.emplace_back();
+            _workers.back().threadId = i;
+            _workers.back().rng.seed(std::random_device{}() + i);
+            _workers.back().thread = std::thread(&WorkStealingScheduler::WorkerMain, this, i);
+        }    
     }
     
     WorkStealingScheduler::~WorkStealingScheduler()
