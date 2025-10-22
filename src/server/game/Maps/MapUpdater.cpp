@@ -153,7 +153,7 @@ void MapUpdater::schedule_lfg_update(uint32 diff)
     schedule_task(new LFGUpdateRequest(*this, diff));
 }
 
-bool MapUpdater::activated()
+bool MapUpdater::activated() const
 {
     return !_workerThreads.empty();
 }

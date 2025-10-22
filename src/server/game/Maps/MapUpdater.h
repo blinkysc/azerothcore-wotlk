@@ -40,7 +40,7 @@ public:
     void wait();
     void activate(std::size_t num_threads);
     void deactivate();
-    bool activated();
+    bool activated() const;
     void update_finished();
 
 private:
