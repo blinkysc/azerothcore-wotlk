@@ -1441,6 +1441,39 @@ DontCacheRandomMovementPaths = 0
 ###################################################################################################
 
 ###################################################################################################
+# WORK-STEALING SCHEDULER
+#
+#    WorkStealing.Enabled
+#        Description: Enable work-stealing scheduler for parallel map updates.
+#                     This can significantly improve performance on multi-core systems.
+#        Default:     0 (disabled)
+#                     1 (enabled)
+#
+#    WorkStealing.Threads
+#        Description: Number of worker threads for work-stealing scheduler.
+#                     0 = Auto-detect (hardware_concurrency - 1)
+#        Default:     0
+#        Range:       0-32
+#
+#    WorkStealing.MinPlayersForParallel
+#        Description: Minimum number of players on a map before using parallel updates.
+#                     Maps with fewer players will use sequential updates.
+#        Default:     10
+#        Range:       1-100
+#
+#    WorkStealing.GrainSize  
+#        Description: Minimum entities per parallel task. Lower values = more parallelism
+#                     but higher overhead. Higher values = less parallelism but lower overhead.
+#        Default:     64
+#        Range:       8-512
+#
+
+WorkStealing.Enabled = 0
+WorkStealing.Threads = 0
+WorkStealing.MinPlayersForParallel = 10
+WorkStealing.GrainSize = 64
+
+###################################################################################################
 # WEATHER
 #
 #    ActivateWeather
