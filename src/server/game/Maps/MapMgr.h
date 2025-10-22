@@ -152,6 +152,9 @@ public:
 
     MapUpdater* GetMapUpdater() { return &m_updater; }
 
+    bool UseWorkStealing() const { return m_updater.activated(); }
+    MapUpdater* GetWorkStealingScheduler() { return &m_updater; }
+
     template<typename Worker>
     void DoForAllMaps(Worker&& worker);
 
