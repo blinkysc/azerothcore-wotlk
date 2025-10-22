@@ -45,8 +45,6 @@
 #include "Weather.h"
 #include "WeatherMgr.h"
 
-#include "WorkStealingScheduler.h"
-
 #define MAP_INVALID_ZONE        0xFFFFFFFF
 
 ZoneDynamicInfo::ZoneDynamicInfo() : MusicId(0), DefaultWeather(nullptr), WeatherId(WEATHER_STATE_FINE),
@@ -427,33 +425,21 @@ void Map::UpdatePlayerZoneStats(uint32 oldZone, uint32 newZone)
         ++_zonePlayerCountMap[newZone];
 }
 
-/**
- * @brief Main Map::Update entry point - decides between parallel and sequential
- * 
- * This is the refactored Update method that checks configuration and chooses
- * the appropriate update path based on work-stealing scheduler availability
- */
-void Map::Update(uint32 const t_diff, uint32 const p_diff, bool /*thread*/)
+void Map::Update(const uint32 t_diff, const uint32 s_diff, bool  /*thread*/)
 {
     // Check if work-stealing is enabled and this map has enough players
     if (sMapMgr->UseWorkStealing() && 
         m_mapRefMgr.getSize() >= sConfigMgr->GetOption<uint32>("WorkStealing.MinPlayersForParallel", 10))
     {
-        UpdateParallel(t_diff, p_diff, sMapMgr->GetWorkStealingScheduler());
+        UpdateParallel(t_diff, s_diff);
     }
     else
     {
-        UpdateSequential(t_diff, p_diff);
+        UpdateSequential(t_diff, s_diff);
     }
 }
 
-/**
- * @brief Sequential update (original implementation)
- * 
- * This contains the original Map::Update logic for when work-stealing
- * is disabled or not applicable
- */
-void Map::UpdateSequential(uint32 const t_diff, uint32 const p_diff)
+void Map::UpdateSequential(const uint32 t_diff, const uint32 s_diff)
 {
     if (t_diff)
         _dynamicTree.update(t_diff);
@@ -467,11 +453,11 @@ void Map::UpdateSequential(uint32 const t_diff, uint32 const p_diff)
             // Update session
             WorldSession* session = player->GetSession();
             MapSessionFilter updater(session);
-            session->Update(p_diff, updater);
+            session->Update(s_diff, updater);
 
             // update players at tick
             if (!t_diff)
-                player->Update(p_diff);
+                player->Update(s_diff);
         }
     }
 
@@ -494,7 +480,7 @@ void Map::UpdateSequential(uint32 const t_diff, uint32 const p_diff)
         if (!player || !player->IsInWorld())
             continue;
 
-        player->Update(p_diff);
+        player->Update(s_diff);
 
         if (_updatableObjectListRecheckTimer.Passed())
         {
@@ -543,118 +529,85 @@ void Map::UpdateSequential(uint32 const t_diff, uint32 const p_diff)
         METRIC_TAG("map_instanceid", std::to_string(GetInstanceId())));
 }
 
-/**
- * @brief Parallel player update using work-stealing scheduler
- */
-void Map::UpdatePlayersParallel(uint32 t_diff, uint32 p_diff, Acore::WorkStealingScheduler* scheduler)
+void Map::UpdateParallel(const uint32 t_diff, const uint32 s_diff)
 {
+    auto scheduler = sMapMgr->GetWorkStealingScheduler();
     if (!scheduler)
-        return;
-
-    // Collect all players into a vector for parallel processing
-    std::vector<PlayerUpdateData> playerData;
-    playerData.reserve(m_mapRefMgr.getSize());
-
-    // First pass: Update sessions (must be done sequentially)
-    for (m_mapRefIter = m_mapRefMgr.begin(); m_mapRefIter != m_mapRefMgr.end(); ++m_mapRefIter)
     {
-        Player* player = m_mapRefIter->GetSource();
-        if (player && player->IsInWorld())
-        {
-            WorldSession* session = player->GetSession();
-            MapSessionFilter updater(session);
-            session->Update(p_diff, updater);
-            
-            playerData.push_back({player, t_diff, p_diff});
-        }
+        UpdateSequential(t_diff, s_diff);
+        return;
     }
-
-    if (playerData.empty())
-        return;
-
-    // Define grain size - number of players processed per task
-    const size_t GRAIN_SIZE = sConfigMgr->GetOption<uint32>("WorkStealing.GrainSize", 64);
-    const size_t numPlayers = playerData.size();
-
-    // Task function to update a range of players
-    struct PlayerRangeTask
-    {
-        std::vector<PlayerUpdateData>* players;
-        size_t start;
-        size_t end;
-    };
-
-    auto updatePlayerRange = [](void* data) 
-    {
-        PlayerRangeTask* taskData = static_cast<PlayerRangeTask*>(data);
-        
-        for (size_t i = taskData->start; i < taskData->end; ++i)
-        {
-            Player* player = (*taskData->players)[i].player;
-            if (player && player->IsInWorld())
-            {
-                player->Update((*taskData->players)[i].p_diff);
-            }
-        }
-
-        delete taskData;
-    };
-
-    // Spawn parallel tasks for player updates
-    std::vector<Acore::WorkStealingScheduler::Task*> tasks;
     
-    for (size_t i = 0; i < numPlayers; i += GRAIN_SIZE)
-    {
-        size_t end = std::min(i + GRAIN_SIZE, numPlayers);
-        
-        PlayerRangeTask* taskData = new PlayerRangeTask{&playerData, i, end};
-        
-        auto* task = scheduler->Spawn(updatePlayerRange, taskData);
-        tasks.push_back(task);
-    }
-
-    // Wait for all tasks to complete
-    for (auto* task : tasks)
-    {
-        scheduler->Wait(task);
-    }
-}
-
-/**
- * @brief Parallel update using work-stealing scheduler
- */
-void Map::UpdateParallel(uint32 const t_diff, uint32 const p_diff, Acore::WorkStealingScheduler* scheduler)
-{
-    if (!scheduler)
-    {
-        // Fallback to sequential update if scheduler unavailable
-        UpdateSequential(t_diff, p_diff);
-        return;
-    }
-
-    // Reset the scheduler's frame allocator for this update cycle
-    scheduler->ResetFrame();
-
     // Phase 1: Sequential prerequisites
     if (t_diff)
         _dynamicTree.update(t_diff);
-
-    // Update creature respawn scheduler
+    
     _creatureRespawnScheduler.Update(t_diff);
-
+    
     if (!t_diff)
     {
         HandleDelayedVisibility();
         return;
     }
-
+    
     _updatableObjectListRecheckTimer.Update(t_diff);
     resetMarkedCells();
-
+    
     // Phase 2: Parallel player updates
-    UpdatePlayersParallel(t_diff, p_diff, scheduler);
-
-    // Update marked cells after player updates
+    auto rootTask = scheduler->Spawn([](void*){}, nullptr);
+    
+    uint32 grainSize = sConfigMgr->GetOption<uint32>("WorkStealing.GrainSize", 64);
+    std::vector<PlayerUpdateTask> playerTasks;
+    
+    // Collect players and update sessions (must be sequential)
+    for (m_mapRefIter = m_mapRefMgr.begin(); m_mapRefIter != m_mapRefMgr.end(); ++m_mapRefIter)
+    {
+        Player* player = m_mapRefIter->GetSource();
+        if (player && player->IsInWorld())
+        {
+            // Update session
+            WorldSession* session = player->GetSession();
+            MapSessionFilter updater(session);
+            session->Update(s_diff, updater);
+            
+            playerTasks.push_back({player, s_diff});
+        }
+    }
+    
+    // Spawn player update tasks in batches
+    for (size_t i = 0; i < playerTasks.size(); i += grainSize)
+    {
+        size_t end = std::min(i + grainSize, playerTasks.size());
+        
+        // Capture the data for parallel task
+        struct TaskData {
+            std::vector<PlayerUpdateTask>* tasks;
+            size_t start;
+            size_t end;
+        };
+        
+        auto* taskData = new TaskData{&playerTasks, i, end};
+        
+        scheduler->Spawn(
+            [](void* data) {
+                auto* td = static_cast<TaskData*>(data);
+                for (size_t idx = td->start; idx < td->end; ++idx)
+                {
+                    Player* p = (*td->tasks)[idx].player;
+                    if (p && p->IsInWorld())
+                        p->Update((*td->tasks)[idx].diff);
+                }
+                delete td;
+            },
+            taskData,
+            rootTask
+        );
+    }
+    
+    // Wait for all player updates
+    scheduler->Wait(rootTask);
+    
+    // Update marked cells
     if (_updatableObjectListRecheckTimer.Passed())
     {
         for (m_mapRefIter = m_mapRefMgr.begin(); m_mapRefIter != m_mapRefMgr.end(); ++m_mapRefIter)
@@ -674,31 +627,29 @@ void Map::UpdateParallel(uint32 const t_diff, uint32 const p_diff, Acore::WorkSt
             }
         }
     }
-
-    // Phase 3: Update non-player objects
+    
+    // Phase 3: Sequential post-processing
     UpdateNonPlayerObjects(t_diff);
-
-    // Phase 4: Sequential post-processing
     SendObjectUpdates();
-
+    
     if (!m_scriptSchedule.empty())
     {
         i_scriptLock = true;
         ScriptsProcess();
         i_scriptLock = false;
     }
-
+    
     MoveAllCreaturesInMoveList();
     MoveAllGameObjectsInMoveList();
     MoveAllDynamicObjectsInMoveList();
-
+    
     HandleDelayedVisibility();
-
+    
     UpdateWeather(t_diff);
     UpdateExpiredCorpses(t_diff);
-
+    
     sScriptMgr->OnMapUpdate(this, t_diff);
-
+    
     METRIC_VALUE("map_creatures", uint64(GetObjectsStore().Size<Creature>()),
         METRIC_TAG("map_id", std::to_string(GetId())),
         METRIC_TAG("map_instanceid", std::to_string(GetInstanceId())));
@@ -706,6 +657,9 @@ void Map::UpdateParallel(uint32 const t_diff, uint32 const p_diff, Acore::WorkSt
     METRIC_VALUE("map_gameobjects", uint64(GetObjectsStore().Size<GameObject>()),
         METRIC_TAG("map_id", std::to_string(GetId())),
         METRIC_TAG("map_instanceid", std::to_string(GetInstanceId())));
+    
+    // Reset frame allocator
+    scheduler->ResetFrame();
 }
 
 void Map::UpdateNonPlayerObjects(uint32 const diff)
