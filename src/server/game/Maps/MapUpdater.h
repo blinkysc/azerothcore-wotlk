@@ -23,9 +23,19 @@
 #include <condition_variable>
 #include <thread>
 #include <atomic>
+#include <functional>
+#include <vector>
+#include <mutex>
 
 class Map;
 class UpdateRequest;
+
+// Simple task handle for work-stealing interface
+struct TaskHandle
+{
+    std::atomic<bool> completed{false};
+    std::atomic<int> refCount{0};
+};
 
 class MapUpdater
 {
@@ -43,6 +53,11 @@ public:
     bool activated() const;
     void update_finished();
 
+    // Work-stealing task interface for modern parallel map updates
+    TaskHandle* Spawn(std::function<void(void*)> task, void* data);
+    void Wait(TaskHandle* handle);
+    void ResetFrame();
+
 private:
     void WorkerThread();
     ProducerConsumerQueue<UpdateRequest*> _queue;
@@ -51,6 +66,10 @@ private:
     std::vector<std::thread> _workerThreads;
     std::mutex _lock; // Mutex and condition variable for synchronization
     std::condition_variable _condition;
+    
+    // Work-stealing task management
+    std::vector<TaskHandle*> _frameTasks;
+    std::mutex _taskLock;
 };
 
 #endif //_MAP_UPDATER_H_INCLUDED

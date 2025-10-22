@@ -90,6 +90,29 @@ private:
     uint32 m_diff;
 };
 
+// Task wrapper for work-stealing interface
+class TaskRequest : public UpdateRequest
+{
+public:
+    TaskRequest(std::function<void(void*)> task, void* data, TaskHandle* handle, MapUpdater& updater)
+        : _task(task), _data(data), _handle(handle), _updater(updater)
+    {
+    }
+
+    void call() override
+    {
+        _task(_data);
+        _handle->completed.store(true, std::memory_order_release);
+        _updater.update_finished();
+    }
+
+private:
+    std::function<void(void*)> _task;
+    void* _data;
+    TaskHandle* _handle;
+    MapUpdater& _updater;
+};
+
 MapUpdater::MapUpdater() : pending_requests(0), _cancelationToken(false)
 {
 }
@@ -187,4 +210,44 @@ void MapUpdater::WorkerThread()
             delete request;  // Clean up after processing
         }
     }
+}
+
+// Work-stealing task interface implementation
+TaskHandle* MapUpdater::Spawn(std::function<void(void*)> task, void* data)
+{
+    TaskHandle* handle = new TaskHandle();
+    handle->refCount.store(1, std::memory_order_release);
+    
+    {
+        std::lock_guard<std::mutex> lock(_taskLock);
+        _frameTasks.push_back(handle);
+    }
+    
+    schedule_task(new TaskRequest(task, data, handle, *this));
+    return handle;
+}
+
+void MapUpdater::Wait(TaskHandle* handle)
+{
+    if (!handle)
+        return;
+
+    // Spin-wait for task completion (simple implementation)
+    while (!handle->completed.load(std::memory_order_acquire))
+    {
+        std::this_thread::yield();
+    }
+}
+
+void MapUpdater::ResetFrame()
+{
+    std::lock_guard<std::mutex> lock(_taskLock);
+    
+    // Clean up completed tasks from previous frame
+    for (TaskHandle* handle : _frameTasks)
+    {
+        delete handle;
+    }
+    
+    _frameTasks.clear();
 }
