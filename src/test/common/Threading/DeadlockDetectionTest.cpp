@@ -7,7 +7,7 @@
  * Each test:
  * - Runs for 60+ seconds (except smoke test)
  * - Uses 100+ concurrent threads
- * - Performs 100,000+ operations
+ * - Performs 1,000,000+ operations
  * - Does actual computational work
  * - Reports timing, throughput, and contention metrics
  *
@@ -126,7 +126,7 @@ protected:
 };
 
 // ============================================================================
-// TEST 1: Massive Thread Pool Saturation - 100k operations, 100 threads, 90s
+// TEST 1: Massive Thread Pool Saturation - 1M operations, 100 threads, 90s
 // ============================================================================
 
 TEST_F(DeadlockDetectionTest, MassiveThreadPoolSaturation_100kOperations_90Seconds)
@@ -134,14 +134,14 @@ TEST_F(DeadlockDetectionTest, MassiveThreadPoolSaturation_100kOperations_90Secon
     std::cout << "\n========================================\n";
     std::cout << "TEST 1: Massive Thread Pool Saturation\n";
     std::cout << "========================================\n";
-    std::cout << "Config: 100 submitter threads, 32 workers, 100k tasks\n";
+    std::cout << "Config: 100 submitter threads, 32 workers, 1M tasks\n";
     std::cout << "Work: Real computation (sqrt, sin, cos, log)\n";
     std::cout << "Timeout: 120 seconds\n\n";
 
     bool testPassed = RunWithTimeout([this]() {
         constexpr uint32 NUM_WORKERS = 32;
         constexpr uint32 NUM_SUBMITTERS = 100;
-        constexpr uint64 TOTAL_TASKS = 100000;
+        constexpr uint64 TOTAL_TASKS = 1000000;
 
         _threadPool->Activate(NUM_WORKERS);
 
@@ -247,7 +247,7 @@ TEST_F(DeadlockDetectionTest, ProgressiveThreadCountStress_2to128Workers)
 
         bool testPassed = RunWithTimeout([this, numWorkers]() {
             // Scale task count with thread count: more workers = more tasks
-            const uint32 TOTAL_TASKS = numWorkers * 1000; // 2K for 2 workers, 128K for 128 workers
+            const uint32 TOTAL_TASKS = numWorkers * 10000; // 20K for 2 workers, 1.28M for 128 workers
             constexpr uint32 NUM_SUBMITTERS = 10;
 
             _threadPool->Activate(numWorkers);
@@ -410,7 +410,7 @@ TEST_F(DeadlockDetectionTest, PathologicalLockContention_200Threads_60Seconds)
     std::cout << "Timeout: 90 seconds\n\n";
 
     bool testPassed = RunWithTimeout([this]() {
-        constexpr uint32 TOTAL_TASKS = 100000; // Fixed task count to avoid queue overflow
+        constexpr uint32 TOTAL_TASKS = 1000000; // Fixed task count to avoid queue overflow
         constexpr uint32 NUM_WORKERS = 32;
         constexpr uint32 NUM_SUBMITTERS = 200; // Pathological contention
 
@@ -492,7 +492,7 @@ TEST_F(DeadlockDetectionTest, ExtendedEndurance_5MinutesSustainedLoad)
     std::cout << "Timeout: 360 seconds (6 minutes)\n\n";
 
     bool testPassed = RunWithTimeout([this]() {
-        constexpr uint32 TOTAL_TASKS = 500000; // Large task count for endurance test
+        constexpr uint32 TOTAL_TASKS = 1000000; // Large task count for endurance test
         constexpr uint32 NUM_WORKERS = 64;
         constexpr uint32 NUM_SUBMITTERS = 32;
 
