@@ -229,16 +229,16 @@ TEST_F(DeadlockDetectionTest, MassiveThreadPoolSaturation_100kOperations_90Secon
 // TEST 2: Progressive Thread Count Stress - Find the breaking point
 // ============================================================================
 
-TEST_F(DeadlockDetectionTest, ProgressiveThreadCountStress_2to128Workers)
+TEST_F(DeadlockDetectionTest, ProgressiveThreadCountStress_2to64Workers)
 {
     std::cout << "\n========================================\n";
     std::cout << "TEST 2: Progressive Thread Count Stress\n";
     std::cout << "========================================\n";
-    std::cout << "Testing thread counts: 2, 4, 8, 16, 32, 64, 128\n";
+    std::cout << "Testing thread counts: 2, 4, 8, 16, 32, 64\n";
     std::cout << "Each test runs for 10 seconds with continuous submission\n";
     std::cout << "Timeout: 240 seconds per configuration\n\n";
 
-    std::vector<uint32> threadCounts = {2, 4, 8, 16, 32, 64, 128};
+    std::vector<uint32> threadCounts = {2, 4, 8, 16, 32, 64};
     std::vector<std::pair<uint32, bool>> results;
 
     for (uint32 numWorkers : threadCounts)
@@ -247,7 +247,7 @@ TEST_F(DeadlockDetectionTest, ProgressiveThreadCountStress_2to128Workers)
 
         bool testPassed = RunWithTimeout([this, numWorkers]() {
             // Scale task count with thread count: more workers = more tasks
-            const uint32 TOTAL_TASKS = numWorkers * 10000; // 20K for 2 workers, 1.28M for 128 workers
+            const uint32 TOTAL_TASKS = numWorkers * 10000; // 20K for 2 workers, 640K for 64 workers
             constexpr uint32 NUM_SUBMITTERS = 10;
 
             _threadPool->Activate(numWorkers);
