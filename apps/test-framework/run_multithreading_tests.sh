@@ -16,7 +16,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BUILD_DIR="$SCRIPT_DIR/build"
+PROJECT_ROOT="$SCRIPT_DIR/../.."
+BUILD_DIR="$PROJECT_ROOT/build"
 TEST_BIN="$BUILD_DIR/src/test/unit_tests"
 
 # Colors for output
@@ -174,7 +175,7 @@ if [ "$RUN_ALL" = true ] || [ "$RUN_TSAN" = true ]; then
 
     print_warning "Rebuilding with TSan..."
 
-    cmake .. -DBUILD_TESTING=ON \
+    cmake "$PROJECT_ROOT" -DBUILD_TESTING=ON \
              -DCMAKE_CXX_FLAGS="-fsanitize=thread -g -O1" \
              -DCMAKE_C_FLAGS="-fsanitize=thread -g -O1" \
              > /dev/null 2>&1
@@ -203,7 +204,7 @@ if [ "$RUN_ALL" = true ] || [ "$RUN_ASAN" = true ]; then
 
     print_warning "Rebuilding with ASan..."
 
-    cmake .. -DBUILD_TESTING=ON \
+    cmake "$PROJECT_ROOT" -DBUILD_TESTING=ON \
              -DCMAKE_CXX_FLAGS="-fsanitize=address -g -fno-omit-frame-pointer -O1" \
              -DCMAKE_C_FLAGS="-fsanitize=address -g -fno-omit-frame-pointer -O1" \
              > /dev/null 2>&1
@@ -237,7 +238,7 @@ if [ "$RUN_VALGRIND" = true ]; then
 
     print_warning "Rebuilding with debug symbols..."
 
-    cmake .. -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Debug > /dev/null 2>&1
+    cmake "$PROJECT_ROOT" -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Debug > /dev/null 2>&1
     make -j$(nproc) > /dev/null 2>&1
 
     valgrind --leak-check=full \
