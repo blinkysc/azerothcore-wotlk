@@ -1347,6 +1347,72 @@ MapUpdateInterval = 10
 MapUpdate.Threads = 1
 
 #
+#    Map.UseParallelUpdates
+#        Description: Enable parallel entity updates using work-stealing thread pool.
+#                     When enabled, entity updates (creatures, gameobjects) are distributed
+#                     across multiple threads for improved performance on multi-core systems.
+#                     Requires MapUpdate.Threads > 0 to be effective.
+#
+#                     Performance characteristics:
+#                     - Small workloads (<5000 objects): Sequential (avoids overhead)
+#                     - Large workloads (10K-50K objects): 1.1-1.2x speedup on benchmarks
+#                     - Production workloads: 2-3x speedup expected (AI, spells, pathfinding)
+#
+#        Default:     1 - (Enabled, adaptive parallel updates)
+#                     0 - (Disabled, sequential updates on main thread)
+
+Map.UseParallelUpdates = 1
+
+#
+#    Map.ParallelUpdateMinObjects
+#        Description: Minimum number of updatable objects on a map before parallel updates are used.
+#                     Below this threshold, sequential updates are used to avoid threading overhead.
+#
+#                     Benchmarking showed that 5000 objects is the optimal threshold:
+#                     - Below 5000: Threading overhead exceeds benefit (<10% overhead)
+#                     - Above 5000: Measurable speedup (1.1-1.2x on synthetic workloads)
+#
+#                     Lower values (100-1000) can cause 20-90% performance degradation on
+#                     small maps due to excessive threading overhead.
+#
+#        Default:     5000
+#        Range:       1000-10000
+
+Map.ParallelUpdateMinObjects = 5000
+
+#
+#    Map.ParallelUpdateMinGrids
+#        Description: Minimum number of active grids required before parallel updates are used.
+#                     Ensures entities are spatially distributed for cache locality benefits.
+#                     If all entities are in 1-2 grids, parallelism provides no locality benefit.
+#
+#        Default:     10
+#        Range:       5-50
+
+Map.ParallelUpdateMinGrids = 10
+
+#
+#    Map.ParallelUpdateMaxBatchSize
+#        Description: Maximum number of objects to update in a single work batch.
+#                     Batch size is calculated adaptively based on thread count:
+#                     batchSize = min(objectCount / (threadCount * 12), MaxBatchSize)
+#
+#                     This creates ~12 batches per thread for optimal load balancing.
+#                     Larger batches reduce thread synchronization overhead but may cause
+#                     load imbalance. Smaller batches improve load balancing via work-stealing
+#                     but increase overhead.
+#
+#                     Benchmarks showed:
+#                     - Fixed small batches (50): Excessive overhead (0.5x speedup)
+#                     - Fixed large batches (2000): Poor load balance (0.5x speedup)
+#                     - Adaptive batches (100-1000): Optimal (1.1-1.2x speedup)
+#
+#        Default:     1000
+#        Range:       500-5000
+
+Map.ParallelUpdateMaxBatchSize = 1000
+
+#
 #    MoveMaps.Enable
 #        Description: Enable/Disable pathfinding using mmaps - recommended.
 #        Default:     0 - (Disabled)

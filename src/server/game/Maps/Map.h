@@ -592,6 +592,8 @@ private:
     void DeleteFromWorld(T*);
 
     void UpdateNonPlayerObjects(uint32 const diff);
+    void UpdateNonPlayerObjectsParallel(uint32 const diff);
+    void UpdateObjectBatch(std::vector<WorldObject*> const& objects, uint32 diff);
 
     void _AddObjectToUpdateList(WorldObject* obj);
     void _RemoveObjectFromUpdateList(WorldObject* obj);

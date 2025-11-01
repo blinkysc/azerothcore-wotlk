@@ -23,168 +23,116 @@
 #include "MapMgr.h"
 #include "Metric.h"
 
-class UpdateRequest
+namespace
 {
-public:
-    UpdateRequest() = default;
-    virtual ~UpdateRequest() = default;
+    /**
+     * @brief Initialize thread-local database warning flags
+     *
+     * This ensures that each worker thread enables database synchronization warnings
+     * exactly once, on first use. Thread-local initialization is required because
+     * worker threads may not have database warnings configured by default.
+     */
+    void InitThreadLocalDatabaseWarnings()
+    {
+        static thread_local bool dbWarningsSet = false;
+        if (!dbWarningsSet)
+        {
+            LoginDatabase.WarnAboutSyncQueries(true);
+            CharacterDatabase.WarnAboutSyncQueries(true);
+            WorldDatabase.WarnAboutSyncQueries(true);
+            dbWarningsSet = true;
+        }
+    }
+}
 
-    virtual void call() = 0;
-};
-
-class MapUpdateRequest : public UpdateRequest
+MapUpdater::MapUpdater()
 {
-public:
-    MapUpdateRequest(Map& m, MapUpdater& u, uint32 d, uint32 sd)
-        : m_map(m), m_updater(u), m_diff(d), s_diff(sd)
-    {
-    }
+}
 
-    void call() override
-    {
-        METRIC_TIMER("map_update_time_diff", METRIC_TAG("map_id", std::to_string(m_map.GetId())));
-        m_map.Update(m_diff, s_diff);
-        m_updater.update_finished();
-    }
-
-private:
-    Map& m_map;
-    MapUpdater& m_updater;
-    uint32 m_diff;
-    uint32 s_diff;
-};
-
-class MapPreloadRequest : public UpdateRequest
+MapUpdater::~MapUpdater()
 {
-public:
-    MapPreloadRequest(uint32 mapId, MapUpdater& updater)
-        : _mapId(mapId), _updater(updater)
+    if (activated())
     {
+        deactivate();
     }
-
-    void call() override
-    {
-        Map* map = sMapMgr->CreateBaseMap(_mapId);
-        LOG_INFO("server.loading", ">> Loading All Grids For Map {} ({})", map->GetId(), map->GetMapName());
-        map->LoadAllGrids();
-        _updater.update_finished();
-    }
-
-private:
-    uint32 _mapId;
-    MapUpdater& _updater;
-};
-
-class LFGUpdateRequest : public UpdateRequest
-{
-public:
-    LFGUpdateRequest(MapUpdater& u, uint32 d) : m_updater(u), m_diff(d) {}
-
-    void call() override
-    {
-        sLFGMgr->Update(m_diff, 1);
-        m_updater.update_finished();
-    }
-private:
-    MapUpdater& m_updater;
-    uint32 m_diff;
-};
-
-MapUpdater::MapUpdater() : pending_requests(0), _cancelationToken(false)
-{
 }
 
 void MapUpdater::activate(std::size_t num_threads)
 {
-    _workerThreads.reserve(num_threads);
-    for (std::size_t i = 0; i < num_threads; ++i)
-    {
-        _workerThreads.push_back(std::thread(&MapUpdater::WorkerThread, this));
-    }
+    _threadPool = std::make_unique<WorkStealingThreadPool>();
+    _threadPool->Activate(num_threads);
+
+    LOG_INFO("server.loading", ">> MapUpdater activated with work-stealing thread pool ({} threads)", num_threads);
 }
 
 void MapUpdater::deactivate()
 {
-    _cancelationToken = true;
-
-    wait();  // This is where we wait for tasks to complete
-
-    _queue.Cancel();  // Cancel the queue to prevent further task processing
-
-    // Join all worker threads
-    for (auto& thread : _workerThreads)
+    if (_threadPool)
     {
-        if (thread.joinable())
-        {
-            thread.join();
-        }
+        _threadPool->Deactivate();
+        _threadPool.reset();
     }
+
+    LOG_INFO("server.loading", ">> MapUpdater deactivated");
+}
+
+bool MapUpdater::activated() const
+{
+    return _threadPool && _threadPool->IsActivated();
 }
 
 void MapUpdater::wait()
 {
-    std::unique_lock<std::mutex> guard(_lock);  // Guard lock for safe waiting
-
-    // Wait until there are no pending requests
-    _condition.wait(guard, [this] {
-        return pending_requests.load(std::memory_order_acquire) == 0;
-    });
+    if (_threadPool)
+    {
+        _threadPool->WaitForCompletion();
+    }
 }
 
-void MapUpdater::schedule_task(UpdateRequest* request)
+void MapUpdater::submit_task(std::function<void()> task)
 {
-    // Atomic increment for pending_requests
-    pending_requests.fetch_add(1, std::memory_order_release);
-    _queue.Push(request);
+    if (_threadPool)
+    {
+        _threadPool->Submit(std::move(task));
+    }
+    else
+    {
+        // Fallback: execute synchronously if thread pool is not active
+        task();
+    }
 }
 
 void MapUpdater::schedule_update(Map& map, uint32 diff, uint32 s_diff)
 {
-    schedule_task(new MapUpdateRequest(map, *this, diff, s_diff));
+    // CRITICAL LIFETIME REQUIREMENT:
+    // This lambda captures 'map' by reference. The Map object MUST remain alive
+    // until wait() is called. The caller (typically MapMgr) is responsible for
+    // ensuring the Map is not deleted before wait() completes.
+    submit_task([&map, diff, s_diff]() {
+        METRIC_TIMER("map_update_time_diff", METRIC_TAG("map_id", std::to_string(map.GetId())));
+
+        InitThreadLocalDatabaseWarnings();
+
+        map.Update(diff, s_diff);
+    });
 }
 
 void MapUpdater::schedule_map_preload(uint32 mapid)
 {
-    schedule_task(new MapPreloadRequest(mapid, *this));
+    submit_task([mapid]() {
+        InitThreadLocalDatabaseWarnings();
+
+        Map* map = sMapMgr->CreateBaseMap(mapid);
+        LOG_INFO("server.loading", ">> Loading All Grids For Map {} ({})", map->GetId(), map->GetMapName());
+        map->LoadAllGrids();
+    });
 }
 
 void MapUpdater::schedule_lfg_update(uint32 diff)
 {
-    schedule_task(new LFGUpdateRequest(*this, diff));
-}
+    submit_task([diff]() {
+        InitThreadLocalDatabaseWarnings();
 
-bool MapUpdater::activated()
-{
-    return !_workerThreads.empty();
-}
-
-void MapUpdater::update_finished()
-{
-    // Atomic decrement for pending_requests
-    if (pending_requests.fetch_sub(1, std::memory_order_acquire) == 1)
-    {
-        // Only notify when pending_requests becomes 0 (i.e., all tasks are finished)
-        std::lock_guard<std::mutex> lock(_lock);  // Lock only for condition variable notification
-        _condition.notify_all();  // Notify waiting threads that all requests are complete
-    }
-}
-
-void MapUpdater::WorkerThread()
-{
-    LoginDatabase.WarnAboutSyncQueries(true);
-    CharacterDatabase.WarnAboutSyncQueries(true);
-    WorldDatabase.WarnAboutSyncQueries(true);
-
-    while (!_cancelationToken)
-    {
-        UpdateRequest* request = nullptr;
-
-        _queue.WaitAndPop(request);  // Wait for and pop a request from the queue
-
-        if (!_cancelationToken && request)
-        {
-            request->call();  // Execute the request
-            delete request;  // Clean up after processing
-        }
-    }
+        sLFGMgr->Update(diff, 1);
+    });
 }

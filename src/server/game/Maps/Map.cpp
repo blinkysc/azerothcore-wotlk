@@ -517,6 +517,16 @@ void Map::Update(const uint32 t_diff, const uint32 s_diff, bool  /*thread*/)
 
 void Map::UpdateNonPlayerObjects(uint32 const diff)
 {
+    // Use parallel updates if enabled and thresholds met
+    if (sConfigMgr->GetOption<bool>("Map.UseParallelUpdates", true) &&
+        sMapMgr->GetMapUpdater()->activated() &&
+        _updatableObjectList.size() >= sConfigMgr->GetOption<uint32>("Map.ParallelUpdateMinObjects", 5000))
+    {
+        UpdateNonPlayerObjectsParallel(diff);
+        return;
+    }
+
+    // Sequential implementation
     for (WorldObject* obj : _pendingAddUpdatableObjectList)
         _AddObjectToUpdateList(obj);
     _pendingAddUpdatableObjectList.clear();
@@ -554,6 +564,158 @@ void Map::UpdateNonPlayerObjects(uint32 const diff)
                 continue;
 
             obj->Update(diff);
+        }
+    }
+}
+
+void Map::UpdateNonPlayerObjectsParallel(uint32 const diff)
+{
+    METRIC_TIMER("map_parallel_entity_update",
+        METRIC_TAG("map_id", std::to_string(GetId())),
+        METRIC_TAG("object_count", std::to_string(_updatableObjectList.size())));
+
+    // Process pending additions on main thread (not thread-safe to add during parallel update)
+    for (WorldObject* obj : _pendingAddUpdatableObjectList)
+        _AddObjectToUpdateList(obj);
+    _pendingAddUpdatableObjectList.clear();
+
+    // Group objects by grid for spatial locality
+    // Using unordered_map with grid key (x, y packed into uint64)
+    std::unordered_map<uint64_t, std::vector<WorldObject*>> objectsByGrid;
+
+    bool isRecheckPhase = _updatableObjectListRecheckTimer.Passed();
+
+    for (WorldObject* obj : _updatableObjectList)
+    {
+        if (!obj->IsInWorld())
+            continue;
+
+        // Get grid coordinates from position
+        Cell cell(obj->GetPositionX(), obj->GetPositionY());
+        // Pack grid coordinates into 64-bit key to prevent collisions (32 bits per coordinate)
+        uint64_t gridKey = (static_cast<uint64_t>(cell.GridX()) << 32) | static_cast<uint64_t>(cell.GridY());
+
+        objectsByGrid[gridKey].push_back(obj);
+    }
+
+    MapUpdater* updater = sMapMgr->GetMapUpdater();
+
+    // Calculate adaptive batch size: aim for ~12 batches per thread for load balancing
+    uint32 threadCount = updater->GetThreadCount();
+    uint32 targetBatches = threadCount * 12;
+    uint32 batchSize = std::max<uint32>(100, static_cast<uint32>(_updatableObjectList.size() / targetBatches));
+    uint32 maxBatchSize = sConfigMgr->GetOption<uint32>("Map.ParallelUpdateMaxBatchSize", 1000);
+    batchSize = std::min(batchSize, maxBatchSize);
+
+    // Only parallelize if objects are distributed across enough grids
+    uint32 minGridsForParallel = sConfigMgr->GetOption<uint32>("Map.ParallelUpdateMinGrids", 10);
+
+    if (objectsByGrid.size() < minGridsForParallel)
+    {
+        // Not enough grids, process sequentially
+        for (auto& [gridKey, objects] : objectsByGrid)
+        {
+            UpdateObjectBatch(objects, diff);
+        }
+    }
+    else
+    {
+        // Group small grids together, split large grids for better load balancing
+        std::vector<std::vector<WorldObject*>> taskBatches;
+        std::vector<WorldObject*> currentBatch;
+
+        for (auto& [gridKey, objects] : objectsByGrid)
+        {
+            if (objects.size() > 5000)
+            {
+                if (!currentBatch.empty())
+                {
+                    taskBatches.push_back(std::move(currentBatch));
+                    currentBatch.clear();
+                }
+
+                // Split large grid into chunks
+                for (size_t i = 0; i < objects.size(); i += batchSize)
+                {
+                    size_t end = std::min(i + batchSize, objects.size());
+                    std::vector<WorldObject*> batch(objects.begin() + i, objects.begin() + end);
+                    taskBatches.push_back(std::move(batch));
+                }
+            }
+            else
+            {
+                // Group small grids together
+                currentBatch.insert(currentBatch.end(), objects.begin(), objects.end());
+
+                if (currentBatch.size() >= batchSize)
+                {
+                    taskBatches.push_back(std::move(currentBatch));
+                    currentBatch.clear();
+                }
+            }
+        }
+
+        if (!currentBatch.empty())
+        {
+            taskBatches.push_back(std::move(currentBatch));
+        }
+
+        // Submit tasks
+        for (auto& batch : taskBatches)
+        {
+            updater->submit_task([this, batch = std::move(batch), diff]() {
+                UpdateObjectBatch(batch, diff);
+            });
+        }
+    }
+
+    // Wait for all tasks to complete
+    updater->wait();
+
+    // Post-process: handle object removal on main thread (if recheck phase)
+    if (isRecheckPhase)
+    {
+        for (uint32 i = 0; i < _updatableObjectList.size();)
+        {
+            WorldObject* obj = _updatableObjectList[i];
+
+            if (!obj->IsUpdateNeeded())
+            {
+                _RemoveObjectFromUpdateList(obj);
+                // Don't increment i, as we swapped with last element
+            }
+            else
+            {
+                ++i;
+            }
+        }
+
+        _updatableObjectListRecheckTimer.Reset();
+    }
+
+    METRIC_VALUE("map_parallel_grids_processed", static_cast<uint64>(objectsByGrid.size()),
+        METRIC_TAG("map_id", std::to_string(GetId())));
+}
+
+void Map::UpdateObjectBatch(std::vector<WorldObject*> const& objects, uint32 diff)
+{
+    // Thread-safe: objects are updated independently, shared resources use their own locks
+    for (WorldObject* obj : objects)
+    {
+        if (obj->IsInWorld())
+        {
+            try
+            {
+                obj->Update(diff);
+            }
+            catch (const std::exception& ex)
+            {
+                LOG_ERROR("maps", "Exception during parallel object update on map {}: {}", GetId(), ex.what());
+            }
+            catch (...)
+            {
+                LOG_ERROR("maps", "Unknown exception during parallel object update on map {}", GetId());
+            }
         }
     }
 }
@@ -1691,7 +1853,7 @@ void Map::SendInitTransports(Player* player)
 
     WorldPacket packet;
     transData.BuildPacket(packet);
-    player->SendDirectMessage(&packet);
+    player->GetSession()->SendPacket(&packet);
 }
 
 void Map::SendRemoveTransports(Player* player)
@@ -1710,7 +1872,7 @@ void Map::SendRemoveTransports(Player* player)
 
     WorldPacket packet;
     transData.BuildPacket(packet);
-    player->SendDirectMessage(&packet);
+    player->GetSession()->SendPacket(&packet);
 }
 
 void Map::SendObjectUpdates()
@@ -1729,8 +1891,14 @@ void Map::SendObjectUpdates()
     WorldPacket packet;                                     // here we allocate a std::vector with a size of 0x10000
     for (UpdateDataMapType::iterator iter = update_players.begin(); iter != update_players.end(); ++iter)
     {
+        if (!sScriptMgr->OnPlayerbotCheckUpdatesToSend(iter->first))
+        {
+            iter->second.Clear();
+            continue;
+        }
+
         iter->second.BuildPacket(packet);
-        iter->first->SendDirectMessage(&packet);
+        iter->first->GetSession()->SendPacket(&packet);
         packet.clear();                                     // clean the string
     }
 }
@@ -1850,7 +2018,7 @@ uint32 Map::GetPlayersCountExceptGMs() const
 void Map::SendToPlayers(WorldPacket const* data) const
 {
     for (MapRefMgr::const_iterator itr = m_mapRefMgr.begin(); itr != m_mapRefMgr.end(); ++itr)
-        itr->GetSource()->SendDirectMessage(data);
+        itr->GetSource()->GetSession()->SendPacket(data);
 }
 
 template bool Map::AddToMap(Corpse*, bool);
@@ -2055,7 +2223,7 @@ bool InstanceMap::AddPlayerToMap(Player* player)
             data << uint32(60000);
             data << uint32(instance_data ? instance_data->GetCompletedEncounterMask() : 0);
             data << uint8(0);
-            player->SendDirectMessage(&data);
+            player->GetSession()->SendPacket(&data);
             player->SetPendingBind(mapSave->GetInstanceId(), 60000);
         }
     }
@@ -2227,7 +2395,7 @@ void InstanceMap::PermBindAllPlayers()
         {
             WorldPacket data(SMSG_INSTANCE_SAVE_CREATED, 4);
             data << uint32(0);
-            player->SendDirectMessage(&data);
+            player->GetSession()->SendPacket(&data);
             sInstanceSaveMgr->PlayerBindToInstance(player->GetGUID(), save, true, player);
         }
 
