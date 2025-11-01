@@ -6,6 +6,7 @@
 # Options:
 #   --quick     Run quick tests only (skip extended stress tests)
 #   --benchmark Run performance benchmarks
+#   --deadlock  Run deadlock detection stress tests only
 #   --tsan      Run with Thread Sanitizer
 #   --asan      Run with Address Sanitizer
 #   --valgrind  Run with Valgrind memory checker
@@ -27,6 +28,7 @@ NC='\033[0m' # No Color
 # Parse arguments
 RUN_QUICK=false
 RUN_BENCHMARK=false
+RUN_DEADLOCK=false
 RUN_TSAN=false
 RUN_ASAN=false
 RUN_VALGRIND=false
@@ -40,6 +42,10 @@ for arg in "$@"; do
             ;;
         --benchmark)
             RUN_BENCHMARK=true
+            RUN_ALL=false
+            ;;
+        --deadlock)
+            RUN_DEADLOCK=true
             RUN_ALL=false
             ;;
         --tsan)
@@ -59,7 +65,7 @@ for arg in "$@"; do
             ;;
         *)
             echo "Unknown option: $arg"
-            echo "Usage: $0 [--quick|--benchmark|--tsan|--asan|--valgrind|--all]"
+            echo "Usage: $0 [--quick|--benchmark|--deadlock|--tsan|--asan|--valgrind|--all]"
             exit 1
             ;;
     esac
@@ -134,6 +140,30 @@ if [ "$RUN_ALL" = true ] || [ "$RUN_BENCHMARK" = true ]; then
         fi
     else
         print_error "Benchmarks failed."
+        exit 1
+    fi
+fi
+
+# ==================== Deadlock Detection Tests ====================
+if [ "$RUN_DEADLOCK" = true ]; then
+    print_header "Running Deadlock Detection Stress Tests"
+
+    print_warning "These tests verify thread pool remains deadlock-free under stress"
+    echo "Test suite includes:"
+    echo "  - Thread pool saturation (10k tasks)"
+    echo "  - Rapid start/stop cycles (100 iterations)"
+    echo "  - Work-stealing stress tests"
+    echo "  - Nested task submission"
+    echo "  - 5-minute sustained load test"
+    echo ""
+
+    "$TEST_BIN" --gtest_filter="DeadlockDetectionTest.*"
+    DEADLOCK_RESULT=$?
+
+    if [ $DEADLOCK_RESULT -eq 0 ]; then
+        print_success "All deadlock tests passed! No deadlocks detected."
+    else
+        print_error "Deadlock tests failed. Check output above."
         exit 1
     fi
 fi
@@ -233,6 +263,9 @@ if [ "$RUN_ALL" = true ] || [ "$RUN_QUICK" = true ]; then
 fi
 if [ "$RUN_ALL" = true ] || [ "$RUN_BENCHMARK" = true ]; then
     echo "  ✓ Benchmarks: COMPLETED"
+fi
+if [ "$RUN_DEADLOCK" = true ]; then
+    echo "  ✓ Deadlock Detection: PASSED"
 fi
 if [ "$RUN_ALL" = true ] || [ "$RUN_TSAN" = true ]; then
     echo "  ✓ Thread Sanitizer: PASSED"
