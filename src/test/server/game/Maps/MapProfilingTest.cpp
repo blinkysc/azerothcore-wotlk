@@ -164,8 +164,15 @@ TEST_F(MapProfilingTest, WorkloadWeightImpact)
 
     for (uint32 workloadIterations : {100, 500, 1000, 2000, 5000, 10000})
     {
-        std::vector<ProfilingEntity> objectsSeq(NUM_OBJECTS, ProfilingEntity(workloadIterations));
-        std::vector<ProfilingEntity> objectsPar(NUM_OBJECTS, ProfilingEntity(workloadIterations));
+        std::vector<ProfilingEntity> objectsSeq;
+        objectsSeq.reserve(NUM_OBJECTS);
+        for (size_t i = 0; i < NUM_OBJECTS; ++i)
+            objectsSeq.emplace_back(workloadIterations);
+
+        std::vector<ProfilingEntity> objectsPar;
+        objectsPar.reserve(NUM_OBJECTS);
+        for (size_t i = 0; i < NUM_OBJECTS; ++i)
+            objectsPar.emplace_back(workloadIterations);
 
         // Sequential baseline
         auto seqStart = std::chrono::high_resolution_clock::now();
@@ -234,7 +241,10 @@ TEST_F(MapProfilingTest, RealisticMapUpdateSimulation)
     constexpr int NUM_THREADS = 4;
     constexpr int WORKLOAD_ITERS = 1000;
 
-    std::vector<ProfilingEntity> objects(NUM_OBJECTS, ProfilingEntity(WORKLOAD_ITERS));
+    std::vector<ProfilingEntity> objects;
+    objects.reserve(NUM_OBJECTS);
+    for (int i = 0; i < NUM_OBJECTS; ++i)
+        objects.emplace_back(WORKLOAD_ITERS);
 
     // Sequential version (simulates full Map::Update)
     auto seqStart = std::chrono::high_resolution_clock::now();
