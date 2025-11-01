@@ -40,21 +40,19 @@ void WorkStealingThreadPool::Activate(std::size_t numThreads)
     _nextQueue.store(0, std::memory_order_release);
     _activeThreads.store(0, std::memory_order_release);
 
-    // Create per-thread work queues
     _workerQueues.reserve(numThreads);
     for (std::size_t i = 0; i < numThreads; ++i)
     {
         _workerQueues.push_back(std::make_unique<WorkQueue>());
     }
 
-    // Create worker threads
     _workerThreads.reserve(numThreads);
     for (uint32 i = 0; i < numThreads; ++i)
     {
         _workerThreads.emplace_back(&WorkStealingThreadPool::WorkerThread, this, i);
     }
 
-    // Mark as activated (must be after threads are created)
+    // Must be after threads are created to prevent race conditions
     _activated.store(true, std::memory_order_release);
 
     LOG_INFO("server.loading", ">> Work-stealing thread pool activated with {} threads", numThreads);
@@ -64,16 +62,11 @@ void WorkStealingThreadPool::Deactivate()
 {
     ASSERT(IsActivated(), "Thread pool not activated");
 
-    // Mark as deactivated (before shutdown to prevent new submissions)
+    // Must be before shutdown to prevent new task submissions
     _activated.store(false, std::memory_order_release);
-
-    // Signal shutdown
     _shutdown.store(true, std::memory_order_release);
-
-    // Notify waiting threads
     _waitCondition.notify_all();
 
-    // Join all threads
     for (auto& thread : _workerThreads)
     {
         if (thread.joinable())
@@ -92,22 +85,18 @@ void WorkStealingThreadPool::Submit(Task task)
 {
     ASSERT(IsActivated(), "Cannot submit tasks to inactive thread pool");
 
-    // Increment task counter
     _taskCount.fetch_add(1, std::memory_order_release);
 
-    // Round-robin distribution to worker queues
     uint32 queueId = _nextQueue.fetch_add(1, std::memory_order_acq_rel) % _workerQueues.size();
     _workerQueues[queueId]->Push(std::move(task));
 }
 
 void WorkStealingThreadPool::WaitForCompletion()
 {
-    // Use lock-free polling to avoid mutex contention with many threads
-    // This is more efficient than condition variables when thread counts are high (64+)
-
-    // Hybrid strategy: Spin-wait initially for low latency, then exponential backoff
-    constexpr int SPIN_ITERATIONS = 1000;      // Spin for ~1-2μs on modern CPUs
-    constexpr int FAST_POLL_ITERATIONS = 100;  // Fast polling for ~100μs total
+    // Lock-free polling avoids mutex contention at high thread counts (64+)
+    // Hybrid strategy: spin → fast poll → standard poll
+    constexpr int SPIN_ITERATIONS = 1000;
+    constexpr int FAST_POLL_ITERATIONS = 100;
     int iteration = 0;
 
     while (true)
@@ -122,17 +111,14 @@ void WorkStealingThreadPool::WaitForCompletion()
 
         if (iteration < SPIN_ITERATIONS)
         {
-            // Phase 1: Spin-wait for immediate completion (latency-optimized)
             std::this_thread::yield();
         }
         else if (iteration < SPIN_ITERATIONS + FAST_POLL_ITERATIONS)
         {
-            // Phase 2: Fast polling with 1μs sleeps
             std::this_thread::sleep_for(std::chrono::microseconds(1));
         }
         else
         {
-            // Phase 3: Standard polling with 1ms sleep (throughput-optimized)
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
 
@@ -147,27 +133,14 @@ void WorkStealingThreadPool::WorkerThread(uint32 threadId)
 
     while (!_shutdown.load(std::memory_order_acquire))
     {
-        bool foundWork = false;
-
-        // Try to pop from own queue first
-        if (myQueue->Pop(task))
-        {
-            foundWork = true;
-        }
-        // If own queue is empty, try to steal from others
-        else if (TryStealWork(threadId, task))
-        {
-            foundWork = true;
-        }
+        bool foundWork = myQueue->Pop(task) || TryStealWork(threadId, task);
 
         if (foundWork)
         {
-            // Mark thread as active
             _activeThreads.fetch_add(1, std::memory_order_release);
 
             try
             {
-                // Execute the task
                 task();
             }
             catch (const std::exception& ex)
@@ -179,16 +152,13 @@ void WorkStealingThreadPool::WorkerThread(uint32 threadId)
                 LOG_ERROR("server.worldserver", "Unknown exception in thread pool task");
             }
 
-            // Mark completion
             _activeThreads.fetch_sub(1, std::memory_order_acq_rel);
             OnTaskComplete();
         }
         else
         {
-            // No work found, yield to avoid busy-waiting
             std::this_thread::yield();
 
-            // If still no tasks and shutdown not requested, brief sleep
             if (_taskCount.load(std::memory_order_acquire) == 0 &&
                 !_shutdown.load(std::memory_order_acquire))
             {
@@ -200,10 +170,8 @@ void WorkStealingThreadPool::WorkerThread(uint32 threadId)
 
 bool WorkStealingThreadPool::TryStealWork(uint32 thiefId, Task& task)
 {
-    // Try to steal from all other queues
     uint32 numQueues = static_cast<uint32>(_workerQueues.size());
 
-    // Start from the next queue (circular)
     for (uint32 offset = 1; offset < numQueues; ++offset)
     {
         uint32 victimId = (thiefId + offset) % numQueues;
@@ -219,8 +187,7 @@ bool WorkStealingThreadPool::TryStealWork(uint32 thiefId, Task& task)
 
 void WorkStealingThreadPool::OnTaskComplete()
 {
-    // Decrement task counter
-    // WaitForCompletion() polls this atomically, no notification needed
+    // WaitForCompletion() polls this atomically, no condition variable notification needed
     _taskCount.fetch_sub(1, std::memory_order_acq_rel);
 }
 
@@ -254,7 +221,7 @@ bool WorkStealingThreadPool::WorkQueue::Steal(Task& task)
         return false;
     }
 
-    // Steal from the back (opposite end from Pop)
+    // Steal from opposite end to reduce contention with owner's Pop()
     task = std::move(tasks.back());
     tasks.pop_back();
     return true;

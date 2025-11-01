@@ -56,7 +56,7 @@ struct TestEntity
         volatile double x = 0;
         for (int i = 0; i < 5000; ++i)  // Realistic workload
         {
-            x += (i * i) / (i + 1.0);  // More CPU work with division
+            x = x + (i * i) / (i + 1.0);  // More CPU work with division
         }
     }
 

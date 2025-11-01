@@ -389,7 +389,7 @@ TEST_F(WorkStealingThreadPoolTest, ThroughputMeasurement)
             volatile int x = 0;
             for (int j = 0; j < 10; ++j)
             {
-                x += j;
+                x = x + j;
             }
             opsCompleted.fetch_add(1, std::memory_order_relaxed);
         });

@@ -70,7 +70,7 @@ struct ProfilingEntity
         volatile double x = 0;
         for (uint32 i = 0; i < workloadIterations; ++i)
         {
-            x += (i * i) / (i + 1.0);
+            x = x + (i * i) / (i + 1.0);
         }
     }
 
@@ -255,7 +255,7 @@ TEST_F(MapProfilingTest, RealisticMapUpdateSimulation)
     // Pre-update sequential work (player updates, etc) - ~40% of time
     for (int i = 0; i < 4000; ++i)
     {
-        sequentialWork += (i * i) / (i + 1.0);
+        sequentialWork = sequentialWork + (i * i) / (i + 1.0);
     }
 
     // Parallel work (non-player objects) - ~50% of time
@@ -267,7 +267,7 @@ TEST_F(MapProfilingTest, RealisticMapUpdateSimulation)
     // Post-update sequential work (send updates, scripts) - ~10% of time
     for (int i = 0; i < 1000; ++i)
     {
-        sequentialWork += (i * i) / (i + 1.0);
+        sequentialWork = sequentialWork + (i * i) / (i + 1.0);
     }
 
     auto seqEnd = std::chrono::high_resolution_clock::now();
@@ -282,7 +282,7 @@ TEST_F(MapProfilingTest, RealisticMapUpdateSimulation)
     sequentialWork = 0;
     for (int i = 0; i < 4000; ++i)
     {
-        sequentialWork += (i * i) / (i + 1.0);
+        sequentialWork = sequentialWork + (i * i) / (i + 1.0);
     }
 
     // Parallel work (non-player objects)
@@ -306,7 +306,7 @@ TEST_F(MapProfilingTest, RealisticMapUpdateSimulation)
     // Post-update sequential work (cannot parallelize)
     for (int i = 0; i < 1000; ++i)
     {
-        sequentialWork += (i * i) / (i + 1.0);
+        sequentialWork = sequentialWork + (i * i) / (i + 1.0);
     }
 
     auto parEnd = std::chrono::high_resolution_clock::now();

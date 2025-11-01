@@ -67,7 +67,7 @@ protected:
             volatile float result = 0;
             for (int i = 0; i < 200; ++i) // Adjust iteration count to simulate realistic workload
             {
-                result += std::sin(x + i) * std::cos(y + i) + std::sqrt(z + i);
+                result = result + std::sin(x + i) * std::cos(y + i) + std::sqrt(z + i);
             }
 
             x += result * 0.0001f; // Prevent optimization
@@ -223,7 +223,7 @@ TEST_F(MapUpdateBenchmark, VariableWorkload)
             volatile float result = 0;
             for (int j = 0; j < iterations; ++j)
             {
-                result += std::sin(j) * std::cos(j);
+                result = result + std::sin(j) * std::cos(j);
             }
         }
         auto seqEnd = std::chrono::high_resolution_clock::now();
@@ -251,7 +251,7 @@ TEST_F(MapUpdateBenchmark, VariableWorkload)
                     volatile float result = 0;
                     for (int j = 0; j < iterations; ++j)
                     {
-                        result += std::sin(j) * std::cos(j);
+                        result = result + std::sin(j) * std::cos(j);
                     }
                 }
             });
