@@ -301,22 +301,30 @@ TEST_F(MapUpdateBenchmark, VariableWorkload)
         auto seqEnd = std::chrono::high_resolution_clock::now();
         double seqTime = std::chrono::duration<double, std::milli>(seqEnd - seqStart).count();
 
-        // Parallel
+        // Parallel (with batching to match production Map.cpp behavior)
         MapUpdater updater;
         updater.activate(THREAD_COUNT);
 
         auto parStart = std::chrono::high_resolution_clock::now();
-        for (size_t i = 0; i < objects.size(); ++i)
-        {
-            int iterations = (i < objects.size() * pattern.heavyWorkRatio)
-                                 ? pattern.heavyWorkIterations
-                                 : pattern.lightWorkIterations;
 
-            updater.submit_task([iterations]() {
-                volatile float result = 0;
-                for (int j = 0; j < iterations; ++j)
+        // Batch tasks to avoid overhead
+        size_t batchSize = std::max<size_t>(100, objects.size() / (THREAD_COUNT * 12));
+        for (size_t i = 0; i < objects.size(); i += batchSize)
+        {
+            size_t end = std::min(i + batchSize, objects.size());
+
+            updater.submit_task([&objects, i, end, &pattern]() {
+                for (size_t idx = i; idx < end; ++idx)
                 {
-                    result += std::sin(j) * std::cos(j);
+                    int iterations = (idx < objects.size() * pattern.heavyWorkRatio)
+                                         ? pattern.heavyWorkIterations
+                                         : pattern.lightWorkIterations;
+
+                    volatile float result = 0;
+                    for (int j = 0; j < iterations; ++j)
+                    {
+                        result += std::sin(j) * std::cos(j);
+                    }
                 }
             });
         }
@@ -370,7 +378,7 @@ TEST_F(MapUpdateBenchmark, LatencyMeasurement)
         sequentialLatencies.push_back(latency);
     }
 
-    // Parallel latency
+    // Parallel latency (with batching to match production Map.cpp behavior)
     MapUpdater updater;
     updater.activate(THREAD_COUNT);
 
@@ -379,17 +387,24 @@ TEST_F(MapUpdateBenchmark, LatencyMeasurement)
         std::vector<WorkItem> objects(OBJECTS_PER_UPDATE);
         auto start = std::chrono::high_resolution_clock::now();
 
-        for (auto& obj : objects)
+        // Batch tasks to avoid overhead
+        size_t batchSize = std::max<size_t>(100, objects.size() / (THREAD_COUNT * 12));
+        for (size_t idx = 0; idx < objects.size(); idx += batchSize)
         {
-            updater.submit_task([&obj]() {
-                obj.Update(100);
+            size_t end = std::min(idx + batchSize, objects.size());
+
+            updater.submit_task([&objects, idx, end]() {
+                for (size_t j = idx; j < end; ++j)
+                {
+                    objects[j].Update(100);
+                }
             });
         }
 
         updater.wait();
 
-        auto end = std::chrono::high_resolution_clock::now();
-        double latency = std::chrono::duration<double, std::milli>(end - start).count();
+        auto end_time = std::chrono::high_resolution_clock::now();
+        double latency = std::chrono::duration<double, std::milli>(end_time - start).count();
         parallelLatencies.push_back(latency);
     }
 
@@ -456,7 +471,7 @@ TEST_F(MapUpdateBenchmark, SustainedThroughput)
         std::cout << "Sequential throughput: " << (throughput / 1000.0) << " K objects/sec\n";
     }
 
-    // Parallel throughput
+    // Parallel throughput (with batching to match production Map.cpp behavior)
     {
         MapUpdater updater;
         updater.activate(THREAD_COUNT);
@@ -467,10 +482,18 @@ TEST_F(MapUpdateBenchmark, SustainedThroughput)
         while (std::chrono::steady_clock::now() < endTime)
         {
             std::vector<WorkItem> objects(OBJECTS_PER_UPDATE);
-            for (auto& obj : objects)
+
+            // Batch tasks to avoid overhead
+            size_t batchSize = std::max<size_t>(100, objects.size() / (THREAD_COUNT * 12));
+            for (size_t i = 0; i < objects.size(); i += batchSize)
             {
-                updater.submit_task([&obj]() {
-                    obj.Update(100);
+                size_t end = std::min(i + batchSize, objects.size());
+
+                updater.submit_task([&objects, i, end]() {
+                    for (size_t j = i; j < end; ++j)
+                    {
+                        objects[j].Update(100);
+                    }
                 });
             }
             updater.wait();
