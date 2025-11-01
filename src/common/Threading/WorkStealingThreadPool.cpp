@@ -104,6 +104,12 @@ void WorkStealingThreadPool::WaitForCompletion()
 {
     // Use lock-free polling to avoid mutex contention with many threads
     // This is more efficient than condition variables when thread counts are high (64+)
+
+    // Hybrid strategy: Spin-wait initially for low latency, then exponential backoff
+    constexpr int SPIN_ITERATIONS = 1000;      // Spin for ~1-2μs on modern CPUs
+    constexpr int FAST_POLL_ITERATIONS = 100;  // Fast polling for ~100μs total
+    int iteration = 0;
+
     while (true)
     {
         uint32 taskCount = _taskCount.load(std::memory_order_acquire);
@@ -114,8 +120,23 @@ void WorkStealingThreadPool::WaitForCompletion()
             break;
         }
 
-        // Brief sleep to avoid busy-waiting
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        if (iteration < SPIN_ITERATIONS)
+        {
+            // Phase 1: Spin-wait for immediate completion (latency-optimized)
+            std::this_thread::yield();
+        }
+        else if (iteration < SPIN_ITERATIONS + FAST_POLL_ITERATIONS)
+        {
+            // Phase 2: Fast polling with 1μs sleeps
+            std::this_thread::sleep_for(std::chrono::microseconds(1));
+        }
+        else
+        {
+            // Phase 3: Standard polling with 1ms sleep (throughput-optimized)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+
+        ++iteration;
     }
 }
 
