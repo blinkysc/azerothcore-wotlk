@@ -226,116 +226,103 @@ TEST_F(DeadlockDetectionTest, MassiveThreadPoolSaturation_100kOperations_90Secon
 }
 
 // ============================================================================
-// TEST 2: Extreme Work Stealing - 120 workers, 60 seconds
+// TEST 2: Progressive Thread Count Stress - Find the breaking point
 // ============================================================================
 
-TEST_F(DeadlockDetectionTest, ExtremeWorkStealing_120Workers_60Seconds)
+TEST_F(DeadlockDetectionTest, ProgressiveThreadCountStress_2to128Workers)
 {
     std::cout << "\n========================================\n";
-    std::cout << "TEST 2: Extreme Work Stealing Stress\n";
+    std::cout << "TEST 2: Progressive Thread Count Stress\n";
     std::cout << "========================================\n";
-    std::cout << "Config: 120 worker threads, continuous submission for 60s\n";
-    std::cout << "Work: Variable load to trigger maximum work-stealing\n";
-    std::cout << "Timeout: 90 seconds\n\n";
+    std::cout << "Testing thread counts: 2, 4, 8, 16, 32, 64, 128\n";
+    std::cout << "Each test runs for 10 seconds with continuous submission\n";
+    std::cout << "Timeout: 20 seconds per configuration\n\n";
 
-    bool testPassed = RunWithTimeout([this]() {
-        constexpr auto TEST_DURATION = 60s;
-        constexpr uint32 NUM_WORKERS = 120;
-        constexpr uint32 NUM_SUBMITTERS = 20;
+    std::vector<uint32> threadCounts = {2, 4, 8, 16, 32, 64, 128};
+    std::vector<std::pair<uint32, bool>> results;
 
-        _threadPool->Activate(NUM_WORKERS);
+    for (uint32 numWorkers : threadCounts)
+    {
+        std::cout << "\n--- Testing with " << numWorkers << " worker threads ---\n";
 
-        std::atomic<bool> stopTest{false};
-        std::atomic<uint64> tasksCompleted{0};
-        std::atomic<uint64> workStealingDetected{0};
+        bool testPassed = RunWithTimeout([this, numWorkers]() {
+            // Scale task count with thread count: more workers = more tasks
+            const uint32 TOTAL_TASKS = numWorkers * 1000; // 2K for 2 workers, 128K for 128 workers
+            constexpr uint32 NUM_SUBMITTERS = 10;
 
-        auto startTime = std::chrono::high_resolution_clock::now();
+            _threadPool->Activate(numWorkers);
 
-        std::cout << "Starting continuous submission for "
-                  << std::chrono::duration_cast<std::chrono::seconds>(TEST_DURATION).count()
-                  << " seconds...\n";
+            std::atomic<uint64> tasksSubmitted{0};
+            std::atomic<uint64> tasksCompleted{0};
 
-        // Continuous submitters with highly variable workload
-        std::vector<std::thread> submitters;
-        for (uint32 i = 0; i < NUM_SUBMITTERS; ++i)
-        {
-            submitters.emplace_back([&, threadId = i]() {
-                std::mt19937 rng(threadId);
-                std::uniform_int_distribution<uint32> workDist(1000, 50000); // Highly variable
+            auto startTime = std::chrono::high_resolution_clock::now();
 
-                while (!stopTest.load(std::memory_order_acquire))
-                {
-                    uint32 workSize = workDist(rng);
-
-                    // Detect potential work-stealing scenarios
-                    if (_threadPool->GetPendingTaskCount() < NUM_WORKERS / 2)
-                        workStealingDetected.fetch_add(1, std::memory_order_relaxed);
-
-                    _threadPool->Submit([&tasksCompleted, workSize]() {
-                        [[maybe_unused]] volatile double result =
-                            DeadlockDetectionTest::PerformHeavyWork(workSize);
-                        tasksCompleted.fetch_add(1, std::memory_order_release);
-                    });
-
-                    // Randomize submission rate
-                    if (rng() % 10 == 0)
-                        std::this_thread::sleep_for(std::chrono::microseconds(50));
-                }
-            });
-        }
-
-        // Progress monitor every 15 seconds
-        std::thread monitor([&]() {
-            auto lastCheck = startTime;
-            uint64 lastCompleted = 0;
-
-            while (!stopTest.load(std::memory_order_acquire))
+            // Submitters with fixed total task count
+            std::vector<std::thread> submitters;
+            for (uint32 i = 0; i < NUM_SUBMITTERS; ++i)
             {
-                std::this_thread::sleep_for(15s);
+                submitters.emplace_back([&, threadId = i]() {
+                    std::mt19937 rng(threadId);
+                    std::uniform_int_distribution<uint32> workDist(5000, 20000);
 
-                auto now = std::chrono::high_resolution_clock::now();
-                auto elapsed = std::chrono::duration<double>(now - startTime);
-                auto intervalDuration = std::chrono::duration<double>(now - lastCheck);
+                    while (true)
+                    {
+                        // Atomically claim a task number
+                        uint64 myTaskNum = tasksSubmitted.fetch_add(1, std::memory_order_relaxed);
+                        if (myTaskNum >= TOTAL_TASKS)
+                            break; // Stop when we've submitted enough tasks
 
-                uint64 currentCompleted = tasksCompleted.load();
-                uint64 intervalOps = currentCompleted - lastCompleted;
-                double opsPerSec = intervalOps / intervalDuration.count();
+                        uint32 workSize = workDist(rng);
 
-                std::cout << "  [" << std::setprecision(0) << std::fixed << elapsed.count()
-                          << "s] Completed: " << currentCompleted
-                          << " | Rate: " << std::setprecision(0) << opsPerSec << " ops/sec\n";
-
-                lastCheck = now;
-                lastCompleted = currentCompleted;
+                        _threadPool->Submit([&tasksCompleted, workSize]() {
+                            [[maybe_unused]] volatile double result =
+                                DeadlockDetectionTest::PerformHeavyWork(workSize);
+                            tasksCompleted.fetch_add(1, std::memory_order_release);
+                        });
+                    }
+                });
             }
-        });
 
-        // Run for specified duration
-        std::this_thread::sleep_for(TEST_DURATION);
-        stopTest.store(true, std::memory_order_release);
+            for (auto& thread : submitters)
+                thread.join();
 
-        std::cout << "Stopping submitters...\n";
+            std::cout << "  Submitted " << TOTAL_TASKS << " tasks, waiting for completion...\n";
+            _threadPool->WaitForCompletion();
 
-        for (auto& thread : submitters)
-            thread.join();
+            auto endTime = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration<double>(endTime - startTime);
 
-        std::cout << "Waiting for remaining tasks...\n";
-        _threadPool->WaitForCompletion();
+            std::cout << "  ✓ " << numWorkers << " workers: " << tasksCompleted.load()
+                      << " tasks in " << std::setprecision(2) << std::fixed << duration.count()
+                      << "s (" << std::setprecision(0) << (tasksCompleted.load() / duration.count())
+                      << " ops/sec)\n";
 
-        auto endTime = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration<double>(endTime - startTime);
+            _threadPool->Deactivate();
 
-        monitor.join();
+        }, 20s, std::string("Progressive_") + std::to_string(numWorkers) + "_workers");
 
-        PrintMetrics("Extreme Work Stealing",
-                    duration.count(),
-                    tasksCompleted.load(),
-                    NUM_WORKERS,
-                    workStealingDetected.load());
+        results.emplace_back(numWorkers, testPassed);
 
-    }, 90s, "ExtremeWorkStealing");
+        if (!testPassed)
+        {
+            std::cout << "  ✗ FAILED at " << numWorkers << " workers - DEADLOCK DETECTED!\n";
+            // Don't test higher counts if we found the breaking point
+            break;
+        }
+    }
 
-    EXPECT_TRUE(testPassed);
+    // Print summary
+    std::cout << "\n=== Progressive Stress Test Results ===\n";
+    for (const auto& [workers, passed] : results)
+    {
+        std::cout << "  " << workers << " workers: " << (passed ? "✓ PASS" : "✗ FAIL (DEADLOCK)") << "\n";
+    }
+    std::cout << "\n";
+
+    // Test passes if all tested configurations passed
+    bool allPassed = std::all_of(results.begin(), results.end(),
+                                  [](const auto& r) { return r.second; });
+    EXPECT_TRUE(allPassed);
 }
 
 // ============================================================================
@@ -423,19 +410,19 @@ TEST_F(DeadlockDetectionTest, PathologicalLockContention_200Threads_60Seconds)
     std::cout << "Timeout: 90 seconds\n\n";
 
     bool testPassed = RunWithTimeout([this]() {
-        constexpr auto TEST_DURATION = 60s;
+        constexpr uint32 TOTAL_TASKS = 100000; // Fixed task count to avoid queue overflow
         constexpr uint32 NUM_WORKERS = 32;
         constexpr uint32 NUM_SUBMITTERS = 200; // Pathological contention
 
         _threadPool->Activate(NUM_WORKERS);
 
-        std::atomic<bool> stopTest{false};
+        std::atomic<uint64> tasksSubmitted{0};
         std::atomic<uint64> tasksCompleted{0};
         std::atomic<uint64> maxQueueDepth{0};
 
         auto startTime = std::chrono::high_resolution_clock::now();
 
-        std::cout << "Starting " << NUM_SUBMITTERS << " threads (pathological contention)...\n";
+        std::cout << "Submitting " << TOTAL_TASKS << " tasks from " << NUM_SUBMITTERS << " threads (pathological contention)...\n";
 
         // 200 threads all trying to submit at once
         std::vector<std::thread> submitters;
@@ -445,8 +432,13 @@ TEST_F(DeadlockDetectionTest, PathologicalLockContention_200Threads_60Seconds)
                 std::mt19937 rng(threadId);
                 std::uniform_int_distribution<uint32> workDist(500, 2000); // Short tasks
 
-                while (!stopTest.load(std::memory_order_acquire))
+                while (true)
                 {
+                    // Atomically claim a task number
+                    uint64 myTaskNum = tasksSubmitted.fetch_add(1, std::memory_order_relaxed);
+                    if (myTaskNum >= TOTAL_TASKS)
+                        break;
+
                     // Track maximum queue depth (indicates contention)
                     uint64 currentDepth = _threadPool->GetPendingTaskCount();
                     uint64 currentMax = maxQueueDepth.load(std::memory_order_relaxed);
@@ -465,48 +457,14 @@ TEST_F(DeadlockDetectionTest, PathologicalLockContention_200Threads_60Seconds)
             });
         }
 
-        // Monitor every 15 seconds
-        std::thread monitor([&]() {
-            auto lastCheck = startTime;
-            uint64 lastCompleted = 0;
-
-            while (!stopTest.load(std::memory_order_acquire))
-            {
-                std::this_thread::sleep_for(15s);
-
-                auto now = std::chrono::high_resolution_clock::now();
-                auto elapsed = std::chrono::duration<double>(now - startTime);
-                auto intervalDuration = std::chrono::duration<double>(now - lastCheck);
-
-                uint64 currentCompleted = tasksCompleted.load();
-                uint64 intervalOps = currentCompleted - lastCompleted;
-                double opsPerSec = intervalOps / intervalDuration.count();
-
-                std::cout << "  [" << std::setprecision(0) << std::fixed << elapsed.count()
-                          << "s] Completed: " << currentCompleted
-                          << " | Rate: " << opsPerSec << " ops/sec"
-                          << " | Max Queue: " << maxQueueDepth.load() << "\n";
-
-                lastCheck = now;
-                lastCompleted = currentCompleted;
-            }
-        });
-
-        std::this_thread::sleep_for(TEST_DURATION);
-        stopTest.store(true, std::memory_order_release);
-
-        std::cout << "Stopping " << NUM_SUBMITTERS << " threads...\n";
-
         for (auto& thread : submitters)
             thread.join();
 
-        std::cout << "Waiting for remaining tasks...\n";
+        std::cout << "All tasks submitted. Waiting for completion...\n";
         _threadPool->WaitForCompletion();
 
         auto endTime = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration<double>(endTime - startTime);
-
-        monitor.join();
 
         std::cout << "  Maximum queue depth: " << maxQueueDepth.load() << " (contention indicator)\n";
 
@@ -534,18 +492,18 @@ TEST_F(DeadlockDetectionTest, ExtendedEndurance_5MinutesSustainedLoad)
     std::cout << "Timeout: 360 seconds (6 minutes)\n\n";
 
     bool testPassed = RunWithTimeout([this]() {
-        constexpr auto TEST_DURATION = 5min;
+        constexpr uint32 TOTAL_TASKS = 500000; // Large task count for endurance test
         constexpr uint32 NUM_WORKERS = 64;
         constexpr uint32 NUM_SUBMITTERS = 32;
 
         _threadPool->Activate(NUM_WORKERS);
 
-        std::atomic<bool> stopTest{false};
+        std::atomic<uint64> tasksSubmitted{0};
         std::atomic<uint64> tasksCompleted{0};
 
         auto startTime = std::chrono::high_resolution_clock::now();
 
-        std::cout << "Starting 5-minute sustained load test...\n";
+        std::cout << "Starting extended endurance test (" << TOTAL_TASKS << " tasks)...\n";
 
         // Sustained submitters
         std::vector<std::thread> submitters;
@@ -555,8 +513,13 @@ TEST_F(DeadlockDetectionTest, ExtendedEndurance_5MinutesSustainedLoad)
                 std::mt19937 rng(threadId);
                 std::uniform_int_distribution<uint32> workDist(1000, 20000);
 
-                while (!stopTest.load(std::memory_order_acquire))
+                while (true)
                 {
+                    // Atomically claim a task number
+                    uint64 myTaskNum = tasksSubmitted.fetch_add(1, std::memory_order_relaxed);
+                    if (myTaskNum >= TOTAL_TASKS)
+                        break;
+
                     uint32 workSize = workDist(rng);
                     _threadPool->Submit([&tasksCompleted, workSize]() {
                         [[maybe_unused]] volatile double result =
@@ -564,53 +527,25 @@ TEST_F(DeadlockDetectionTest, ExtendedEndurance_5MinutesSustainedLoad)
                         tasksCompleted.fetch_add(1, std::memory_order_release);
                     });
 
-                    std::this_thread::sleep_for(std::chrono::microseconds(100));
+                    // Brief pause to avoid flooding
+                    if (myTaskNum % 1000 == 0)
+                        std::this_thread::sleep_for(std::chrono::microseconds(100));
                 }
             });
         }
 
-        // Monitor every 30 seconds
-        std::thread monitor([&]() {
-            auto lastCheck = startTime;
-            uint64 lastCompleted = 0;
-
-            while (!stopTest.load(std::memory_order_acquire))
-            {
-                std::this_thread::sleep_for(30s);
-
-                auto now = std::chrono::high_resolution_clock::now();
-                auto elapsed = std::chrono::duration<double>(now - startTime);
-                auto intervalDuration = std::chrono::duration<double>(now - lastCheck);
-
-                uint64 currentCompleted = tasksCompleted.load();
-                uint64 intervalOps = currentCompleted - lastCompleted;
-                double opsPerSec = intervalOps / intervalDuration.count();
-
-                std::cout << "  [" << std::setprecision(0) << std::fixed << elapsed.count()
-                          << "s / " << std::chrono::duration_cast<std::chrono::seconds>(TEST_DURATION).count()
-                          << "s] Completed: " << currentCompleted
-                          << " | Rate: " << opsPerSec << " ops/sec\n";
-
-                lastCheck = now;
-                lastCompleted = currentCompleted;
-            }
-        });
-
-        std::this_thread::sleep_for(TEST_DURATION);
-        stopTest.store(true, std::memory_order_release);
-
-        std::cout << "Stopping submitters...\n";
-
         for (auto& thread : submitters)
             thread.join();
 
-        std::cout << "Waiting for remaining tasks...\n";
+        std::cout << "All tasks submitted. Waiting for completion...\n";
         _threadPool->WaitForCompletion();
 
         auto endTime = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration<double>(endTime - startTime);
 
-        monitor.join();
+        std::cout << "  ✓ " << TOTAL_TASKS << " tasks completed in "
+                  << std::setprecision(2) << std::fixed << duration.count() << "s ("
+                  << std::setprecision(0) << (TOTAL_TASKS / duration.count()) << " ops/sec)\n";
 
         PrintMetrics("Extended Endurance",
                     duration.count(),

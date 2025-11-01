@@ -102,11 +102,21 @@ void WorkStealingThreadPool::Submit(Task task)
 
 void WorkStealingThreadPool::WaitForCompletion()
 {
-    std::unique_lock<std::mutex> lock(_waitMutex);
-    _waitCondition.wait(lock, [this] {
-        return _taskCount.load(std::memory_order_acquire) == 0 &&
-               _activeThreads.load(std::memory_order_acquire) == 0;
-    });
+    // Use lock-free polling to avoid mutex contention with many threads
+    // This is more efficient than condition variables when thread counts are high (64+)
+    while (true)
+    {
+        uint32 taskCount = _taskCount.load(std::memory_order_acquire);
+        uint32 activeThreads = _activeThreads.load(std::memory_order_acquire);
+
+        if (taskCount == 0 && activeThreads == 0)
+        {
+            break;
+        }
+
+        // Brief sleep to avoid busy-waiting
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
 }
 
 void WorkStealingThreadPool::WorkerThread(uint32 threadId)
@@ -149,7 +159,7 @@ void WorkStealingThreadPool::WorkerThread(uint32 threadId)
             }
 
             // Mark completion
-            _activeThreads.fetch_sub(1, std::memory_order_release);
+            _activeThreads.fetch_sub(1, std::memory_order_acq_rel);
             OnTaskComplete();
         }
         else
@@ -189,12 +199,8 @@ bool WorkStealingThreadPool::TryStealWork(uint32 thiefId, Task& task)
 void WorkStealingThreadPool::OnTaskComplete()
 {
     // Decrement task counter
-    if (_taskCount.fetch_sub(1, std::memory_order_acq_rel) == 1)
-    {
-        // This was the last task, notify waiting threads
-        std::lock_guard<std::mutex> lock(_waitMutex);
-        _waitCondition.notify_all();
-    }
+    // WaitForCompletion() polls this atomically, no notification needed
+    _taskCount.fetch_sub(1, std::memory_order_acq_rel);
 }
 
 // WorkQueue implementation
