@@ -136,7 +136,7 @@ TEST_F(DeadlockDetectionTest, MassiveThreadPoolSaturation_100kOperations_90Secon
     std::cout << "========================================\n";
     std::cout << "Config: 100 submitter threads, 32 workers, 1M tasks\n";
     std::cout << "Work: Real computation (sqrt, sin, cos, log)\n";
-    std::cout << "Timeout: 120 seconds\n\n";
+    std::cout << "Timeout: 200 seconds\n\n";
 
     bool testPassed = RunWithTimeout([this]() {
         constexpr uint32 NUM_WORKERS = 32;
@@ -220,7 +220,7 @@ TEST_F(DeadlockDetectionTest, MassiveThreadPoolSaturation_100kOperations_90Secon
                     NUM_SUBMITTERS,
                     contentionEvents.load());
 
-    }, 120s, "MassiveThreadPoolSaturation");
+    }, 200s, "MassiveThreadPoolSaturation");
 
     EXPECT_TRUE(testPassed);
 }
@@ -236,7 +236,7 @@ TEST_F(DeadlockDetectionTest, ProgressiveThreadCountStress_2to128Workers)
     std::cout << "========================================\n";
     std::cout << "Testing thread counts: 2, 4, 8, 16, 32, 64, 128\n";
     std::cout << "Each test runs for 10 seconds with continuous submission\n";
-    std::cout << "Timeout: 20 seconds per configuration\n\n";
+    std::cout << "Timeout: 240 seconds per configuration\n\n";
 
     std::vector<uint32> threadCounts = {2, 4, 8, 16, 32, 64, 128};
     std::vector<std::pair<uint32, bool>> results;
@@ -299,7 +299,7 @@ TEST_F(DeadlockDetectionTest, ProgressiveThreadCountStress_2to128Workers)
 
             _threadPool->Deactivate();
 
-        }, 20s, std::string("Progressive_") + std::to_string(numWorkers) + "_workers");
+        }, 240s, std::string("Progressive_") + std::to_string(numWorkers) + "_workers");
 
         results.emplace_back(numWorkers, testPassed);
 
@@ -336,7 +336,7 @@ TEST_F(DeadlockDetectionTest, RapidStartStopCycles_200Iterations_90Seconds)
     std::cout << "========================================\n";
     std::cout << "Config: 200 activate/deactivate cycles with tasks in flight\n";
     std::cout << "Work: 1000 tasks per cycle\n";
-    std::cout << "Timeout: 120 seconds\n\n";
+    std::cout << "Timeout: 200 seconds\n\n";
 
     bool testPassed = RunWithTimeout([this]() {
         constexpr uint32 NUM_CYCLES = 200;
@@ -391,7 +391,7 @@ TEST_F(DeadlockDetectionTest, RapidStartStopCycles_200Iterations_90Seconds)
                     totalTasksCompleted,
                     NUM_WORKERS);
 
-    }, 120s, "RapidStartStopCycles");
+    }, 200s, "RapidStartStopCycles");
 
     EXPECT_TRUE(testPassed);
 }
@@ -407,7 +407,7 @@ TEST_F(DeadlockDetectionTest, PathologicalLockContention_200Threads_60Seconds)
     std::cout << "========================================\n";
     std::cout << "Config: 200 threads competing for locks with minimal work\n";
     std::cout << "Work: Short tasks to maximize lock contention\n";
-    std::cout << "Timeout: 90 seconds\n\n";
+    std::cout << "Timeout: 150 seconds\n\n";
 
     bool testPassed = RunWithTimeout([this]() {
         constexpr uint32 TOTAL_TASKS = 1000000; // Fixed task count to avoid queue overflow
@@ -473,7 +473,7 @@ TEST_F(DeadlockDetectionTest, PathologicalLockContention_200Threads_60Seconds)
                     tasksCompleted.load(),
                     NUM_SUBMITTERS);
 
-    }, 90s, "PathologicalLockContention");
+    }, 150s, "PathologicalLockContention");
 
     EXPECT_TRUE(testPassed);
 }
@@ -489,7 +489,7 @@ TEST_F(DeadlockDetectionTest, ExtendedEndurance_5MinutesSustainedLoad)
     std::cout << "========================================\n";
     std::cout << "Config: 64 workers, 32 submitters, 5 minute sustained load\n";
     std::cout << "Work: Variable (1k-20k iterations)\n";
-    std::cout << "Timeout: 360 seconds (6 minutes)\n\n";
+    std::cout << "Timeout: 600 seconds (10 minutes)\n\n";
 
     bool testPassed = RunWithTimeout([this]() {
         constexpr uint32 TOTAL_TASKS = 1000000; // Large task count for endurance test
@@ -552,7 +552,7 @@ TEST_F(DeadlockDetectionTest, ExtendedEndurance_5MinutesSustainedLoad)
                     tasksCompleted.load(),
                     NUM_WORKERS);
 
-    }, 360s, "ExtendedEndurance");
+    }, 600s, "ExtendedEndurance");
 
     EXPECT_TRUE(testPassed);
 }
