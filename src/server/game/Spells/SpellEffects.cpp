@@ -5810,6 +5810,7 @@ void Spell::EffectActivateRune(SpellEffIndex effIndex)
                     l++;
                 player->SetRuneCooldown(l, 0);
                 player->SetGracePeriod(l, player->IsInCombat()); // xinef: reset grace period
+                player->AddRunePower(l); // Notify client that rune is available
                 --count;
             }
             else
@@ -5830,12 +5831,13 @@ void Spell::EffectActivateRune(SpellEffIndex effIndex)
             {
                 player->SetRuneCooldown(i, 0);
                 player->SetGracePeriod(i, player->IsInCombat()); // xinef: reset grace period
+                player->AddRunePower(i); // Notify client that rune is available
             }
         }
     }
 
     // is needed to push through to the client that the rune is active
-    //player->ResyncRunes(MAX_RUNES);
+    player->ResyncRunes(MAX_RUNES);
     m_caster->CastSpell(m_caster, 47804, true);
 }
 
