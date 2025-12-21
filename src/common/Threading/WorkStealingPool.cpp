@@ -83,16 +83,12 @@ void WorkStealingPool::Activate()
     // Create per-worker queues
     _queues.reserve(_numThreads);
     for (std::size_t i = 0; i < _numThreads; ++i)
-    {
         _queues.push_back(std::make_unique<WorkerQueue>());
-    }
 
     // Start worker threads
     _workers.reserve(_numThreads);
     for (std::size_t i = 0; i < _numThreads; ++i)
-    {
         _workers.emplace_back(&WorkStealingPool::WorkerThread, this, i);
-    }
 }
 
 void WorkStealingPool::Deactivate()
@@ -153,9 +149,7 @@ void WorkStealingPool::SubmitBatch(std::vector<Task>& tasks)
     {
         std::size_t batchEnd = std::min(taskIndex + tasksPerQueue, tasks.size());
         for (; taskIndex < batchEnd; ++taskIndex)
-        {
             _queues[q]->Push(std::move(tasks[taskIndex]));
-        }
     }
 
     // Wake all workers for batch
@@ -240,9 +234,7 @@ bool WorkStealingPool::TrySteal(std::size_t workerId, Task& task)
     {
         std::size_t victimId = (startOffset + i) % _numThreads;
         if (victimId != workerId && _queues[victimId]->Steal(task))
-        {
             return true;
-        }
     }
 
     return false;

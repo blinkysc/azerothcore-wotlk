@@ -100,9 +100,7 @@ void MapUpdater::activate(std::size_t num_threads)
     _useWorkStealing = false;
     _workerThreads.reserve(num_threads);
     for (std::size_t i = 0; i < num_threads; ++i)
-    {
         _workerThreads.push_back(std::thread(&MapUpdater::WorkerThread, this));
-    }
 
     LOG_INFO("server.loading", ">> MapUpdater activated with {} legacy worker threads", num_threads);
 }
@@ -140,9 +138,7 @@ void MapUpdater::deactivate()
         for (auto& thread : _workerThreads)
         {
             if (thread.joinable())
-            {
                 thread.join();
-            }
         }
         _workerThreads.clear();
     }
@@ -155,9 +151,7 @@ void MapUpdater::wait()
     if (_useWorkStealing)
     {
         if (_workStealingPool)
-        {
             _workStealingPool->WaitForAll();
-        }
     }
     else
     {
