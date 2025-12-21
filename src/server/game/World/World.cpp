@@ -905,6 +905,14 @@ void World::SetInitialWorldSettings()
     LOG_INFO("server.loading", " ");
     sMapMgr->Initialize();
 
+    ///- Initialize parallel session updates if configured
+    uint32 sessionThreads = sWorld->getIntConfig(CONFIG_SESSION_UPDATE_THREADS);
+    if (sessionThreads > 0)
+    {
+        LOG_INFO("server.loading", "Starting Parallel Session Updater with {} threads", sessionThreads);
+        sWorldSessionMgr->ActivateSessionUpdater(sessionThreads);
+    }
+
     LOG_INFO("server.loading", "Starting Game Event system...");
     LOG_INFO("server.loading", " ");
     uint32 nextGameEvent = sGameEventMgr->StartSystem();
@@ -1036,6 +1044,7 @@ void World::SetInitialWorldSettings()
 
     if (sConfigMgr->isDryRun())
     {
+        sWorldSessionMgr->DeactivateSessionUpdater();
         sMapMgr->UnloadAll();
         LOG_INFO("server.loading", "AzerothCore Dry Run Completed, Terminating.");
         exit(0);

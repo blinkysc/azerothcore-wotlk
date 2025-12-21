@@ -313,6 +313,7 @@ int main(int argc, char** argv)
         sBattlegroundMgr->DeleteAllBattlegrounds();
 
         sOutdoorPvPMgr->Die();                     // unload it before MapMgr
+        sWorldSessionMgr->DeactivateSessionUpdater(); // stop parallel session updates before unload
         sMapMgr->UnloadAll();                      // unload all grids (including locked in memory)
 
         sScriptMgr->OnAfterUnloadAllMaps();

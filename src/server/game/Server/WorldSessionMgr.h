@@ -22,6 +22,7 @@
 #include "IWorld.h"
 #include "LockedQueue.h"
 #include "ObjectGuid.h"
+#include "SessionUpdater.h"
 #include <list>
 #include <unordered_map>
 
@@ -42,6 +43,8 @@ public:
     WorldSession* FindOfflineSessionForCharacterGUID(ObjectGuid::LowType guidLow) const;
 
     void UpdateSessions(uint32 const diff);
+    void UpdateSessionsSerial(uint32 const diff);
+    void UpdateSessionsParallel(uint32 const diff);
 
     bool KickSession(uint32 id);
     void KickAll();
@@ -85,6 +88,12 @@ public:
 
     void DoForAllOnlinePlayers(std::function<void(Player*)> exec);
 
+    /// Activate parallel session updates with specified number of threads
+    void ActivateSessionUpdater(std::size_t numThreads);
+
+    /// Deactivate parallel session updates
+    void DeactivateSessionUpdater();
+
 private:
     LockedQueue<WorldSession*> _addSessQueue;
     void AddSession_(WorldSession* session);
@@ -103,6 +112,8 @@ private:
     uint32 _maxQueuedSessionCount;
     uint32 _playerCount;
     uint32 _maxPlayerCount;
+
+    SessionUpdater _sessionUpdater;
 };
 
 #define sWorldSessionMgr WorldSessionMgr::Instance()

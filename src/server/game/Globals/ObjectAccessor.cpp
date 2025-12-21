@@ -28,6 +28,7 @@
 #include "Pet.h"
 #include "Player.h"
 #include "Transport.h"
+#include <functional>
 
 template<class T>
 void HashMapHolder<T>::Insert(T* o)
@@ -79,6 +80,66 @@ HashMapHolder<Player>::MapType const& ObjectAccessor::GetPlayers()
 
 template class HashMapHolder<Player>;
 template class HashMapHolder<MotionTransport>;
+
+// ConcurrentHashMapHolder implementations
+
+template<class T>
+void ConcurrentHashMapHolder<T>::Insert(T* o)
+{
+    static_assert(std::is_same<Player, T>::value
+        || std::is_same<MotionTransport, T>::value,
+        "Only Player and MotionTransport can be registered in ConcurrentHashMapHolder");
+
+    GetContainer().Insert(o->GetGUID(), o);
+}
+
+template<class T>
+void ConcurrentHashMapHolder<T>::Remove(T* o)
+{
+    GetContainer().Remove(o->GetGUID());
+}
+
+template<class T>
+T* ConcurrentHashMapHolder<T>::Find(ObjectGuid guid)
+{
+    return GetContainer().Find(guid);
+}
+
+template<class T>
+template<typename Func>
+void ConcurrentHashMapHolder<T>::ForEach(Func&& func)
+{
+    GetContainer().ForEach([&func](ObjectGuid const& /*guid*/, T* obj) {
+        func(obj);
+    });
+}
+
+template<class T>
+std::vector<T*> ConcurrentHashMapHolder<T>::GetSnapshot()
+{
+    return GetContainer().GetSnapshot();
+}
+
+template<class T>
+std::size_t ConcurrentHashMapHolder<T>::Size()
+{
+    return GetContainer().Size();
+}
+
+template<class T>
+auto ConcurrentHashMapHolder<T>::GetContainer() -> MapType&
+{
+    static MapType _objectMap;
+    return _objectMap;
+}
+
+// Explicit template instantiations for ConcurrentHashMapHolder
+template class ConcurrentHashMapHolder<Player>;
+template class ConcurrentHashMapHolder<MotionTransport>;
+
+// ForEach explicit instantiations for common function types
+template void ConcurrentHashMapHolder<Player>::ForEach(std::function<void(Player*)>&&);
+template void ConcurrentHashMapHolder<MotionTransport>::ForEach(std::function<void(MotionTransport*)>&&);
 
 namespace PlayerNameMapHolder
 {
