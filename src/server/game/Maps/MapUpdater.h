@@ -63,6 +63,9 @@ public:
     /// Check if using work-stealing mode
     [[nodiscard]] bool IsWorkStealingMode() const { return _useWorkStealing; }
 
+    /// Get work-stealing pool (only valid in work-stealing mode)
+    [[nodiscard]] WorkStealingPool* GetWorkStealingPool() const { return _workStealingPool.get(); }
+
 private:
     void WorkerThread();
 
