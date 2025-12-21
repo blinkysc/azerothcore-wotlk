@@ -23,7 +23,6 @@
 #include "World.h"
 #include "WorldSession.h"
 #include "WorldSessionMgr.h"
-#include <unordered_set>
 
 WorldSessionMgr* WorldSessionMgr::Instance()
 {
@@ -104,49 +103,23 @@ void WorldSessionMgr::UpdateSessions(uint32 const diff)
         }
     }
 
-    // Check if parallel updates are enabled
-    if (_sessionUpdater.IsActivated())
-    {
-        UpdateSessionsParallel(diff);
-    }
-    else
-    {
-        UpdateSessionsSerial(diff);
-    }
-
-    // Clean up offline sessions
-    if (_offlineSessions.empty())
-        return;
-    uint32 currTime = GameTime::GetGameTime().count();
-    for (SessionMap::iterator itr = _offlineSessions.begin(), next; itr != _offlineSessions.end(); itr = next)
-    {
-        next = itr;
-        ++next;
-        WorldSession* pSession = itr->second;
-        if (!pSession->GetPlayer() || pSession->GetOfflineTime() + 60 < currTime || pSession->IsKicked())
-        {
-            _offlineSessions.erase(itr);
-            delete pSession;
-        }
-    }
-}
-
-void WorldSessionMgr::UpdateSessionsSerial(uint32 const diff)
-{
-    ///- Send an update signal to sessions (original serial implementation)
+    ///- Then send an update signal to remaining ones
     for (SessionMap::iterator itr = _sessions.begin(), next; itr != _sessions.end(); itr = next)
     {
         next = itr;
         ++next;
 
+        ///- and remove not active sessions from the list
         WorldSession* pSession = itr->second;
         WorldSessionFilter updater(pSession);
 
+        // pussywizard:
         if (pSession->HandleSocketClosed())
         {
             if (!RemoveQueuedPlayer(pSession) && sWorld->getIntConfig(CONFIG_INTERVAL_DISCONNECT_TOLERANCE))
                 _disconnects[pSession->GetAccountId()] = GameTime::GetGameTime().count();
             _sessions.erase(itr);
+            // there should be no offline session if current one is logged onto a character
             SessionMap::iterator iter;
             if ((iter = _offlineSessions.find(pSession->GetAccountId())) != _offlineSessions.end())
             {
@@ -170,75 +143,22 @@ void WorldSessionMgr::UpdateSessionsSerial(uint32 const diff)
             delete pSession;
         }
     }
-}
 
-void WorldSessionMgr::UpdateSessionsParallel(uint32 const diff)
-{
-    METRIC_DETAILED_NO_THRESHOLD_TIMER("world_update_time",
-        METRIC_TAG("type", "Parallel session updates"),
-        METRIC_TAG("parent_type", "Update sessions"));
-
-    // Phase 1: Handle socket closures (must be serial - modifies session map)
-    // Collect sessions that had socket closure
-    std::unordered_set<uint32> closedSockets;
-    for (auto& [accountId, pSession] : _sessions)
+    // pussywizard:
+    if (_offlineSessions.empty())
+        return;
+    uint32 currTime = GameTime::GetGameTime().count();
+    for (SessionMap::iterator itr = _offlineSessions.begin(), next; itr != _offlineSessions.end(); itr = next)
     {
-        if (pSession->HandleSocketClosed())
-        {
-            closedSockets.insert(accountId);
-        }
-    }
-
-    // Process closed sockets
-    for (uint32 accountId : closedSockets)
-    {
-        auto itr = _sessions.find(accountId);
-        if (itr == _sessions.end())
-            continue;
-
+        next = itr;
+        ++next;
         WorldSession* pSession = itr->second;
-        if (!RemoveQueuedPlayer(pSession) && sWorld->getIntConfig(CONFIG_INTERVAL_DISCONNECT_TOLERANCE))
-            _disconnects[accountId] = GameTime::GetGameTime().count();
-
-        _sessions.erase(itr);
-
-        // Handle offline session replacement
-        auto offlineItr = _offlineSessions.find(accountId);
-        if (offlineItr != _offlineSessions.end())
+        if (!pSession->GetPlayer() || pSession->GetOfflineTime() + 60 < currTime || pSession->IsKicked())
         {
-            delete offlineItr->second;
-            _offlineSessions.erase(offlineItr);
-        }
-
-        pSession->SetOfflineTime(GameTime::GetGameTime().count());
-        _offlineSessions[accountId] = pSession;
-    }
-
-    // Phase 2: Schedule all remaining sessions for parallel update
-    for (auto& [accountId, pSession] : _sessions)
-    {
-        _sessionUpdater.ScheduleUpdate(pSession, diff);
-    }
-
-    // Phase 3: Wait for all updates to complete
-    _sessionUpdater.Wait();
-
-    // Phase 4: Process results - remove sessions that returned false
-    auto results = _sessionUpdater.GetResults();
-    for (auto& result : results)
-    {
-        if (!result.keepSession)
-        {
-            uint32 accountId = result.session->GetAccountId();
-            if (!RemoveQueuedPlayer(result.session) && sWorld->getIntConfig(CONFIG_INTERVAL_DISCONNECT_TOLERANCE))
-                _disconnects[accountId] = GameTime::GetGameTime().count();
-
-            _sessions.erase(accountId);
-            delete result.session;
+            _offlineSessions.erase(itr);
+            delete pSession;
         }
     }
-
-    _sessionUpdater.ClearResults();
 }
 
 /// Remove a given session
@@ -507,14 +427,4 @@ void WorldSessionMgr::DoForAllOnlinePlayers(std::function<void(Player*)> exec)
             exec(player);
         }
     }
-}
-
-void WorldSessionMgr::ActivateSessionUpdater(std::size_t numThreads)
-{
-    _sessionUpdater.Activate(numThreads);
-}
-
-void WorldSessionMgr::DeactivateSessionUpdater()
-{
-    _sessionUpdater.Deactivate();
 }

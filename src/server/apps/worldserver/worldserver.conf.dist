@@ -1371,15 +1371,6 @@ MapUpdate.Threads = 1
 MapUpdate.WorkStealing = 0
 
 #
-#    SessionUpdate.Threads
-#        Description: Number of threads for parallel session updates.
-#                     When enabled, player session updates are distributed across
-#                     multiple worker threads for improved scalability.
-#        Default:     0 - (Disabled, sessions updated serially on main thread)
-
-SessionUpdate.Threads = 0
-
-#
 #    MoveMaps.Enable
 #        Description: Enable/Disable pathfinding using mmaps - recommended.
 #        Default:     0 - (Disabled)

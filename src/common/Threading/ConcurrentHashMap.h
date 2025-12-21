@@ -263,13 +263,10 @@ public:
     }
 
 private:
-    struct Shard
+    struct alignas(64) Shard
     {
         mutable std::shared_mutex mutex;
         MapType map;
-
-        // Padding to avoid false sharing between shards
-        char padding[64 - sizeof(std::shared_mutex) % 64];
     };
 
     [[nodiscard]] std::size_t GetShardIndex(K const& key) const
