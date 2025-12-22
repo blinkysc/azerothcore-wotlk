@@ -17,8 +17,6 @@
 
 #include "Map.h"
 #include "Battleground.h"
-#include "MapMgr.h"
-#include "WorkStealingPool.h"
 #include "CellImpl.h"
 #include "Chat.h"
 #include "DisableMgr.h"
@@ -436,58 +434,20 @@ void Map::Update(const uint32 t_diff, const uint32 s_diff, bool  /*thread*/)
     if (t_diff)
         _dynamicTree.update(t_diff);
 
-    // Collect sessions and players for update
-    std::vector<std::pair<WorldSession*, Player*>> sessionPlayers;
+    // Update world sessions and players
     for (m_mapRefIter = m_mapRefMgr.begin(); m_mapRefIter != m_mapRefMgr.end(); ++m_mapRefIter)
     {
         Player* player = m_mapRefIter->GetSource();
         if (player && player->IsInWorld())
-            sessionPlayers.emplace_back(player->GetSession(), player);
-    }
-
-    // Check if parallel session updates should be used
-    MapUpdater* updater = sMapMgr->GetMapUpdater();
-    bool useParallel = updater->IsWorkStealingMode() && sessionPlayers.size() > 1;
-
-    if (useParallel)
-    {
-        // Batch session updates in parallel
-        WorkStealingPool* pool = updater->GetWorkStealingPool();
-        std::vector<WorkStealingPool::Task> tasks;
-        tasks.reserve(sessionPlayers.size());
-
-        for (std::size_t i = 0; i < sessionPlayers.size(); ++i)
         {
-            WorldSession* sess = sessionPlayers[i].first;
-            tasks.push_back([sess, s_diff]() {
-                MapSessionFilter filter(sess);
-                sess->Update(s_diff, filter);
-            });
-        }
+            // Update session
+            WorldSession* session = player->GetSession();
+            MapSessionFilter updater(session);
+            session->Update(s_diff, updater);
 
-        pool->SubmitBatch(tasks);
-        pool->WaitForAll();
-
-        // Player updates remain sequential (more state dependencies)
-        if (!t_diff)
-        {
-            for (std::size_t i = 0; i < sessionPlayers.size(); ++i)
-                sessionPlayers[i].second->Update(s_diff);
-        }
-    }
-    else
-    {
-        // Sequential fallback
-        for (std::size_t i = 0; i < sessionPlayers.size(); ++i)
-        {
-            WorldSession* sess = sessionPlayers[i].first;
-            Player* plr = sessionPlayers[i].second;
-
-            MapSessionFilter filter(sess);
-            sess->Update(s_diff, filter);
-
+            // update players at tick
             if (!t_diff)
-                plr->Update(s_diff);
+                player->Update(s_diff);
         }
     }
 
