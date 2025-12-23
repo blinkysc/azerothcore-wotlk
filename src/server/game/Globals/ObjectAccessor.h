@@ -121,8 +121,11 @@ namespace ObjectAccessor
     Creature* GetSpawnedCreatureByDBGUID(uint32 mapId, uint64 guid);
     GameObject* GetSpawnedGameObjectByDBGUID(uint32 mapId, uint64 guid);
 
-    // when using this, you must use the hashmapholder's lock
-    HashMapHolder<Player>::MapType const& GetPlayers();
+    /// Thread-safe iteration over all players using ConcurrentHashMapHolder
+    void ForEachPlayer(std::function<void(Player*)> func);
+
+    /// Get a thread-safe snapshot of all players
+    std::vector<Player*> GetPlayersSnapshot();
 
     template<class T>
     void AddObject(T* object)
@@ -143,6 +146,12 @@ namespace ObjectAccessor
 
     template<>
     void RemoveObject(Player* player);
+
+    template<>
+    void AddObject(MotionTransport* transport);
+
+    template<>
+    void RemoveObject(MotionTransport* transport);
 
     void UpdatePlayerNameMapReference(std::string oldname, Player* player);
 }
