@@ -117,7 +117,7 @@ struct boss_sartura : public BossAI
                 case EVENT_SARTURA_WHIRLWIND:
                     if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 100.0f, true, false))
                     {
-                        me->GetThreatMgr().ResetAllThreat();
+                        me->GetThreatManager().ResetAllThreat();
                         me->AddThreat(target, 1000.0f);
                     }
                     DoCastSelf(SPELL_WHIRLWIND);
@@ -127,13 +127,13 @@ struct boss_sartura : public BossAI
                 case EVENT_SARTURA_WHIRLWIND_RANDOM:
                     if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 100.0f, true))
                     {
-                        me->GetThreatMgr().ResetAllThreat();
+                        me->GetThreatManager().ResetAllThreat();
                         me->AddThreat(target, 1000.0f);
                     }
                     events.Repeat(2s, 7s);
                     break;
                 case EVENT_SARTURA_WHIRLWIND_END:
-                    me->GetThreatMgr().ResetAllThreat();
+                    me->GetThreatManager().ResetAllThreat();
                     me->SetReactState(REACT_AGGRESSIVE);
                     events.CancelEvent(EVENT_SARTURA_WHIRLWIND_RANDOM);
                     events.ScheduleEvent(EVENT_SARTURA_WHIRLWIND, 5s, 11s);
@@ -201,7 +201,7 @@ struct npc_sartura_royal_guard : public ScriptedAI
                 case EVENT_GUARD_WHIRLWIND:
                     if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 100.0f, true, false))
                     {
-                        me->GetThreatMgr().ResetAllThreat();
+                        me->GetThreatManager().ResetAllThreat();
                         me->AddThreat(target, 1000.0f);
                     }
                     DoCastSelf(SPELL_GUARD_WHIRLWIND);
@@ -211,13 +211,13 @@ struct npc_sartura_royal_guard : public ScriptedAI
                 case EVENT_GUARD_WHIRLWIND_RANDOM:
                     if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 100.0f, true))
                     {
-                        me->GetThreatMgr().ResetAllThreat();
+                        me->GetThreatManager().ResetAllThreat();
                         me->AddThreat(target, 1000.0f);
                     }
                     events.Repeat(2s, 7s);
                     break;
                 case EVENT_GUARD_WHIRLWIND_END:
-                    me->GetThreatMgr().ResetAllThreat();
+                    me->GetThreatManager().ResetAllThreat();
                     me->SetReactState(REACT_AGGRESSIVE);
                     events.CancelEvent(EVENT_GUARD_WHIRLWIND_RANDOM);
                     events.ScheduleEvent(EVENT_GUARD_WHIRLWIND, 500ms, 9s);

@@ -53,7 +53,7 @@ struct npc_pet_hunter_snake_trap : public ScriptedAI
     void EnterEvadeMode(EvadeReason /*why*/) override
     {
         // _EnterEvadeMode();
-        me->GetThreatMgr().ClearAllThreat();
+        me->GetThreatManager().ClearAllThreat();
         me->CombatStop(true);
         me->LoadCreaturesAddon(true);
         me->SetLootRecipient(nullptr);

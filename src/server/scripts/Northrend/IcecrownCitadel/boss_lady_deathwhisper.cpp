@@ -301,13 +301,13 @@ public:
             if (events.GetPhaseMask() & PHASE_ONE_MASK && damage >= me->GetPower(POWER_MANA))
             {
                 // reset threat
-                ThreatContainer::StorageType const& threatlist = me->GetThreatMgr().GetThreatList();
-                for (ThreatContainer::StorageType::const_iterator itr = threatlist.begin(); itr != threatlist.end(); ++itr)
+                for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
                 {
-                    Unit* unit = ObjectAccessor::GetUnit((*me), (*itr)->getUnitGuid());
-
-                    if (unit && DoGetThreat(unit))
-                        DoModifyThreatByPercent(unit, -100);
+                    if (Unit* unit = ref->GetVictim())
+                    {
+                        if (DoGetThreat(unit))
+                            DoModifyThreatByPercent(unit, -100);
+                    }
                 }
 
                 Talk(SAY_PHASE_2);
@@ -517,7 +517,7 @@ public:
                 {
                     darnavan->RemoveAllAuras();
                     darnavan->SetFaction(FACTION_FRIENDLY);
-                    darnavan->GetThreatMgr().ClearAllThreat();
+                    darnavan->GetThreatManager().ClearAllThreat();
                     darnavan->CombatStop(true);
                     darnavan->GetMotionMaster()->MoveIdle();
                     darnavan->StopMoving();
@@ -932,7 +932,7 @@ public:
             ScriptedAI::AttackStart(who);
             if (!targetGUID)
             {
-                me->GetThreatMgr().ResetAllThreat();
+                me->GetThreatManager().ResetAllThreat();
                 me->AddThreat(who, 1000000.0f);
                 targetGUID = who->GetGUID();
             }

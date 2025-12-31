@@ -127,7 +127,7 @@ struct npc_raging_flames : public ScriptedAI
     // It's more tricky actually
     void FixateRandomTarget()
     {
-        me->GetThreatMgr().ClearAllThreat();
+        me->GetThreatManager().ClearAllThreat();
 
         if (TempSummon* summon = me->ToTempSummon())
             if (Creature* summoner = summon->GetSummonerCreatureBase())

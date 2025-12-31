@@ -179,7 +179,7 @@ struct boss_attumen : public BossAI
             {
                 Unit* target = nullptr;
                 std::vector<Unit*> target_list;
-                for (auto* ref : me->GetThreatMgr().GetUnsortedThreatList())
+                for (auto* ref : me->GetThreatManager().GetUnsortedThreatList())
                 {
                     target = ref->GetVictim();
                     if (target && !target->IsWithinDist(me, 8.00f, false) && target->IsWithinDist(me, 25.0f, false))

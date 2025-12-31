@@ -975,7 +975,7 @@ public:
 
         void EnterEvadeMode(EvadeReason /*why*/) override
         {
-            me->GetThreatMgr().ClearAllThreat();
+            me->GetThreatManager().ClearAllThreat();
             me->CombatStop(true);
             me->SetLootRecipient(nullptr);
 
@@ -2302,7 +2302,7 @@ public:
         void EnterEvadeMode(EvadeReason /*why*/) override
         {
             me->RemoveAura(SPELL_HEROIC_VANGUARD);
-            me->GetThreatMgr().ClearAllThreat();
+            me->GetThreatManager().ClearAllThreat();
             me->CombatStop(true);
             me->SetLootRecipient(nullptr);
 

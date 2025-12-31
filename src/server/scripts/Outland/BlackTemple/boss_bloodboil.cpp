@@ -207,7 +207,7 @@ class spell_gurtogg_eject : public SpellScript
     {
         PreventHitEffect(effIndex);
         if (Unit* target = GetHitUnit())
-            GetCaster()->GetThreatMgr().ModifyThreatByPercent(target, -20);
+            GetCaster()->GetThreatManager().ModifyThreatByPercent(target, -20);
     }
 
     void Register() override

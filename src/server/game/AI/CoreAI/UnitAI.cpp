@@ -135,10 +135,12 @@ SpellCastResult UnitAI::DoAddAuraToAllHostilePlayers(uint32 spellid)
 {
     if (me->IsInCombat())
     {
-        ThreatContainer::StorageType threatlist = me->GetThreatMgr().GetThreatList();
-        for (ThreatContainer::StorageType::const_iterator itr = threatlist.begin(); itr != threatlist.end(); ++itr)
+        for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
         {
-            if (Unit* unit = ObjectAccessor::GetUnit(*me, (*itr)->getUnitGuid()))
+            if (ref->IsOffline())
+                continue;
+
+            if (Unit* unit = ref->GetVictim())
             {
                 if (unit->IsPlayer())
                 {
@@ -146,8 +148,6 @@ SpellCastResult UnitAI::DoAddAuraToAllHostilePlayers(uint32 spellid)
                     return SPELL_CAST_OK;
                 }
             }
-            else
-                return SPELL_FAILED_BAD_TARGETS;
         }
     }
 
@@ -158,16 +158,16 @@ SpellCastResult UnitAI::DoCastToAllHostilePlayers(uint32 spellid, bool triggered
 {
     if (me->IsInCombat())
     {
-        ThreatContainer::StorageType threatlist = me->GetThreatMgr().GetThreatList();
-        for (ThreatContainer::StorageType::const_iterator itr = threatlist.begin(); itr != threatlist.end(); ++itr)
+        for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
         {
-            if (Unit* unit = ObjectAccessor::GetUnit(*me, (*itr)->getUnitGuid()))
+            if (ref->IsOffline())
+                continue;
+
+            if (Unit* unit = ref->GetVictim())
             {
                 if (unit->IsPlayer())
                     return me->CastSpell(unit, spellid, triggered);
             }
-            else
-                return SPELL_FAILED_BAD_TARGETS;
         }
     }
 
@@ -376,9 +376,9 @@ void UnitAI::FillAISpellInfo()
     }
 }
 
-ThreatMgr& UnitAI::GetThreatMgr()
+ThreatManager& UnitAI::GetThreatManager()
 {
-    return me->GetThreatMgr();
+    return me->GetThreatManager();
 }
 
 void UnitAI::SortByDistance(std::list<Unit*>& list, bool ascending)
@@ -466,7 +466,7 @@ bool NonTankTargetSelector::operator()(Unit const* target) const
     if (_playerOnly && !target->IsPlayer())
         return false;
 
-    if (Unit* currentVictim = _source->GetThreatMgr().GetCurrentVictim())
+    if (Unit* currentVictim = _source->GetThreatManager().GetLastVictim())
         return target != currentVictim;
 
     return target != _source->GetVictim();

@@ -230,7 +230,7 @@ struct npc_spark_of_ionar : public ScriptedAI
         {
             _events.Reset();
             me->SetSpeed(MOVE_RUN, 2.5f);
-            me->GetThreatMgr().ClearAllThreat();
+            me->GetThreatManager().ClearAllThreat();
             me->CombatStop(true);
             me->GetMotionMaster()->MoveTargetedHome();
             returning = true;

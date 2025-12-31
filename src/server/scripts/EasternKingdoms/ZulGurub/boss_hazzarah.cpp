@@ -81,16 +81,16 @@ struct boss_hazzarah : public BossAI
 
     bool CanAIAttack(Unit const* target) const override
     {
-        if (me->GetThreatMgr().GetThreatListSize() > 1)
+        if (me->GetThreatManager().GetThreatListSize() > 1)
         {
-            ThreatContainer::StorageType::const_iterator lastRef = me->GetThreatMgr().GetOnlineContainer().GetThreatList().end();
-            --lastRef;
-            if (Unit* lastTarget = (*lastRef)->getTarget())
+            // Check if target is the lowest threat (last in sorted list)
+            ThreatReference const* lowestRef = nullptr;
+            for (ThreatReference const* ref : me->GetThreatManager().GetSortedThreatList())
+                lowestRef = ref; // Last iteration will have the lowest threat target
+
+            if (lowestRef && lowestRef->GetVictim() != target)
             {
-                if (lastTarget != target)
-                {
-                    return !target->HasAura(SPELL_SLEEP);
-                }
+                return !target->HasAura(SPELL_SLEEP);
             }
         }
 

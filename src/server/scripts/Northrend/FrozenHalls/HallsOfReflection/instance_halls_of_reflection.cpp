@@ -523,7 +523,7 @@ public:
                             if (GetTeamIdInInstance() == TEAM_ALLIANCE)
                                 c->UpdateEntry(NPC_JAINA_PART2);
                         }
-                        c->GetThreatMgr().ClearAllThreat();
+                        c->GetThreatManager().ClearAllThreat();
                         c->CombatStop(true);
                         c->InterruptNonMeleeSpells(true);
                         c->GetMotionMaster()->Clear();
@@ -540,7 +540,7 @@ public:
                     }
                     if (Creature* c = instance->GetCreature(NPC_LichKingGUID))
                     {
-                        c->GetThreatMgr().ClearAllThreat();
+                        c->GetThreatManager().ClearAllThreat();
                         c->CombatStop(true);
                         c->InterruptNonMeleeSpells(true);
                         c->GetMotionMaster()->Clear();
@@ -883,7 +883,7 @@ public:
                 if (TrashActive[i])
                     if (Creature* c = instance->GetCreature(NPC_TrashGUID[i]))
                     {
-                        c->GetThreatMgr().ClearAllThreat();
+                        c->GetThreatManager().ClearAllThreat();
                         c->CombatStop(true);
                         c->InterruptNonMeleeSpells(true);
                         c->SetUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
@@ -1104,7 +1104,7 @@ public:
                             if (Creature* c = instance->GetCreature(NPC_LichKingGUID))
                             {
                                 c->SetUInt32Value(UNIT_NPC_EMOTESTATE, EMOTE_ONESHOT_NONE);
-                                c->GetThreatMgr().ClearAllThreat();
+                                c->GetThreatManager().ClearAllThreat();
                                 c->CombatStop(true);
                                 c->InterruptNonMeleeSpells(true);
                                 c->SetVisible(false);

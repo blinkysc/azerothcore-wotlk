@@ -699,14 +699,14 @@ public:
                             if (Creature* summon = ObjectAccessor::GetCreature(*me, *itr))
                             {
                                 summon->CombatStop(true);
-                                summon->GetThreatMgr().ClearAllThreat();
+                                summon->GetThreatManager().ClearAllThreat();
                                 summon->SetUnitFlag(UNIT_FLAG_NON_ATTACKABLE);
                                 summon->SetImmuneToAll(true);
                                 summon->SetReactState(REACT_PASSIVE);
                                 summon->GetMotionMaster()->Clear(false);
                             }
                         me->CombatStop(true);
-                        me->GetThreatMgr().ClearAllThreat();
+                        me->GetThreatManager().ClearAllThreat();
                         me->SetImmuneToAll(true);
                         me->SetReactState(REACT_PASSIVE);
                         me->GetMotionMaster()->Clear(false);

@@ -697,7 +697,7 @@ public:
                         me->SendMeleeAttackStop(me->GetVictim());
                         me->GetMotionMaster()->MovePoint(MI_POINT_PH_3_FIGHT_POSITION, CenterPos.GetPositionX(), CenterPos.GetPositionY(), CenterPos.GetPositionZ() - 5.0f, FORCED_MOVEMENT_RUN, 0.f, 0.f, true, true, MOTION_SLOT_ACTIVE, AnimTier::Fly);
 
-                        me->GetThreatMgr().ClearAllThreat(); // players on vehicle are unattackable -> leads to EnterEvadeMode() because target is not acceptable!
+                        me->GetThreatManager().ClearAllThreat(); // players on vehicle are unattackable -> leads to EnterEvadeMode() because target is not acceptable!
 
                         // mount players:
                         Map::PlayerList const& PlayerList = me->GetMap()->GetPlayers();

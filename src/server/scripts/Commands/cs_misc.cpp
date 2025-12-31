@@ -2877,7 +2877,7 @@ public:
         }
 
         playerTarget->CombatStop();
-        playerTarget->getHostileRefMgr().deleteReferences();
+        playerTarget->GetThreatManager().RemoveMeFromThreatLists();
         return true;
     }
 

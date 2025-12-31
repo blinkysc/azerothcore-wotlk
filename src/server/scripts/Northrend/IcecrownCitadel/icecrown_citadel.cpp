@@ -768,7 +768,7 @@ public:
                 _handledWP4 = false;
 
                 me->CombatStop();
-                me->GetThreatMgr().ClearAllThreat();
+                me->GetThreatManager().ClearAllThreat();
             }
         }
 
@@ -1762,15 +1762,26 @@ public:
                 Position myPos = me->GetPosition();
                 me->NearTeleportTo(c->GetPositionX(), c->GetPositionY(), c->GetPositionZ(), c->GetOrientation());
                 c->NearTeleportTo(myPos.GetPositionX(), myPos.GetPositionY(), myPos.GetPositionZ(), myPos.GetOrientation());
-                const ThreatContainer::StorageType me_tl = me->GetThreatMgr().GetThreatList();
-                const ThreatContainer::StorageType target_tl = c->GetThreatMgr().GetThreatList();
-                DoResetThreatList();
-                for (ThreatContainer::StorageType::const_iterator iter = target_tl.begin(); iter != target_tl.end(); ++iter)
-                    me->GetThreatMgr().AddThreat((*iter)->getTarget(), (*iter)->GetThreat());
 
-                c->GetThreatMgr().ResetAllThreat();
-                for (ThreatContainer::StorageType::const_iterator iter = me_tl.begin(); iter != me_tl.end(); ++iter)
-                    c->GetThreatMgr().AddThreat((*iter)->getTarget(), (*iter)->GetThreat());
+                // Store threat values before reset
+                std::vector<std::pair<Unit*, float>> myThreats;
+                std::vector<std::pair<Unit*, float>> targetThreats;
+
+                for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+                    if (Unit* victim = ref->GetVictim())
+                        myThreats.push_back({victim, ref->GetThreat()});
+
+                for (ThreatReference const* ref : c->GetThreatManager().GetUnsortedThreatList())
+                    if (Unit* victim = ref->GetVictim())
+                        targetThreats.push_back({victim, ref->GetThreat()});
+
+                DoResetThreatList();
+                for (auto const& pair : targetThreats)
+                    me->GetThreatManager().AddThreat(pair.first, pair.second);
+
+                c->GetThreatManager().ResetAllThreat();
+                for (auto const& pair : myThreats)
+                    c->GetThreatManager().AddThreat(pair.first, pair.second);
             }
         }
 

@@ -314,17 +314,17 @@ public:
                         }
 
                         std::vector<Unit*> targets;
-                        auto i = me->GetThreatMgr().GetThreatList().begin();
-                        for (; i != me->GetThreatMgr().GetThreatList().end(); ++i)
+                        auto i = me->GetThreatManager().GetUnsortedThreatList().begin();
+                        for (; i != me->GetThreatManager().GetUnsortedThreatList().end(); ++i)
                         {
-                            if ((*i)->getTarget()->IsPlayer())
+                            if ((*i)->GetVictim()->IsPlayer())
                             {
                                 bool inList = false;
                                 if (!blockList.empty())
                                 {
                                     for (GuidList::const_iterator itr = blockList.begin(); itr != blockList.end(); ++itr)
                                     {
-                                        if ((*i)->getTarget()->GetGUID() == *itr)
+                                        if ((*i)->GetVictim()->GetGUID() == *itr)
                                         {
                                             inList = true;
                                             break;
@@ -333,7 +333,7 @@ public:
                                 }
                                 if (!inList)
                                 {
-                                    targets.push_back((*i)->getTarget());
+                                    targets.push_back((*i)->GetVictim());
                                 }
                             }
                         }

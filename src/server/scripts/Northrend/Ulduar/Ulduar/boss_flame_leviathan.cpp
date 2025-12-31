@@ -1638,7 +1638,7 @@ class spell_pursue : public SpellScript
         if (!target || !caster)
             return;
 
-        caster->GetThreatMgr().ResetAllThreat();
+        caster->GetThreatManager().ResetAllThreat();
         caster->GetAI()->AttackStart(target);    // Chase target
         caster->AddThreat(target, 10000000.0f);
     }

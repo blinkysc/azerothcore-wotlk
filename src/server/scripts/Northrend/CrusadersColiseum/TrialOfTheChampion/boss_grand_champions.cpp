@@ -143,7 +143,6 @@ public:
         void Reset() override
         {
             me->SetReactState(REACT_PASSIVE);
-            me->getHostileRefMgr().setOnlineOfflineState(false);
         }
 
         void OnCharmed(bool apply) override
@@ -288,7 +287,7 @@ public:
                             uint8 rnd = LIST.size() > 1 ? urand(0, LIST.size() - 1) : 0;
                             if (Unit* target = ObjectAccessor::GetUnit(*me, LIST.at(rnd)))
                             {
-                                me->GetThreatMgr().ResetAllThreat();
+                                me->GetThreatManager().ResetAllThreat();
                                 me->AddThreat(target, 10000.0f);
                                 AttackStart(target);
                                 me->CastSpell(target, SPELL_MINIONS_CHARGE, false);
@@ -548,7 +547,7 @@ public:
                     me->SetReactState(REACT_PASSIVE);
                     me->RemoveAllAuras();
                     AddCreatureAddonAuras();
-                    me->GetThreatMgr().ClearAllThreat();
+                    me->GetThreatManager().ClearAllThreat();
                     me->CombatStop(true);
                     me->GetMotionMaster()->Clear();
                     me->StopMoving();
@@ -579,7 +578,7 @@ public:
                     me->SetReactState(REACT_PASSIVE);
                     me->RemoveAllAuras();
                     AddCreatureAddonAuras();
-                    me->GetThreatMgr().ClearAllThreat();
+                    me->GetThreatManager().ClearAllThreat();
                     me->CombatStop(true);
                     me->GetMotionMaster()->Clear();
                     me->SetRegeneratingHealth(false);
@@ -743,7 +742,7 @@ public:
                             uint8 rnd = LIST.size() > 1 ? urand(0, LIST.size() - 1) : 0;
                             if (Unit* target = ObjectAccessor::GetUnit(*me, LIST.at(rnd)))
                             {
-                                me->GetThreatMgr().ResetAllThreat();
+                                me->GetThreatManager().ResetAllThreat();
                                 me->AddThreat(target, 10000.0f);
                                 AttackStart(target);
                                 me->CastSpell(target, SPELL_MINIONS_CHARGE, false);

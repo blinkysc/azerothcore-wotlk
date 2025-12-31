@@ -2164,7 +2164,7 @@ void Player::SetInWater(bool apply)
     // remove auras that need water/land
     RemoveAurasWithInterruptFlags(apply ? AURA_INTERRUPT_FLAG_NOT_ABOVEWATER : AURA_INTERRUPT_FLAG_NOT_UNDERWATER);
 
-    getHostileRefMgr().updateThreatTables();
+    GetThreatManager().EvaluateSuppressed();
 
     if (InstanceScript* instance = GetInstanceScript())
         instance->OnPlayerInWaterStateUpdate(this, apply);
@@ -2206,7 +2206,6 @@ void Player::SetGameMaster(bool on)
         {
             if (GetSession()->IsGMAccount())
                 pet->SetFaction(FACTION_FRIENDLY);
-            pet->getHostileRefMgr().setOnlineOfflineState(false);
         }
         if (HasByteFlag(UNIT_FIELD_BYTES_2, 1, UNIT_BYTE2_FLAG_FFA_PVP))
         {
@@ -2215,7 +2214,6 @@ void Player::SetGameMaster(bool on)
         }
         ResetContestedPvP();
 
-        getHostileRefMgr().setOnlineOfflineState(false);
         CombatStopWithPets();
 
         SetPhaseMask(uint32(PHASEMASK_ANYWHERE), false);    // see and visible in all phases
@@ -2237,10 +2235,7 @@ void Player::SetGameMaster(bool on)
         RemoveUnitFlag2(UNIT_FLAG2_ALLOW_CHEAT_SPELLS);
 
         if (Pet* pet = GetPet())
-        {
             pet->SetFaction(GetFaction());
-            pet->getHostileRefMgr().setOnlineOfflineState(true);
-        }
 
         // restore FFA PvP Server state
         if (sWorld->IsFFAPvPRealm())
@@ -2254,7 +2249,6 @@ void Player::SetGameMaster(bool on)
         // restore FFA PvP area state, remove not allowed for GM mounts
         UpdateArea(m_areaUpdateId);
 
-        getHostileRefMgr().setOnlineOfflineState(true);
         SetServerSideVisibilityDetect(SERVERSIDE_VISIBILITY_GM, SEC_PLAYER);
     }
 
@@ -2271,7 +2265,6 @@ void Player::SetGMVisible(bool on)
         m_ExtraFlags &= ~PLAYER_EXTRA_GM_INVISIBLE;
         SetServerSideVisibility(SERVERSIDE_VISIBILITY_GM, SEC_PLAYER);
 
-        getHostileRefMgr().setOnlineOfflineState(false);
         CombatStopWithPets();
     }
     else
@@ -10398,7 +10391,6 @@ void Player::CleanupAfterTaxiFlight()
     m_taxi.ClearTaxiDestinations();        // not destinations, clear source node
     Dismount();
     RemoveUnitFlag(UNIT_FLAG_DISABLE_MOVE | UNIT_FLAG_TAXI_FLIGHT);
-    getHostileRefMgr().setOnlineOfflineState(true);
 }
 
 void Player::ContinueTaxiFlight()

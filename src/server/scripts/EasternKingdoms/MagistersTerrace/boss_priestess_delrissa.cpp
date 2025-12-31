@@ -233,16 +233,14 @@ struct boss_priestess_lackey_commonAI : public ScriptedAI
 
     void RecalculateThreat()
     {
-        ThreatContainer::StorageType const& tList = me->GetThreatMgr().GetThreatList();
-        for (auto const& ref : tList)
+        for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
         {
-            Unit* pUnit = ObjectAccessor::GetUnit(*me, ref->getUnitGuid());
-            if (pUnit && pUnit->IsPlayer() && me->GetThreatMgr().GetThreat(pUnit))
+            Unit* pUnit = ref->GetVictim();
+            if (pUnit && pUnit->IsPlayer() && me->GetThreatManager().GetThreat(pUnit))
             {
                 float threatMod = GetThreatMod(me->GetDistance2d(pUnit), (float)pUnit->GetArmor(), pUnit->GetHealth(), pUnit->GetMaxHealth(), pUnit);
-                me->GetThreatMgr().ModifyThreatByPercent(pUnit, -100);
-                if (HostileReference* ref = me->GetThreatMgr().GetOnlineContainer().getReferenceByTarget(pUnit))
-                    ref->AddThreat(10000000.0f * threatMod);
+                me->GetThreatManager().ResetThreat(pUnit);
+                me->GetThreatManager().AddThreat(pUnit, 10000000.0f * threatMod, nullptr, true, true);
             }
         }
     }

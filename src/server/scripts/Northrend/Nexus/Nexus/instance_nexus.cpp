@@ -197,7 +197,7 @@ struct npc_crystalline_frayer : public ScriptedAI
             if (!_allowDeath)
             {
                 me->RemoveAllAuras();
-                me->GetThreatMgr().ClearAllThreat();
+                me->GetThreatManager().ClearAllThreat();
                 me->CombatStop(true);
                 damage = 0;
 

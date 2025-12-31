@@ -135,8 +135,8 @@ void WorldSession::HandleMoveWorldportAck()
             _player->m_movementInfo.RemoveMovementFlag(MOVEMENTFLAG_ONTRANSPORT);
         }
 
-    if (!_player->getHostileRefMgr().IsEmpty())
-        _player->getHostileRefMgr().deleteReferences(true); // pussywizard: multithreading crashfix
+    if (_player->GetThreatManager().IsThreateningAnyone())
+        _player->GetThreatManager().RemoveMeFromThreatLists(); // pussywizard: multithreading crashfix
 
     CellCoord pair(Acore::ComputeCellCoord(GetPlayer()->GetPositionX(), GetPlayer()->GetPositionY()));
     Cell cell(pair);

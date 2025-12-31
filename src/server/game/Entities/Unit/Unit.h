@@ -22,7 +22,7 @@
 #include "EventProcessor.h"
 #include "FollowerRefMgr.h"
 #include "FollowerReference.h"
-#include "HostileRefMgr.h"
+#include "CombatManager.h"
 #include "ItemTemplate.h"
 #include "MotionMaster.h"
 #include "Object.h"
@@ -30,7 +30,7 @@
 #include "SharedDefines.h"
 #include "SpellAuraDefines.h"
 #include "SpellDefines.h"
-#include "ThreatMgr.h"
+#include "ThreatManager.h"
 #include "UnitDefines.h"
 #include "UnitUtils.h"
 #include <functional>
@@ -940,18 +940,17 @@ public:
     float ApplyTotalThreatModifier(float fThreat, SpellSchoolMask schoolMask = SPELL_SCHOOL_MASK_NORMAL);
     void TauntApply(Unit* victim);
     void TauntFadeOut(Unit* taunter);
-    ThreatMgr& GetThreatMgr() { return m_ThreatMgr; }
-    ThreatMgr const& GetThreatMgr() const { return m_ThreatMgr; }
-    void addHatedBy(HostileReference* pHostileReference) { m_HostileRefMgr.insertFirst(pHostileReference); };
-    void removeHatedBy(HostileReference* /*pHostileReference*/) { /* nothing to do yet */ }
-    HostileRefMgr& getHostileRefMgr() { return m_HostileRefMgr; }
 
-    // Redirect Threat
-    void SetRedirectThreat(ObjectGuid guid, uint32 pct) { _redirectThreatInfo.Set(guid, pct); }
-    void ResetRedirectThreat() { SetRedirectThreat(ObjectGuid::Empty, 0); }
-    void ModifyRedirectThreat(int32 amount) { _redirectThreatInfo.ModifyThreatPct(amount); }
-    uint32 GetRedirectThreatPercent() { return _redirectThreatInfo.GetThreatPct(); }
-    [[nodiscard]] Unit* GetRedirectThreatTarget() const;
+    // New ThreatManager/CombatManager accessors
+    ThreatManager& GetThreatManager() { return m_threatManager; }
+    ThreatManager const& GetThreatManager() const { return m_threatManager; }
+    CombatManager& GetCombatManager() { return m_combatManager; }
+    CombatManager const& GetCombatManager() const { return m_combatManager; }
+
+    // Combat state methods
+    [[nodiscard]] bool IsThreatened() const;
+    [[nodiscard]] bool IsThreatenedBy(Unit const* who) const { return who && m_threatManager.IsThreatenedBy(who, true); }
+    void UpdatePetCombatState();
 
     void SetLastDamagedTargetGuid(ObjectGuid const& guid) { _lastDamagedTargetGuid = guid; }
     [[nodiscard]] ObjectGuid const& GetLastDamagedTargetGuid() const { return _lastDamagedTargetGuid; }
@@ -2033,9 +2032,7 @@ public:
     void SendMovementFeatherFall(Player* sendTo);
     void SendMovementHover(Player* sendTo);
 
-    void SendChangeCurrentVictimOpcode(HostileReference* pHostileReference);
     void SendClearThreatListOpcode();
-    void SendRemoveFromThreatListOpcode(HostileReference* pHostileReference);
     void SendThreatListUpdate();
     void SendClearTarget();
 
@@ -2173,7 +2170,8 @@ protected:
     uint32 m_reactiveTimer[MAX_REACTIVE];
     int32 m_regenTimer;
 
-    ThreatMgr m_ThreatMgr;
+    ThreatManager m_threatManager;
+    CombatManager m_combatManager;
     typedef std::map<ObjectGuid, float> CharmThreatMap;
     CharmThreatMap _charmThreatInfo;
 
@@ -2218,16 +2216,12 @@ private:
     //TimeTrackerSmall m_movesplineTimer;
 
     Diminishing m_Diminishing;
-    // Manage all Units that are threatened by us
-    HostileRefMgr m_HostileRefMgr;
 
     FollowerRefMgr m_FollowingRefMgr;
 
     Unit* m_comboTarget;
     int8 m_comboPoints;
     std::unordered_set<Unit*> m_ComboPointHolders;
-
-    RedirectThreatInfo _redirectThreatInfo;
 
     bool m_cleanupDone; // lock made to not add stuff after cleanup before delete
     bool m_duringRemoveFromWorld; // lock made to not add stuff after begining removing from world

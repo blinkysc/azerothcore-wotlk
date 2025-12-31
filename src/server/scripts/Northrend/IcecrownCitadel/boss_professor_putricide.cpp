@@ -209,7 +209,7 @@ public:
 
     bool operator()(Unit const* target) const
     {
-        if (!me || !target || !target->IsPlayer() || target == me->GetThreatMgr().GetCurrentVictim())
+        if (!me || !target || !target->IsPlayer() || target == me->GetThreatManager().GetLastVictim())
             return false;
 
         if (me->IsWithinCombatRange(target, 7.0f))
@@ -1076,7 +1076,7 @@ class spell_putricide_ooze_channel : public SpellScript
     void StartAttack()
     {
         GetCaster()->ClearUnitState(UNIT_STATE_CASTING);
-        GetCaster()->GetThreatMgr().ClearAllThreat();
+        GetCaster()->GetThreatManager().ClearAllThreat();
         GetCaster()->ToCreature()->SetInCombatWithZone();
         GetCaster()->ToCreature()->AI()->AttackStart(GetHitUnit());
         GetCaster()->AddThreat(GetHitUnit(), 500000000.0f);    // value seen in sniff

@@ -146,7 +146,7 @@ void FollowerAI::JustRespawned()
 void FollowerAI::EnterEvadeMode(EvadeReason /*why*/)
 {
     me->RemoveAllAuras();
-    me->GetThreatMgr().ClearAllThreat();
+    me->GetThreatManager().ClearAllThreat();
     me->CombatStop(true);
     me->SetLootRecipient(nullptr);
 

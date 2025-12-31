@@ -253,8 +253,8 @@ bool TemporaryThreatModifierEvent::Execute(uint64 /*e_time*/, uint32 /*p_time*/)
     {
         if (m_owner.IsInCombatWith(victim))
         {
-            m_owner.GetThreatMgr().ModifyThreatByPercent(victim, -100); // Reset threat to zero.
-            m_owner.GetThreatMgr().AddThreat(victim, m_threatValue);  // Set to the previous value it had, first before modification.
+            m_owner.GetThreatManager().ModifyThreatByPercent(victim, -100); // Reset threat to zero.
+            m_owner.GetThreatManager().AddThreat(victim, m_threatValue);  // Set to the previous value it had, first before modification.
         }
     }
 
@@ -884,16 +884,23 @@ void Creature::Update(uint32 diff)
                             }
                         };
 
-                        if (GetThreatMgr().GetThreatListSize() <= 1)
+                        if (GetThreatManager().GetThreatListSize() <= 1)
                         {
                             EnterEvade();
                         }
                         else
                         {
-                            if (HostileReference* ref = GetThreatMgr().GetOnlineContainer().getReferenceByTarget(m_cannotReachTarget))
+                            if (Unit* target = ObjectAccessor::GetUnit(*this, m_cannotReachTarget))
                             {
-                                ref->removeReference();
-                                SetCannotReachTarget();
+                                if (GetThreatManager().IsThreatenedBy(target))
+                                {
+                                    GetThreatManager().ClearThreat(target);
+                                    SetCannotReachTarget();
+                                }
+                                else
+                                {
+                                    EnterEvade();
+                                }
                             }
                             else
                             {
@@ -3660,11 +3667,11 @@ void Creature::ModifyThreatPercentTemp(Unit* victim, int32 percent, Milliseconds
 {
     if (victim)
     {
-        float currentThreat = GetThreatMgr().GetThreat(victim);
+        float currentThreat = GetThreatManager().GetThreat(victim);
 
         if (percent != 0.0f)
         {
-            GetThreatMgr().ModifyThreatByPercent(victim, percent);
+            GetThreatManager().ModifyThreatByPercent(victim, percent);
         }
 
         TemporaryThreatModifierEvent* pEvent = new TemporaryThreatModifierEvent(*this, victim->GetGUID(), currentThreat);

@@ -249,10 +249,10 @@ class spell_mirkblood_dash_gash_return_to_tank_pre_spell : public SpellScript
 
     void HandleCast()
     {
-        if (!GetCaster() || !GetCaster()->GetThreatMgr().GetCurrentVictim())
+        if (!GetCaster() || !GetCaster()->GetThreatManager().GetCurrentVictim())
             return;
         // Probably wrong, maybe don't charge if would charge the same target?
-        if (GetCaster()->GetDistance2d(GetCaster()->GetThreatMgr().GetCurrentVictim()) < 5.0f)
+        if (GetCaster()->GetDistance2d(GetCaster()->GetThreatManager().GetCurrentVictim()) < 5.0f)
             return;
 
         GetCaster()->CastSpell(GetCaster()->GetVictim(), SPELL_DASH_GASH_RETURN_TO_TANK);
