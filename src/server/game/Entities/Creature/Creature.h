@@ -311,6 +311,10 @@ public:
 
     void SetInCombatWithZone();
 
+    // Engagement callbacks (called from CreatureAI::EngagementStart/EngagementOver)
+    void AtEngage(Unit* target) override;
+    void AtDisengage() override;
+
     [[nodiscard]] bool hasQuest(uint32 quest_id) const override;
     [[nodiscard]] bool hasInvolvedQuest(uint32 quest_id)  const override;
 

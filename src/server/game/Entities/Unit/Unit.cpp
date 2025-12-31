@@ -13985,6 +13985,7 @@ void Unit::ClearInCombat()
 {
     m_CombatTimer = 0;
     RemoveUnitFlag(UNIT_FLAG_IN_COMBAT);
+    GetCombatManager().EndAllCombat();
 
     // Player's state will be cleared in Player::UpdateContestedPvP
     if (Creature* creature = ToCreature())

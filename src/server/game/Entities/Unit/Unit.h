@@ -952,6 +952,10 @@ public:
     [[nodiscard]] bool IsThreatenedBy(Unit const* who) const { return who && m_threatManager.IsThreatenedBy(who, true); }
     void UpdatePetCombatState();
 
+    // Engagement callbacks - override in Creature for creature-specific behavior
+    virtual void AtEngage(Unit* /*target*/) {}
+    virtual void AtDisengage() {}
+
     void SetLastDamagedTargetGuid(ObjectGuid const& guid) { _lastDamagedTargetGuid = guid; }
     [[nodiscard]] ObjectGuid const& GetLastDamagedTargetGuid() const { return _lastDamagedTargetGuid; }
 

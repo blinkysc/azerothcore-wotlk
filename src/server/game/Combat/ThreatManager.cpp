@@ -448,6 +448,7 @@ void ThreatManager::AddThreat(Unit* target, float amount, SpellInfo const* spell
     if (it != _myThreatListEntries.end())
     {
         ThreatReference* const ref = it->second;
+
         // SUPPRESSED threat states don't go back to ONLINE until threat is caused by them (retail behavior)
         if (ref->GetOnlineState() == ThreatReference::ONLINE_STATE_SUPPRESSED)
             if (!ref->ShouldBeSuppressed())
@@ -458,6 +459,7 @@ void ThreatManager::AddThreat(Unit* target, float amount, SpellInfo const* spell
 
         if (ref->IsOnline())
             ref->AddThreat(amount);
+
         return;
     }
 
@@ -468,7 +470,10 @@ void ThreatManager::AddThreat(Unit* target, float amount, SpellInfo const* spell
 
     ref->UpdateOffline();
     if (ref->IsOnline()) // we only add the threat if the ref is currently available
+    {
+        RegisterForAIUpdate(target->GetGUID()); // notify AI that a new threatening unit was added
         ref->AddThreat(amount);
+    }
 
     if (!_currentVictimRef)
         UpdateVictim();
@@ -612,6 +617,7 @@ ThreatReference const* ThreatManager::ReselectVictim()
         oldVictimRef = nullptr;
     // in 99% of cases - we won't need to actually look at anything beyond the first element
     ThreatReference const* highest = _sortedThreatList->top();
+
     // if the highest reference is offline, the entire list is offline, and we indicate this
     if (!highest->IsAvailable())
         return nullptr;
@@ -651,8 +657,21 @@ ThreatReference const* ThreatManager::ReselectVictim()
 
 void ThreatManager::ProcessAIUpdates()
 {
-    // Clear the AI update list (the method names don't exist in AzerothCore's CreatureAI)
-    _needsAIUpdate.clear();
+    std::vector<ObjectGuid> updateList = std::move(_needsAIUpdate);
+    for (ObjectGuid const& guid : updateList)
+    {
+        auto it = _myThreatListEntries.find(guid);
+        if (it == _myThreatListEntries.end())
+            continue;
+
+        ThreatReference const* ref = it->second;
+        if (!ref->IsAvailable())
+            continue;
+
+        if (Creature* owner = _owner->ToCreature())
+            if (CreatureAI* ownerAI = owner->AI())
+                ownerAI->JustStartedThreateningMe(ref->GetVictim());
+    }
 }
 
 // returns true if a is LOWER on the threat list than b

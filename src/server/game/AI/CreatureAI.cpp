@@ -241,6 +241,37 @@ void CreatureAI::EnterEvadeMode(EvadeReason why)
     }
 }
 
+void CreatureAI::JustEnteredCombat(Unit* who)
+{
+    // Creatures without threat list use JustEnteredCombat to trigger engagement
+    if (!IsEngaged() && !me->CanHaveThreatList())
+        EngagementStart(who);
+}
+
+void CreatureAI::EngagementStart(Unit* who)
+{
+    if (_isEngaged)
+    {
+        LOG_ERROR("scripts.ai", "CreatureAI::EngagementStart called even though creature is already engaged. Creature debug info:\n{}", me->GetDebugInfo());
+        return;
+    }
+    _isEngaged = true;
+
+    me->AtEngage(who);
+}
+
+void CreatureAI::EngagementOver()
+{
+    if (!_isEngaged)
+    {
+        LOG_DEBUG("scripts.ai", "CreatureAI::EngagementOver called even though creature is not currently engaged. Creature debug info:\n{}", me->GetDebugInfo());
+        return;
+    }
+    _isEngaged = false;
+
+    me->AtDisengage();
+}
+
 /*void CreatureAI::AttackedBy(Unit* attacker)
 {
     if (!me->GetVictim())
@@ -299,8 +330,12 @@ bool CreatureAI::UpdateVictim()
 
 bool CreatureAI::_EnterEvadeMode(EvadeReason /*why*/)
 {
+    if (me->IsInEvadeMode())
+        return false;
+
     if (!me->IsAlive())
     {
+        EngagementOver();
         return false;
     }
 
@@ -321,14 +356,8 @@ bool CreatureAI::_EnterEvadeMode(EvadeReason /*why*/)
     if (ZoneScript* zoneScript = me->GetZoneScript() ? me->GetZoneScript() : (ZoneScript*)me->GetInstanceScript())
         zoneScript->OnCreatureEvade(me);
 
-    if (me->IsInEvadeMode())
-    {
-        return false;
-    }
-    else if (CreatureGroup* formation = me->GetFormation())
-    {
+    if (CreatureGroup* formation = me->GetFormation())
         formation->MemberEvaded(me);
-    }
 
     if (TempSummon* summon = me->ToTempSummon())
     {
@@ -344,6 +373,8 @@ bool CreatureAI::_EnterEvadeMode(EvadeReason /*why*/)
             }
         }
     }
+
+    EngagementOver();
 
     return true;
 }
