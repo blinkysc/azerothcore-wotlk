@@ -142,6 +142,20 @@ CombatManager::~CombatManager()
 
 void CombatManager::Update(uint32 tdiff)
 {
+    // Update evade timer
+    if (_evadeTimer)
+    {
+        if (_evadeTimer <= tdiff)
+        {
+            _evadeTimer = 0;
+            // Timer expired - trigger evade check via AI
+            if (UnitAI* ai = _owner->GetAI())
+                ai->EvadeTimerExpired();
+        }
+        else
+            _evadeTimer -= tdiff;
+    }
+
     auto it = _pvpRefs.begin(), end = _pvpRefs.end();
     while (it != end)
     {
@@ -405,4 +419,32 @@ bool CombatManager::UpdateOwnerCombatState() const
         master->UpdatePetCombatState();
 
     return true;
+}
+
+void CombatManager::SetEvadeState(EvadeState state)
+{
+    if (_evadeState == state)
+        return;
+
+    if (state == EVADE_STATE_NONE)
+        _evadeTimer = 0;
+
+    _evadeState = state;
+
+    // Propagate evade state to controlled units (pets, guardians, etc.)
+    if (!_owner->HasUnitFlag(UNIT_FLAG_PLAYER_CONTROLLED))
+    {
+        for (Unit* controlled : _owner->m_Controlled)
+            controlled->GetCombatManager().SetEvadeState(state);
+    }
+}
+
+void CombatManager::StopEvade()
+{
+    if (_evadeTimer)
+    {
+        _evadeTimer = 0;
+        return;
+    }
+    SetEvadeState(EVADE_STATE_NONE);
 }

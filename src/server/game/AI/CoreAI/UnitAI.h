@@ -352,10 +352,13 @@ public:
 
     /**
      * @brief Called when the unit leaves combat
-     *
-     * @todo Never invoked right now. Preparation for Combat Threat refactor
      */
     virtual void JustExitedCombat() { }
+
+    /**
+     * @brief Called when evade timer expires (target unreachable for too long)
+     */
+    virtual void EvadeTimerExpired();
 
     /// @brief Called at any Damage to any victim (before damage apply)
     virtual void DamageDealt(Unit* /*victim*/, uint32& /*damage*/, DamageEffectType /*damageType*/, SpellSchoolMask /*damageSchoolMask*/) {}

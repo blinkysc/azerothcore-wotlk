@@ -17,6 +17,7 @@
 
 #include "UnitAI.h"
 #include "Creature.h"
+#include "CreatureAI.h"
 #include "CreatureAIImpl.h"
 #include "Player.h"
 #include "Spell.h"
@@ -384,6 +385,13 @@ ThreatManager& UnitAI::GetThreatManager()
 void UnitAI::SortByDistance(std::list<Unit*>& list, bool ascending)
 {
     list.sort(Acore::ObjectDistanceOrderPred(me, ascending));
+}
+
+void UnitAI::EvadeTimerExpired()
+{
+    // Default: enter evade mode
+    if (CreatureAI* cai = dynamic_cast<CreatureAI*>(this))
+        cai->EnterEvadeMode(CreatureAI::EVADE_REASON_NO_PATH);
 }
 
 //Enable PlayerAI when charmed

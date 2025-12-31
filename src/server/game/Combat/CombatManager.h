@@ -15,25 +15,23 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-/*
- * Ported from TrinityCore with modifications for AzerothCore
- * Original authors:
- *   Treeston <treeston.mmoc@gmail.com> - Combat/Threat system rewrite (PR #19930)
- *   Shauren <shauren.trinity@gmail.com>
- *   Spp <spp@jorge.gr>
- *
- * EvadeState ported from CMangos:
- *   killerwife <killerwife@gmail.com>
- */
-
 #ifndef ACORE_COMBATMANAGER_H
 #define ACORE_COMBATMANAGER_H
 
 #include "Common.h"
 #include "ObjectGuid.h"
+#include "Position.h"
+#include <functional>
 #include <unordered_map>
 
 class Unit;
+
+enum EvadeState : uint8
+{
+    EVADE_STATE_NONE   = 0, // Not evading
+    EVADE_STATE_COMBAT = 1, // In combat evade (target unreachable in dungeon)
+    EVADE_STATE_HOME   = 2, // Running home after combat ends
+};
 
 /********************************************************************************************************************************************************\
  *                                                           DEV DOCUMENTATION: COMBAT SYSTEM                                                           *
@@ -108,11 +106,31 @@ class AC_GAME_API CombatManager
 public:
     static bool CanBeginCombat(Unit const* a, Unit const* b);
 
-    CombatManager(Unit* owner) : _owner(owner) { }
+    static constexpr uint32 EVADE_TIMER_DURATION = 10 * IN_MILLISECONDS;
+    static constexpr uint32 EVADE_REGEN_DELAY = 5 * IN_MILLISECONDS;
+    static constexpr uint32 DEFAULT_PURSUIT_TIME = 15 * IN_MILLISECONDS;
+
+    CombatManager(Unit* owner) : _owner(owner), _evadeState(EVADE_STATE_NONE), _evadeTimer(0),
+        _leashingDisabled(false), _leashingCheck(nullptr) { }
     ~CombatManager();
     void Update(uint32 tdiff); // called from Unit::Update
 
     Unit* GetOwner() const { return _owner; }
+
+    // Evade state handling
+    EvadeState GetEvadeState() const { return _evadeState; }
+    void SetEvadeState(EvadeState state);
+    bool IsEvadingHome() const { return _evadeState == EVADE_STATE_HOME; }
+    bool IsInEvadeMode() const { return _evadeTimer > 0 || _evadeState != EVADE_STATE_NONE; }
+    bool IsEvadeRegen() const { return (_evadeTimer > 0 && _evadeTimer <= EVADE_REGEN_DELAY) || _evadeState != EVADE_STATE_NONE; }
+    void StartEvadeTimer() { _evadeTimer = EVADE_TIMER_DURATION; }
+    void StopEvade();
+
+    // Leashing - prevents creatures from chasing too far
+    bool IsLeashingDisabled() const { return _leashingDisabled; }
+    void SetLeashingDisabled(bool disabled) { _leashingDisabled = disabled; }
+    void SetLeashingCheck(std::function<bool(Unit*, float, float, float)> check) { _leashingCheck = check; }
+
     bool HasCombat() const { return HasPvECombat() || HasPvPCombat(); }
     bool HasPvECombat() const;
     bool HasPvECombatWithPlayers() const;
@@ -144,6 +162,10 @@ private:
     void PurgeReference(ObjectGuid const& guid, bool pvp);
     bool UpdateOwnerCombatState() const;
     Unit* const _owner;
+    EvadeState _evadeState;
+    uint32 _evadeTimer;
+    bool _leashingDisabled;
+    std::function<bool(Unit*, float, float, float)> _leashingCheck;
     std::unordered_map<ObjectGuid, CombatReference*> _pveRefs;
     std::unordered_map<ObjectGuid, PvPCombatReference*> _pvpRefs;
 
