@@ -64,6 +64,7 @@
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 // Forward declarations
@@ -699,10 +700,15 @@ public:
     };
     VictimInfo GetVictimCellAware(WorldObject* attacker);
 
+    // Phase 7A: Cell-managed object tracking
+    bool IsCellManaged(WorldObject* obj) const;
+    bool IsCellManagedByGuid(uint64_t guid) const;
+
     // Stats
     [[nodiscard]] size_t GetActiveCellCount() const { return _activeCells.size(); }
     [[nodiscard]] size_t GetGhostCount() const { return _entityGhostInfo.size(); }
     [[nodiscard]] size_t GetMigratingCount() const { return _entityMigrations.size(); }
+    [[nodiscard]] size_t GetCellManagedCount() const { return _cellManagedObjects.size(); }
 
 private:
     static uint32_t MakeCellId(uint32_t cellX, uint32_t cellY)
@@ -741,6 +747,9 @@ private:
     // Phase 4: Migration tracking per entity
     std::unordered_map<uint64_t, EntityMigrationInfo> _entityMigrations;
     std::atomic<uint64_t> _nextMigrationId{1};
+
+    // Phase 7A: Cell-managed objects (GameObjects updated by cells)
+    std::unordered_set<uint64_t> _cellManagedObjects;
 };
 
 } // namespace GhostActor
