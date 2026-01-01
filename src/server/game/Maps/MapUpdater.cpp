@@ -16,175 +16,118 @@
  */
 
 #include "MapUpdater.h"
-#include "DatabaseEnv.h"
 #include "LFGMgr.h"
 #include "Log.h"
 #include "Map.h"
 #include "MapMgr.h"
 #include "Metric.h"
 
-class UpdateRequest
+MapUpdater::MapUpdater()
+    : _pool(nullptr)
+    , _pendingTasks(0)
+    , _activated(false)
 {
-public:
-    UpdateRequest() = default;
-    virtual ~UpdateRequest() = default;
+}
 
-    virtual void call() = 0;
-};
-
-class MapUpdateRequest : public UpdateRequest
+MapUpdater::~MapUpdater()
 {
-public:
-    MapUpdateRequest(Map& m, MapUpdater& u, uint32 d, uint32 sd)
-        : m_map(m), m_updater(u), m_diff(d), s_diff(sd)
-    {
-    }
-
-    void call() override
-    {
-        METRIC_TIMER("map_update_time_diff", METRIC_TAG("map_id", std::to_string(m_map.GetId())));
-        m_map.Update(m_diff, s_diff);
-        m_updater.update_finished();
-    }
-
-private:
-    Map& m_map;
-    MapUpdater& m_updater;
-    uint32 m_diff;
-    uint32 s_diff;
-};
-
-class MapPreloadRequest : public UpdateRequest
-{
-public:
-    MapPreloadRequest(uint32 mapId, MapUpdater& updater)
-        : _mapId(mapId), _updater(updater)
-    {
-    }
-
-    void call() override
-    {
-        Map* map = sMapMgr->CreateBaseMap(_mapId);
-        LOG_INFO("server.loading", ">> Loading All Grids For Map {} ({})", map->GetId(), map->GetMapName());
-        map->LoadAllGrids();
-        _updater.update_finished();
-    }
-
-private:
-    uint32 _mapId;
-    MapUpdater& _updater;
-};
-
-class LFGUpdateRequest : public UpdateRequest
-{
-public:
-    LFGUpdateRequest(MapUpdater& u, uint32 d) : m_updater(u), m_diff(d) {}
-
-    void call() override
-    {
-        sLFGMgr->Update(m_diff, 1);
-        m_updater.update_finished();
-    }
-private:
-    MapUpdater& m_updater;
-    uint32 m_diff;
-};
-
-MapUpdater::MapUpdater() : pending_requests(0), _cancelationToken(false)
-{
+    deactivate();
 }
 
 void MapUpdater::activate(std::size_t num_threads)
 {
-    _workerThreads.reserve(num_threads);
-    for (std::size_t i = 0; i < num_threads; ++i)
-    {
-        _workerThreads.push_back(std::thread(&MapUpdater::WorkerThread, this));
-    }
+    if (_activated)
+        return;
+
+    _pool = std::make_unique<WorkStealingPool>(num_threads);
+    _activated = true;
 }
 
 void MapUpdater::deactivate()
 {
-    _cancelationToken = true;
+    if (!_activated)
+        return;
 
-    wait();  // This is where we wait for tasks to complete
+    wait();
 
-    _queue.Cancel();  // Cancel the queue to prevent further task processing
-
-    // Join all worker threads
-    for (auto& thread : _workerThreads)
-    {
-        if (thread.joinable())
-        {
-            thread.join();
-        }
-    }
-}
-
-void MapUpdater::wait()
-{
-    std::unique_lock<std::mutex> guard(_lock);  // Guard lock for safe waiting
-
-    // Wait until there are no pending requests
-    _condition.wait(guard, [this] {
-        return pending_requests.load(std::memory_order_acquire) == 0;
-    });
-}
-
-void MapUpdater::schedule_task(UpdateRequest* request)
-{
-    // Atomic increment for pending_requests
-    pending_requests.fetch_add(1, std::memory_order_release);
-    _queue.Push(request);
-}
-
-void MapUpdater::schedule_update(Map& map, uint32 diff, uint32 s_diff)
-{
-    schedule_task(new MapUpdateRequest(map, *this, diff, s_diff));
-}
-
-void MapUpdater::schedule_map_preload(uint32 mapid)
-{
-    schedule_task(new MapPreloadRequest(mapid, *this));
-}
-
-void MapUpdater::schedule_lfg_update(uint32 diff)
-{
-    schedule_task(new LFGUpdateRequest(*this, diff));
+    _pool->Shutdown();
+    _pool.reset();
+    _activated = false;
 }
 
 bool MapUpdater::activated()
 {
-    return !_workerThreads.empty();
+    return _activated;
 }
 
-void MapUpdater::update_finished()
+void MapUpdater::wait()
 {
-    // Atomic decrement for pending_requests
-    if (pending_requests.fetch_sub(1, std::memory_order_acquire) == 1)
+    if (!_pool)
+        return;
+
+    // Spin-wait with backoff - NO LOCKS
+    uint32 spinCount = 0;
+
+    while (_pendingTasks.load(std::memory_order_acquire) > 0)
     {
-        // Only notify when pending_requests becomes 0 (i.e., all tasks are finished)
-        std::lock_guard<std::mutex> lock(_lock);  // Lock only for condition variable notification
-        _condition.notify_all();  // Notify waiting threads that all requests are complete
-    }
-}
-
-void MapUpdater::WorkerThread()
-{
-    LoginDatabase.WarnAboutSyncQueries(true);
-    CharacterDatabase.WarnAboutSyncQueries(true);
-    WorldDatabase.WarnAboutSyncQueries(true);
-
-    while (!_cancelationToken)
-    {
-        UpdateRequest* request = nullptr;
-
-        _queue.WaitAndPop(request);  // Wait for and pop a request from the queue
-
-        if (!_cancelationToken && request)
+        if (spinCount < 64)
         {
-            request->call();  // Execute the request
-            delete request;  // Clean up after processing
+            #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+                __builtin_ia32_pause();
+            #else
+                std::atomic_signal_fence(std::memory_order_seq_cst);
+            #endif
+            ++spinCount;
+        }
+        else
+        {
+            std::this_thread::yield();
         }
     }
+}
+
+void MapUpdater::schedule_update(Map& map, uint32 diff, uint32 s_diff)
+{
+    if (!_activated)
+        return;
+
+    _pendingTasks.fetch_add(1, std::memory_order_release);
+
+    // Use map ID for worker affinity - same map ID goes to same worker
+    // This improves cache locality
+    size_t workerIndex = map.GetId() % _pool->NumWorkers();
+
+    _pool->SubmitToWorker(workerIndex, [this, &map, diff, s_diff]() {
+        METRIC_TIMER("map_update_time_diff", METRIC_TAG("map_id", std::to_string(map.GetId())));
+        map.Update(diff, s_diff);
+        _pendingTasks.fetch_sub(1, std::memory_order_release);
+    });
+}
+
+void MapUpdater::schedule_map_preload(uint32 mapId)
+{
+    if (!_activated)
+        return;
+
+    _pendingTasks.fetch_add(1, std::memory_order_release);
+
+    _pool->Submit([this, mapId]() {
+        Map* map = sMapMgr->CreateBaseMap(mapId);
+        LOG_INFO("server.loading", ">> Loading All Grids For Map {} ({})", map->GetId(), map->GetMapName());
+        map->LoadAllGrids();
+        _pendingTasks.fetch_sub(1, std::memory_order_release);
+    });
+}
+
+void MapUpdater::schedule_lfg_update(uint32 diff)
+{
+    if (!_activated)
+        return;
+
+    _pendingTasks.fetch_add(1, std::memory_order_release);
+
+    _pool->Submit([this, diff]() {
+        sLFGMgr->Update(diff, 1);
+        _pendingTasks.fetch_sub(1, std::memory_order_release);
+    });
 }
