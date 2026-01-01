@@ -229,6 +229,15 @@ public:
     void AddEntity(WorldObject* obj);
     void RemoveEntity(WorldObject* obj);
 
+    // Find entity by GUID (returns nullptr if not found in this cell)
+    WorldObject* FindEntityByGuid(uint64_t guid) const;
+
+    // Get all entities (for iteration)
+    const std::vector<WorldObject*>& GetEntities() const { return _entities; }
+
+    // Get owning map
+    Map* GetMap() const { return _map; }
+
     uint32_t GetCellId() const { return _cellId; }
     bool HasWork() const { return !_entities.empty() || !_inbox.Empty(); }
 

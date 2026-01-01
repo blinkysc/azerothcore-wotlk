@@ -21,6 +21,9 @@
 #include "Log.h"
 #include "Map.h"
 #include "Object.h"
+#include "ObjectAccessor.h"
+#include "Player.h"
+#include "ThreatMgr.h"
 #include "Unit.h"
 #include "WorkStealingPool.h"
 #include <thread>
@@ -238,11 +241,49 @@ void CellActor::HandleMessage(ActorMessage& msg)
                     _cellId, payload->attackerGuid, payload->victimGuid,
                     payload->threatDelta, payload->isNewThreat, payload->isRemoval);
 
-                // TODO: When parallel updates enabled:
-                // 1. Find victim Unit* in _entities by GUID
-                // 2. If isNewThreat, add to victim's HostileRefMgr
-                // 3. If isRemoval, remove from victim's HostileRefMgr
-                // 4. Otherwise, update threat value
+                // Find the attacker (creature) in this cell - threat list is on the creature
+                WorldObject* attackerObj = FindEntityByGuid(payload->attackerGuid);
+                if (!attackerObj)
+                {
+                    LOG_DEBUG("server.ghost", "CellActor[{}]: THREAT_UPDATE - attacker {} not found in this cell",
+                        _cellId, payload->attackerGuid);
+                    break;
+                }
+
+                Creature* creature = attackerObj->ToCreature();
+                if (!creature)
+                {
+                    LOG_DEBUG("server.ghost", "CellActor[{}]: THREAT_UPDATE - attacker {} is not a creature",
+                        _cellId, payload->attackerGuid);
+                    break;
+                }
+
+                // We need to find the victim to apply threat
+                // First check local entities
+                WorldObject* victimObj = FindEntityByGuid(payload->victimGuid);
+                Unit* victim = victimObj ? victimObj->ToUnit() : nullptr;
+
+                // If victim not in this cell, try to get it via map
+                if (!victim && _map)
+                {
+                    victim = ObjectAccessor::GetUnit(*creature, ObjectGuid(payload->victimGuid));
+                }
+
+                if (victim)
+                {
+                    if (payload->isRemoval)
+                    {
+                        creature->GetThreatMgr().ModifyThreatByPercent(victim, -100);
+                        LOG_DEBUG("server.ghost", "CellActor[{}]: Removed threat for victim {} from creature {}",
+                            _cellId, payload->victimGuid, payload->attackerGuid);
+                    }
+                    else
+                    {
+                        creature->GetThreatMgr().AddThreat(victim, payload->threatDelta);
+                        LOG_DEBUG("server.ghost", "CellActor[{}]: Added {:.1f} threat for victim {} to creature {}",
+                            _cellId, payload->threatDelta, payload->victimGuid, payload->attackerGuid);
+                    }
+                }
             }
             break;
         }
@@ -258,12 +299,51 @@ void CellActor::HandleMessage(ActorMessage& msg)
                     payload->creatureX, payload->creatureY, payload->creatureZ,
                     payload->maxRange);
 
-                // TODO: When parallel updates enabled:
-                // 1. Iterate players in _entities
-                // 2. Check distance to creature position
-                // 3. For each eligible player within range:
-                //    - Send COMBAT_INITIATED message back to creature's cell
-                //    - Include player GUID and initial threat
+                float rangeSq = payload->maxRange * payload->maxRange;
+
+                // Iterate players/units in this cell
+                for (WorldObject* entity : _entities)
+                {
+                    if (!entity || !entity->IsInWorld())
+                        continue;
+
+                    // Only process players for zone-in-combat
+                    Player* player = entity->ToPlayer();
+                    if (!player || !player->IsAlive())
+                        continue;
+
+                    // Check distance
+                    float dx = player->GetPositionX() - payload->creatureX;
+                    float dy = player->GetPositionY() - payload->creatureY;
+                    float dz = player->GetPositionZ() - payload->creatureZ;
+                    float distSq = dx * dx + dy * dy + dz * dz;
+
+                    if (distSq <= rangeSq)
+                    {
+                        // Send COMBAT_INITIATED back to creature's cell
+                        auto responsePayload = std::make_shared<CombatInitiatedPayload>();
+                        responsePayload->entityGuid = player->GetGUID().GetRawValue();
+                        responsePayload->attackerGuid = payload->creatureGuid;
+                        responsePayload->threatAmount = payload->initialThreat;
+
+                        ActorMessage responseMsg;
+                        responseMsg.type = MessageType::COMBAT_INITIATED;
+                        responseMsg.sourceGuid = player->GetGUID().GetRawValue();
+                        responseMsg.targetGuid = payload->creatureGuid;
+                        responseMsg.sourceCellId = _cellId;
+                        responseMsg.targetCellId = payload->creatureCellId;
+                        responseMsg.complexPayload = responsePayload;
+
+                        // Route via map's CellActorManager
+                        if (_map && _map->GetCellActorManager())
+                        {
+                            _map->GetCellActorManager()->SendMessage(payload->creatureCellId, std::move(responseMsg));
+                        }
+
+                        LOG_DEBUG("server.ghost", "CellActor[{}]: Player {} within range, sending COMBAT_INITIATED to cell {}",
+                            _cellId, player->GetGUID().GetRawValue(), payload->creatureCellId);
+                    }
+                }
             }
             break;
         }
@@ -277,10 +357,30 @@ void CellActor::HandleMessage(ActorMessage& msg)
                 LOG_DEBUG("server.ghost", "CellActor[{}]: COMBAT_INITIATED entity={} entered combat with attacker={} threat={:.1f}",
                     _cellId, payload->entityGuid, payload->attackerGuid, payload->threatAmount);
 
-                // TODO: When parallel updates enabled:
-                // 1. Find attacker Creature* in _entities by GUID
-                // 2. Add entity to creature's threat list (via ghost reference)
-                // 3. Update creature combat state if needed
+                // Find the creature (attacker) in this cell
+                WorldObject* attackerObj = FindEntityByGuid(payload->attackerGuid);
+                if (!attackerObj)
+                {
+                    LOG_DEBUG("server.ghost", "CellActor[{}]: COMBAT_INITIATED - creature {} not found in this cell",
+                        _cellId, payload->attackerGuid);
+                    break;
+                }
+
+                Creature* creature = attackerObj->ToCreature();
+                if (!creature || !creature->IsAlive())
+                    break;
+
+                // Find the entity (player) that entered combat
+                Unit* entity = ObjectAccessor::GetUnit(*creature, ObjectGuid(payload->entityGuid));
+                if (!entity || !entity->IsAlive())
+                    break;
+
+                // Set creature in combat and add threat
+                creature->SetInCombatWith(entity);
+                creature->GetThreatMgr().AddThreat(entity, payload->threatAmount);
+
+                LOG_DEBUG("server.ghost", "CellActor[{}]: Creature {} now in combat with entity {}, initial threat {:.1f}",
+                    _cellId, payload->attackerGuid, payload->entityGuid, payload->threatAmount);
             }
             break;
         }
@@ -348,6 +448,16 @@ void CellActor::RemoveEntity(WorldObject* obj)
         std::swap(*it, _entities.back());
         _entities.pop_back();
     }
+}
+
+WorldObject* CellActor::FindEntityByGuid(uint64_t guid) const
+{
+    for (WorldObject* entity : _entities)
+    {
+        if (entity && entity->GetGUID().GetRawValue() == guid)
+            return entity;
+    }
+    return nullptr;
 }
 
 // ============================================================================
