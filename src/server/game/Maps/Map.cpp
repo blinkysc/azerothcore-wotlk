@@ -145,6 +145,10 @@ void Map::AddToGrid(GameObject* obj, Cell const& cell)
         grid->AddFarVisibleObject(cell.CellX(), cell.CellY(), obj);
 
     obj->SetCurrentCell(cell);
+
+    // Phase 7A: Add to cell actor manager for cell-based updates
+    if (_cellActorManager)
+        _cellActorManager->OnEntityAdded(obj);
 }
 
 template<>
@@ -546,6 +550,13 @@ void Map::UpdateNonPlayerObjects(uint32 const diff)
                 continue;
             }
 
+            // Phase 7A: Skip cell-managed GameObjects (updated by CellActor)
+            if (_cellActorManager && _cellActorManager->IsCellManaged(obj))
+            {
+                ++i;
+                continue;
+            }
+
             obj->Update(diff);
 
             if (!obj->IsUpdateNeeded())
@@ -565,6 +576,10 @@ void Map::UpdateNonPlayerObjects(uint32 const diff)
         {
             WorldObject* obj = _updatableObjectList[i];
             if (!obj->IsInWorld())
+                continue;
+
+            // Phase 7A: Skip cell-managed GameObjects (updated by CellActor)
+            if (_cellActorManager && _cellActorManager->IsCellManaged(obj))
                 continue;
 
             obj->Update(diff);
@@ -736,6 +751,10 @@ void Map::AfterPlayerUnlinkFromMap()
 template<class T>
 void Map::RemoveFromMap(T* obj, bool remove)
 {
+    // Phase 7A: Remove from cell actor manager (only affects GameObjects)
+    if (_cellActorManager)
+        _cellActorManager->OnEntityRemoved(obj);
+
     obj->RemoveFromWorld();
 
     obj->RemoveFromGrid();

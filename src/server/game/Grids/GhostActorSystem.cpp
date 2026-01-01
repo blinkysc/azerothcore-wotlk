@@ -17,6 +17,7 @@
 
 #include "GhostActorSystem.h"
 #include "Creature.h"
+#include "GameObject.h"
 #include "Log.h"
 #include "Map.h"
 #include "Object.h"
@@ -303,16 +304,21 @@ void CellActor::HandleMessage(ActorMessage& msg)
     }
 }
 
-void CellActor::UpdateEntities(uint32_t /*diff*/)
+void CellActor::UpdateEntities(uint32_t diff)
 {
-    // For now, entities are still updated via the existing Map::Update path
-    // This will be changed when we fully integrate with the grid system
-    //
-    // Future: Each entity's Update() will be called here
-    // for (WorldObject* entity : _entities)
-    // {
-    //     entity->Update(diff);
-    // }
+    // Phase 7A: Update GameObjects in this cell
+    for (WorldObject* entity : _entities)
+    {
+        if (!entity || !entity->IsInWorld())
+            continue;
+
+        // Only update GameObjects for now (Phase 7A)
+        // Creatures have more complex cross-cell dependencies
+        if (GameObject* go = entity->ToGameObject())
+        {
+            go->Update(diff);
+        }
+    }
 }
 
 void CellActor::AddEntity(WorldObject* obj)
@@ -465,6 +471,12 @@ void CellActorManager::OnEntityAdded(WorldObject* obj)
 
     CellActor* cell = GetOrCreateCellActor(cellX, cellY);
     cell->AddEntity(obj);
+
+    // Phase 7A: Track GameObjects as cell-managed
+    if (obj->IsGameObject())
+    {
+        _cellManagedObjects.insert(obj->GetGUID().GetRawValue());
+    }
 }
 
 void CellActorManager::OnEntityRemoved(WorldObject* obj)
@@ -477,6 +489,12 @@ void CellActorManager::OnEntityRemoved(WorldObject* obj)
     if (cell)
     {
         cell->RemoveEntity(obj);
+    }
+
+    // Phase 7A: Remove from cell-managed tracking
+    if (obj->IsGameObject())
+    {
+        _cellManagedObjects.erase(obj->GetGUID().GetRawValue());
     }
 }
 
@@ -1322,6 +1340,23 @@ CellActorManager::VictimInfo CellActorManager::GetVictimCellAware(WorldObject* a
         attacker->GetGUID().GetRawValue(), attackerCellId);
 
     return result;
+}
+
+// ============================================================================
+// Phase 7A: Cell-Managed Object Tracking
+// ============================================================================
+
+bool CellActorManager::IsCellManaged(WorldObject* obj) const
+{
+    if (!obj)
+        return false;
+
+    return IsCellManagedByGuid(obj->GetGUID().GetRawValue());
+}
+
+bool CellActorManager::IsCellManagedByGuid(uint64_t guid) const
+{
+    return _cellManagedObjects.find(guid) != _cellManagedObjects.end();
 }
 
 } // namespace GhostActor
