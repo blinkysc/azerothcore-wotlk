@@ -467,7 +467,8 @@ void Map::Update(const uint32 t_diff, const uint32 s_diff, bool  /*thread*/)
             session->Update(s_diff, updater);
 
             // update players at tick
-            if (!t_diff)
+            // Phase 7H: Skip cell-managed players (they update in CellActorManager)
+            if (!t_diff && !player->IsCellManaged())
                 player->Update(s_diff);
         }
     }
@@ -491,7 +492,9 @@ void Map::Update(const uint32 t_diff, const uint32 s_diff, bool  /*thread*/)
         if (!player || !player->IsInWorld())
             continue;
 
-        player->Update(s_diff);
+        // Phase 7H: Skip cell-managed players (they update in CellActorManager)
+        if (!player->IsCellManaged())
+            player->Update(s_diff);
 
         if (_updatableObjectListRecheckTimer.Passed())
         {
@@ -561,7 +564,8 @@ void Map::UpdateNonPlayerObjects(uint32 const diff)
                 continue;
             }
 
-            // Phase 7A: Skip cell-managed GameObjects (updated by CellActor)
+            // Phase 7A/7F: Skip cell-managed objects (updated by CellActor)
+            // GameObjects always, Creatures when parallel updates enabled
             if (_cellActorManager && _cellActorManager->IsCellManaged(obj))
             {
                 ++i;
@@ -589,7 +593,7 @@ void Map::UpdateNonPlayerObjects(uint32 const diff)
             if (!obj->IsInWorld())
                 continue;
 
-            // Phase 7A: Skip cell-managed GameObjects (updated by CellActor)
+            // Phase 7A/7F: Skip cell-managed objects (updated by CellActor)
             if (_cellActorManager && _cellActorManager->IsCellManaged(obj))
                 continue;
 

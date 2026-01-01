@@ -788,10 +788,15 @@ private:
 
     // Phase 7A: Cell-managed flag for parallel updates
     bool _isCellManaged{false};
+    // Phase 7H: Cross-cell effect deferral flag for parallel updates
+    bool _deferCrossCellEffects{false};
 
 public:
     [[nodiscard]] bool IsCellManaged() const { return _isCellManaged; }
     void SetCellManaged(bool managed) { _isCellManaged = managed; }
+    // Phase 7H: When true, cross-cell effects queue as messages instead of direct execution
+    [[nodiscard]] bool IsDeferringCrossCellEffects() const { return _deferCrossCellEffects; }
+    void SetDeferCrossCellEffects(bool defer) { _deferCrossCellEffects = defer; }
 };
 
 namespace Acore

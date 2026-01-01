@@ -121,7 +121,7 @@ void CreatureAI::DoZoneInCombat(Creature* creature /*= nullptr*/, float maxRange
     }
 
     // Phase 6D: Use cell-aware version when enabled for parallel performance
-    if (sWorld->getBoolConfig(CONFIG_CELL_AWARE_THREAT_ENABLED))
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
     {
         GhostActor::CellActorManager* cellMgr = map->GetCellActorManager();
         if (cellMgr)

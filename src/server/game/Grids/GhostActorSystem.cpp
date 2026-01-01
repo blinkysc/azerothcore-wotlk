@@ -17,6 +17,7 @@
 
 #include "GhostActorSystem.h"
 #include "Creature.h"
+#include "CreatureAI.h"
 #include "GameObject.h"
 #include "Log.h"
 #include "Map.h"
@@ -26,6 +27,7 @@
 #include "ThreatMgr.h"
 #include "Unit.h"
 #include "WorkStealingPool.h"
+#include "World.h"
 #include <thread>
 
 namespace GhostActor
@@ -40,9 +42,12 @@ void CellActor::Update(uint32_t diff)
     _lastUpdateTime += diff;
 
     // 1. Process all incoming messages first
+    // Phase 7E: This includes deferred messages from parallel AI (previous tick)
+    // Messages queued during this tick's parallel AI will be processed next tick
     ProcessMessages();
 
     // 2. Update all entities owned by this cell
+    // Phase 7E: When ParallelAI.Enable is on, AI runs here with deferred cross-cell effects
     UpdateEntities(diff);
 }
 
@@ -385,6 +390,74 @@ void CellActor::HandleMessage(ActorMessage& msg)
             break;
         }
 
+        // Phase 7E: Assistance request for parallel AI
+        case MessageType::ASSISTANCE_REQUEST:
+        {
+            if (msg.complexPayload)
+            {
+                auto payload = std::static_pointer_cast<AssistanceRequestPayload>(msg.complexPayload);
+                LOG_DEBUG("server.ghost", "CellActor[{}]: ASSISTANCE_REQUEST from caller={} target={} at ({:.1f},{:.1f},{:.1f}) radius={:.1f}",
+                    _cellId, payload->callerGuid, payload->targetGuid,
+                    payload->callerX, payload->callerY, payload->callerZ,
+                    payload->radius);
+
+                float radiusSq = payload->radius * payload->radius;
+
+                // Find the caller creature to use CanAssistTo check
+                // First try local entities, then use ObjectAccessor with a reference object
+                Creature* callerCreature = nullptr;
+                WorldObject* callerObj = FindEntityByGuid(payload->callerGuid);
+                if (callerObj)
+                {
+                    callerCreature = callerObj->ToCreature();
+                }
+
+                // Iterate creatures in this cell
+                for (WorldObject* entity : _entities)
+                {
+                    if (!entity || !entity->IsInWorld())
+                        continue;
+
+                    Creature* assistant = entity->ToCreature();
+                    if (!assistant || !assistant->IsAlive())
+                        continue;
+
+                    // Skip caller itself
+                    if (assistant->GetGUID().GetRawValue() == payload->callerGuid)
+                        continue;
+
+                    // Check distance from caller position
+                    float dx = assistant->GetPositionX() - payload->callerX;
+                    float dy = assistant->GetPositionY() - payload->callerY;
+                    float dz = assistant->GetPositionZ() - payload->callerZ;
+                    float distSq = dx * dx + dy * dy + dz * dz;
+
+                    if (distSq > radiusSq)
+                        continue;
+
+                    // Find the target to attack using this assistant as reference
+                    Unit* target = ObjectAccessor::GetUnit(*assistant, ObjectGuid(payload->targetGuid));
+                    if (!target || !target->IsAlive())
+                        continue;
+
+                    // Check if can assist (faction, etc) - requires caller creature
+                    if (callerCreature && !assistant->CanAssistTo(callerCreature, target))
+                        continue;
+
+                    // Start combat - similar to original CallAssistance flow
+                    assistant->SetNoCallAssistance(true);
+                    if (assistant->IsAIEnabled && assistant->AI())
+                    {
+                        assistant->AI()->AttackStart(target);
+                    }
+
+                    LOG_DEBUG("server.ghost", "CellActor[{}]: Creature {} assisting caller {} against target {}",
+                        _cellId, assistant->GetGUID().GetRawValue(), payload->callerGuid, payload->targetGuid);
+                }
+            }
+            break;
+        }
+
         case MessageType::TARGET_SWITCH:
         {
             // AI changed target - update ghost tracking
@@ -408,6 +481,8 @@ void CellActor::HandleMessage(ActorMessage& msg)
 
 void CellActor::UpdateEntities(uint32_t diff)
 {
+    bool parallelUpdatesEnabled = sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED);
+
     // Phase 7A/7B: Update GameObjects and creature regeneration in this cell
     for (WorldObject* entity : _entities)
     {
@@ -420,10 +495,30 @@ void CellActor::UpdateEntities(uint32_t diff)
         }
         else if (Creature* creature = entity->ToCreature())
         {
-            // Phase 7B: Regeneration is safe for parallel execution
-            creature->UpdateRegeneration(diff);
-            // Phase 7D: Timer decrements are safe (callbacks handled centrally)
-            creature->UpdateTimersParallel(diff);
+            // Phase 7F: Full parallel creature update
+            if (parallelUpdatesEnabled)
+            {
+                // UpdateParallel sets deferral flag, runs full Update(), clears flag
+                // Cross-cell effects (assistance, threat, spells) queue as messages
+                creature->UpdateParallel(diff);
+            }
+            else
+            {
+                // Fallback: just regen and timers (AI runs in Map::Update)
+                creature->UpdateRegeneration(diff);
+                creature->UpdateTimersParallel(diff);
+            }
+        }
+        else if (Player* player = entity->ToPlayer())
+        {
+            // Phase 7H: Full parallel player update
+            if (parallelUpdatesEnabled)
+            {
+                // UpdateParallel sets deferral flag, runs full Update(), clears flag
+                // Cross-cell effects (group updates) queue as messages
+                player->UpdateParallel(diff);
+            }
+            // Note: No fallback for players - they run in Map::Update() if not parallelized
         }
     }
 }
@@ -623,6 +718,16 @@ void CellActorManager::OnEntityAdded(WorldObject* obj)
     {
         obj->SetCellManaged(true);
     }
+    // Phase 7F: Mark Creatures as cell-managed when parallel updates enabled
+    else if (obj->ToCreature() && sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
+    {
+        obj->SetCellManaged(true);
+    }
+    // Phase 7H: Mark Players as cell-managed when parallel updates enabled
+    else if (obj->ToPlayer() && sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
+    {
+        obj->SetCellManaged(true);
+    }
 }
 
 void CellActorManager::OnEntityRemoved(WorldObject* obj)
@@ -639,6 +744,16 @@ void CellActorManager::OnEntityRemoved(WorldObject* obj)
 
     // Phase 7A: Clear cell-managed flag
     if (obj->IsGameObject())
+    {
+        obj->SetCellManaged(false);
+    }
+    // Phase 7F: Clear cell-managed flag for Creatures
+    else if (obj->ToCreature())
+    {
+        obj->SetCellManaged(false);
+    }
+    // Phase 7H: Clear cell-managed flag for Players
+    else if (obj->ToPlayer())
     {
         obj->SetCellManaged(false);
     }
@@ -912,6 +1027,37 @@ void CellActorManager::DestroyGhostInCell(uint32_t cellId, uint64_t guid)
     msg.sourceGuid = guid;
     msg.targetCellId = cellId;
     SendMessage(cellId, std::move(msg));
+}
+
+void CellActorManager::DestroyAllGhostsForEntity(uint64_t guid)
+{
+    // Phase 7G: Destroy all ghosts for an entity (used on despawn/corpse removal)
+    auto it = _entityGhostInfo.find(guid);
+    if (it == _entityGhostInfo.end())
+        return;
+
+    EntityGhostInfo& info = it->second;
+    uint32_t homeCellId = info.homeCellId;
+
+    // Destroy ghost in each active neighbor direction
+    static const NeighborFlags directions[] = {
+        NeighborFlags::NORTH, NeighborFlags::SOUTH,
+        NeighborFlags::EAST, NeighborFlags::WEST,
+        NeighborFlags::NORTH_EAST, NeighborFlags::NORTH_WEST,
+        NeighborFlags::SOUTH_EAST, NeighborFlags::SOUTH_WEST
+    };
+
+    for (NeighborFlags dir : directions)
+    {
+        if (static_cast<uint8_t>(info.activeGhosts) & static_cast<uint8_t>(dir))
+        {
+            uint32_t neighborCellId = GhostBoundary::GetNeighborCellId(homeCellId, dir);
+            DestroyGhostInCell(neighborCellId, guid);
+        }
+    }
+
+    // Clear ghost info
+    _entityGhostInfo.erase(it);
 }
 
 // ============================================================================
@@ -1362,6 +1508,52 @@ void CellActorManager::BroadcastAggroRequest(WorldObject* creature, float maxRan
         msg.type = MessageType::AGGRO_REQUEST;
         msg.sourceGuid = creatureGuid;
         msg.sourceCellId = creatureCellId;
+        msg.targetCellId = cellId;
+        msg.complexPayload = payload;
+
+        SendMessage(cellId, std::move(msg));
+    }
+}
+
+// ============================================================================
+// Phase 7E: Parallel AI Integration
+// ============================================================================
+
+void CellActorManager::BroadcastAssistanceRequest(WorldObject* caller, uint64_t targetGuid, float radius)
+{
+    if (!caller)
+        return;
+
+    float x = caller->GetPositionX();
+    float y = caller->GetPositionY();
+    float z = caller->GetPositionZ();
+
+    uint32_t callerCellId = GetCellIdForEntity(caller);
+    uint64_t callerGuid = caller->GetGUID().GetRawValue();
+
+    // Get all cells within the assistance radius
+    std::vector<uint32_t> nearbyCells = GetCellsInRadius(x, y, radius);
+
+    LOG_DEBUG("server.ghost", "CellActorManager::BroadcastAssistanceRequest: caller={} target={} at ({:.1f},{:.1f}) radius={:.1f} cells={}",
+        callerGuid, targetGuid, x, y, radius, nearbyCells.size());
+
+    // Send ASSISTANCE_REQUEST to each nearby cell
+    for (uint32_t cellId : nearbyCells)
+    {
+        auto payload = std::make_shared<AssistanceRequestPayload>();
+        payload->callerGuid = callerGuid;
+        payload->targetGuid = targetGuid;
+        payload->callerCellId = callerCellId;
+        payload->callerX = x;
+        payload->callerY = y;
+        payload->callerZ = z;
+        payload->radius = radius;
+
+        ActorMessage msg;
+        msg.type = MessageType::ASSISTANCE_REQUEST;
+        msg.sourceGuid = callerGuid;
+        msg.targetGuid = targetGuid;
+        msg.sourceCellId = callerCellId;
         msg.targetCellId = cellId;
         msg.complexPayload = payload;
 
