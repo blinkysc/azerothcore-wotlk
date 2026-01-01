@@ -242,9 +242,10 @@ private:
 // ============================================================================
 
 // Ghost visibility threshold - entities within this distance of grid boundary
-// need ghosts in neighboring grids
+// Phase 5: Using actual 66-yard cells instead of 533-yard grids
 constexpr float GHOST_VISIBILITY_DISTANCE = 250.0f;  // MAX_VISIBILITY_DISTANCE
-constexpr float GRID_SIZE = 533.3333f;               // SIZE_OF_GRIDS
+constexpr float CELL_SIZE = 66.6666f;                // SIZE_OF_GRIDS / MAX_NUMBER_OF_CELLS
+constexpr float CENTER_CELL_OFFSET = 256.0f;         // 512 cells / 2
 
 // Flags for which neighbor grids need ghosts
 enum class NeighborFlags : uint8_t
@@ -344,48 +345,31 @@ struct EntityGhostInfo
 namespace GhostBoundary
 {
     /**
-     * @brief Get position within current grid cell (0 to GRID_SIZE)
+     * @brief Get position within current cell (0 to CELL_SIZE)
      */
-    inline void GetPositionInGrid(float worldX, float worldY, float& gridLocalX, float& gridLocalY)
+    inline void GetPositionInCell(float worldX, float worldY, float& cellLocalX, float& cellLocalY)
     {
-        // Convert to grid-local coordinates
-        constexpr float kCenterGridOffset = 32.0f;
-        float gridFloatX = kCenterGridOffset - (worldX / GRID_SIZE);
-        float gridFloatY = kCenterGridOffset - (worldY / GRID_SIZE);
+        // Convert to cell-local coordinates (Phase 5: 66-yard cells)
+        float cellFloatX = CENTER_CELL_OFFSET - (worldX / CELL_SIZE);
+        float cellFloatY = CENTER_CELL_OFFSET - (worldY / CELL_SIZE);
 
-        // Get fractional part (position within grid)
-        gridLocalX = (gridFloatX - std::floor(gridFloatX)) * GRID_SIZE;
-        gridLocalY = (gridFloatY - std::floor(gridFloatY)) * GRID_SIZE;
+        // Get fractional part (position within cell)
+        cellLocalX = (cellFloatX - std::floor(cellFloatX)) * CELL_SIZE;
+        cellLocalY = (cellFloatY - std::floor(cellFloatY)) * CELL_SIZE;
     }
 
     /**
-     * @brief Determine which neighbor grids need ghosts based on position
+     * @brief Determine which neighbor cells need ghosts based on position
+     *
+     * Phase 5: With 66-yard cells and 250-yard visibility, entities are always
+     * within visibility distance of all 8 neighbors (66 < 250). So we always
+     * return ALL neighbors for ghost propagation.
      */
-    inline NeighborFlags GetNeighborsNeedingGhosts(float worldX, float worldY)
+    inline NeighborFlags GetNeighborsNeedingGhosts([[maybe_unused]] float worldX, [[maybe_unused]] float worldY)
     {
-        float localX, localY;
-        GetPositionInGrid(worldX, worldY, localX, localY);
-
-        NeighborFlags flags = NeighborFlags::NONE;
-
-        // Check distance to each boundary
-        bool nearNorth = (GRID_SIZE - localY) < GHOST_VISIBILITY_DISTANCE;
-        bool nearSouth = localY < GHOST_VISIBILITY_DISTANCE;
-        bool nearEast  = (GRID_SIZE - localX) < GHOST_VISIBILITY_DISTANCE;
-        bool nearWest  = localX < GHOST_VISIBILITY_DISTANCE;
-
-        if (nearNorth) flags = flags | NeighborFlags::NORTH;
-        if (nearSouth) flags = flags | NeighborFlags::SOUTH;
-        if (nearEast)  flags = flags | NeighborFlags::EAST;
-        if (nearWest)  flags = flags | NeighborFlags::WEST;
-
-        // Corners
-        if (nearNorth && nearEast) flags = flags | NeighborFlags::NORTH_EAST;
-        if (nearNorth && nearWest) flags = flags | NeighborFlags::NORTH_WEST;
-        if (nearSouth && nearEast) flags = flags | NeighborFlags::SOUTH_EAST;
-        if (nearSouth && nearWest) flags = flags | NeighborFlags::SOUTH_WEST;
-
-        return flags;
+        // With 66-yard cells and 250-yard visibility, every entity is visible
+        // from all 8 neighboring cells. Always create ghosts in all neighbors.
+        return NeighborFlags::ALL;
     }
 
     /**
@@ -393,23 +377,23 @@ namespace GhostBoundary
      */
     inline uint32_t GetNeighborCellId(uint32_t cellId, NeighborFlags direction)
     {
-        uint32_t gridX = cellId & 0xFFFF;
-        uint32_t gridY = cellId >> 16;
+        uint32_t cellX = cellId & 0xFFFF;
+        uint32_t cellY = cellId >> 16;
 
         switch (direction)
         {
-            case NeighborFlags::NORTH:      gridY++; break;
-            case NeighborFlags::SOUTH:      gridY--; break;
-            case NeighborFlags::EAST:       gridX++; break;
-            case NeighborFlags::WEST:       gridX--; break;
-            case NeighborFlags::NORTH_EAST: gridX++; gridY++; break;
-            case NeighborFlags::NORTH_WEST: gridX--; gridY++; break;
-            case NeighborFlags::SOUTH_EAST: gridX++; gridY--; break;
-            case NeighborFlags::SOUTH_WEST: gridX--; gridY--; break;
+            case NeighborFlags::NORTH:      cellY++; break;
+            case NeighborFlags::SOUTH:      cellY--; break;
+            case NeighborFlags::EAST:       cellX++; break;
+            case NeighborFlags::WEST:       cellX--; break;
+            case NeighborFlags::NORTH_EAST: cellX++; cellY++; break;
+            case NeighborFlags::NORTH_WEST: cellX--; cellY++; break;
+            case NeighborFlags::SOUTH_EAST: cellX++; cellY--; break;
+            case NeighborFlags::SOUTH_WEST: cellX--; cellY--; break;
             default: break;
         }
 
-        return (gridY << 16) | gridX;
+        return (cellY << 16) | cellX;
     }
 }
 
@@ -559,15 +543,15 @@ public:
     [[nodiscard]] size_t GetMigratingCount() const { return _entityMigrations.size(); }
 
 private:
-    static uint32_t MakeCellId(uint32_t gridX, uint32_t gridY)
+    static uint32_t MakeCellId(uint32_t cellX, uint32_t cellY)
     {
-        return (gridY << 16) | gridX;
+        return (cellY << 16) | cellX;
     }
 
-    static void ExtractCellCoords(uint32_t cellId, uint32_t& gridX, uint32_t& gridY)
+    static void ExtractCellCoords(uint32_t cellId, uint32_t& cellX, uint32_t& cellY)
     {
-        gridX = cellId & 0xFFFF;
-        gridY = cellId >> 16;
+        cellX = cellId & 0xFFFF;
+        cellY = cellId >> 16;
     }
 
     // Ghost lifecycle helpers
