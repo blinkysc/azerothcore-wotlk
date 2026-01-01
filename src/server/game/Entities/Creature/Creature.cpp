@@ -26,6 +26,7 @@
 #include "Formulas.h"
 #include "GameEventMgr.h"
 #include "GameTime.h"
+#include "GhostActorSystem.h"
 #include "GridNotifiers.h"
 #include "Group.h"
 #include "GroupMgr.h"
@@ -396,6 +397,15 @@ void Creature::RemoveCorpse(bool setSpawnTime, bool skipVisibility)
     if (getDeathState() != DeathState::Corpse)
         return;
 
+    // Phase 7G: Destroy all ghosts before removing corpse
+    if (Map* map = GetMap())
+    {
+        if (GhostActor::CellActorManager* cellMgr = map->GetCellActorManager())
+        {
+            cellMgr->DestroyAllGhostsForEntity(GetGUID().GetRawValue());
+        }
+    }
+
     m_corpseRemoveTime = GameTime::GetGameTime().count();
     setDeathState(DeathState::Dead);
     RemoveAllAuras();
@@ -652,6 +662,15 @@ bool Creature::UpdateEntry(uint32 Entry, const CreatureData* data, bool changele
     }
 
     return true;
+}
+
+void Creature::UpdateParallel(uint32 diff)
+{
+    // Phase 7F: Full parallel update with deferred cross-cell effects
+    // When deferral is enabled, cross-cell operations queue messages instead of direct execution
+    SetDeferCrossCellEffects(true);
+    Update(diff);
+    SetDeferCrossCellEffects(false);
 }
 
 void Creature::Update(uint32 diff)
@@ -2210,6 +2229,14 @@ void Creature::Respawn(bool force)
         m_last_notify_position.Relocate(-5000.0f, -5000.0f, -5000.0f, 0.0f);
         UpdateObjectVisibility(false);
 
+        // Phase 7G: Create ghosts in neighboring cells after respawn
+        if (Map* map = GetMap())
+        {
+            if (GhostActor::CellActorManager* cellMgr = map->GetCellActorManager())
+            {
+                cellMgr->UpdateEntityGhosts(this);
+            }
+        }
     }
     else   // the master is dead
     {
@@ -2517,6 +2544,22 @@ void Creature::CallAssistance(Unit* target /*= nullptr*/)
 
         if (radius > 0)
         {
+            // Phase 7E: Use message-based assistance when deferring cross-cell effects
+            if (IsDeferringCrossCellEffects())
+            {
+                Map* map = GetMap();
+                if (map)
+                {
+                    GhostActor::CellActorManager* cellMgr = map->GetCellActorManager();
+                    if (cellMgr)
+                    {
+                        cellMgr->BroadcastAssistanceRequest(this, target->GetGUID().GetRawValue(), radius);
+                        return;
+                    }
+                }
+            }
+
+            // Original synchronous path
             std::list<Creature*> assistList;
 
             Acore::AnyAssistCreatureInRangeCheck u_check(this, target, radius);

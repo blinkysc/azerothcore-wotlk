@@ -69,6 +69,7 @@ public:
     [[nodiscard]] ObjectGuid::LowType GetSpawnId() const { return m_spawnId; }
 
     void Update(uint32 time) override;  // overwrited Unit::Update
+    void UpdateParallel(uint32 diff);  // Phase 7F: Full parallel update with deferred cross-cell effects
     void UpdateRegeneration(uint32 diff);  // Phase 7B: Parallel-safe regeneration
     void UpdateTimersParallel(uint32 diff);  // Phase 7D: Parallel-safe timer updates
     void GetRespawnPosition(float& x, float& y, float& z, float* ori = nullptr, float* dist = nullptr) const;
@@ -321,6 +322,7 @@ public:
     bool isRegeneratingHealth() { return m_regenHealth; }
     void SetRegeneratingHealth(bool enable) { m_regenHealth = enable; }
     void SetRegeneratingPower(bool enable) { m_regenPower = enable; }
+
     [[nodiscard]] virtual uint8 GetPetAutoSpellSize() const { return MAX_SPELL_CHARM; }
     [[nodiscard]] virtual uint32 GetPetAutoSpellOnPos(uint8 pos) const
     {

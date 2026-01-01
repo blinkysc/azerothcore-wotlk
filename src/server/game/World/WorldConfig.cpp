@@ -675,8 +675,7 @@ void WorldConfig::BuildConfigCache()
 
     SetConfigValue<std::string>(CONFIG_NEW_CHAR_STRING, "PlayerStart.String", "");
 
-    // Phase 6D: Cell-aware threat system
-    // When enabled, DoZoneInCombat and threat operations use cell-based message passing
-    // for cross-cell interactions, improving parallel update performance.
-    SetConfigValue<bool>(CONFIG_CELL_AWARE_THREAT_ENABLED, "CellAwareThreat.Enable", false);
+    // Ghost Actor System: Parallel entity updates
+    // Enables cell-aware threat, parallel AI, and message-based cross-cell operations.
+    SetConfigValue<bool>(CONFIG_PARALLEL_UPDATES_ENABLED, "ParallelUpdates.Enable", false);
 }

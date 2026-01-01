@@ -119,6 +119,9 @@ enum class MessageType : uint8_t
     AGGRO_REQUEST,        // Request nearby entities enter combat
     COMBAT_INITIATED,     // Confirm combat started with entity
     TARGET_SWITCH,        // AI changed its target
+
+    // Phase 7E: Parallel AI messages
+    ASSISTANCE_REQUEST,   // Request assistance from creatures in this cell
 };
 
 struct ActorMessage
@@ -626,6 +629,23 @@ struct CombatInitiatedPayload
 };
 
 /**
+ * @brief Payload for ASSISTANCE_REQUEST message (Phase 7E)
+ *
+ * Sent when a creature needs assistance from nearby creatures.
+ * Each cell finds local creatures that can assist and queues them.
+ */
+struct AssistanceRequestPayload
+{
+    uint64_t callerGuid{0};     // Creature requesting help
+    uint64_t targetGuid{0};     // Target to attack
+    uint32_t callerCellId{0};   // Home cell of caller
+    float callerX{0.0f};        // Position for range check
+    float callerY{0.0f};
+    float callerZ{0.0f};
+    float radius{0.0f};         // Assistance radius
+};
+
+/**
  * @brief Payload for TARGET_SWITCH message
  *
  * Sent when a creature's AI switches target, allowing ghosts
@@ -671,6 +691,7 @@ public:
     void OnEntityHealthChanged(WorldObject* obj, uint32_t health, uint32_t maxHealth);
     void OnEntityCombatStateChanged(WorldObject* obj, bool inCombat);
     void BroadcastToGhosts(uint64_t guid, const ActorMessage& msg);
+    void DestroyAllGhostsForEntity(uint64_t guid);  // Phase 7G: Clear all ghosts on despawn
 
     // Phase 4: Cell Migration
     void CheckAndInitiateMigration(WorldObject* obj, float oldX, float oldY);
@@ -691,6 +712,9 @@ public:
     std::vector<uint32_t> GetCellsInRadius(float x, float y, float radius) const;
     void DoZoneInCombatCellAware(WorldObject* creature, float maxRange);
     void BroadcastAggroRequest(WorldObject* creature, float maxRange, float initialThreat);
+
+    // Phase 7E: Parallel AI integration
+    void BroadcastAssistanceRequest(WorldObject* caller, uint64_t targetGuid, float radius);
 
     // Phase 6D-3: Cell-aware threat management
     // These methods route threat operations through messages when targets are in different cells

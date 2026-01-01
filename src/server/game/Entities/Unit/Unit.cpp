@@ -37,6 +37,7 @@
 #include "Errors.h"
 #include "GameObjectAI.h"
 #include "GameTime.h"
+#include "GhostActorSystem.h"
 #include "GridNotifiersImpl.h"
 #include "Group.h"
 #include "Log.h"
@@ -13947,6 +13948,15 @@ void Unit::SetInCombatState(bool PvP, Unit* enemy, uint32 duration)
 
     SetUnitFlag(UNIT_FLAG_IN_COMBAT);
 
+    // Phase 7G: Notify ghost system of combat state change
+    if (Map* map = GetMap())
+    {
+        if (GhostActor::CellActorManager* cellMgr = map->GetCellActorManager())
+        {
+            cellMgr->OnEntityCombatStateChanged(this, true);
+        }
+    }
+
     if (Creature* creature = ToCreature())
     {
         // Set home position at place of engaging combat for escorted creatures
@@ -14005,6 +14015,15 @@ void Unit::ClearInCombat()
 {
     m_CombatTimer = 0;
     RemoveUnitFlag(UNIT_FLAG_IN_COMBAT);
+
+    // Phase 7G: Notify ghost system of combat state change
+    if (Map* map = GetMap())
+    {
+        if (GhostActor::CellActorManager* cellMgr = map->GetCellActorManager())
+        {
+            cellMgr->OnEntityCombatStateChanged(this, false);
+        }
+    }
 
     // Player's state will be cleared in Player::UpdateContestedPvP
     if (Creature* creature = ToCreature())
@@ -14325,6 +14344,18 @@ int32 Unit::ModifyHealth(int32 dVal)
     {
         SetHealth(maxHealth);
         gain = maxHealth - curHealth;
+    }
+
+    // Phase 7G: Notify ghost system of health changes
+    if (gain != 0)
+    {
+        if (Map* map = GetMap())
+        {
+            if (GhostActor::CellActorManager* cellMgr = map->GetCellActorManager())
+            {
+                cellMgr->OnEntityHealthChanged(this, GetHealth(), GetMaxHealth());
+            }
+        }
     }
 
     return gain;

@@ -1119,6 +1119,7 @@ public:
     bool Create(ObjectGuid::LowType guidlow, CharacterCreateInfo* createInfo);
 
     void Update(uint32 time) override;
+    void UpdateParallel(uint32 diff);  // Phase 7H: Full parallel update with deferred cross-cell effects
 
     PlayerFlags GetPlayerFlags() const { return PlayerFlags(GetUInt32Value(PLAYER_FLAGS)); }
     bool HasPlayerFlag(PlayerFlags flags) const { return HasFlag(PLAYER_FLAGS, flags) != 0; }

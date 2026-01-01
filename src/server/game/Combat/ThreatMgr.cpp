@@ -18,6 +18,7 @@
 #include "ThreatMgr.h"
 #include "Creature.h"
 #include "CreatureAI.h"
+#include "GhostActorSystem.h"
 #include "Map.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
@@ -512,6 +513,22 @@ void ThreatMgr::AddThreat(Unit* victim, float threat, SpellSchoolMask schoolMask
         if (hatingCreature->IsAIEnabled)
         {
             hatingCreature->AI()->CalculateThreat(victim, threat, threatSpell);
+        }
+
+        // Phase 7E: Use cell-aware path when deferring cross-cell effects
+        if (hatingCreature->IsDeferringCrossCellEffects())
+        {
+            Map* map = hatingCreature->GetMap();
+            if (map)
+            {
+                GhostActor::CellActorManager* cellMgr = map->GetCellActorManager();
+                if (cellMgr && !cellMgr->AreInSameCell(hatingCreature, victim))
+                {
+                    // Cross-cell threat - queue message instead of direct modification
+                    cellMgr->AddThreatCellAware(hatingCreature, victim, threat);
+                    return;
+                }
+            }
         }
     }
 

@@ -490,8 +490,8 @@ enum ServerConfigs
     CONFIG_NEW_CHAR_STRING,
     CONFIG_VALIDATE_SKILL_LEARNED_BY_SPELLS,
 
-    // Phase 6D: Cell-aware threat system
-    CONFIG_CELL_AWARE_THREAT_ENABLED,
+    // Ghost Actor System: Parallel entity updates
+    CONFIG_PARALLEL_UPDATES_ENABLED,
 
     MAX_NUM_SERVER_CONFIGS
 };
