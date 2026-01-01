@@ -74,6 +74,10 @@ class Map;
 namespace GhostActor
 {
 
+// Forward declarations within namespace
+class GhostEntity;
+struct GhostSnapshot;
+
 // ============================================================================
 // PHASE 2: Cell Actor Message Types
 // ============================================================================
@@ -233,8 +237,8 @@ private:
     MPSCQueue<ActorMessage> _inbox;
     std::vector<WorldObject*> _entities;  // Entities owned by this cell
 
-    // Ghost tracking
-    std::unordered_map<uint64_t, WorldObject*> _ghosts;  // Ghosts visible in this cell
+    // Ghost tracking - read-only projections of entities in neighboring cells
+    std::unordered_map<uint64_t, std::unique_ptr<GhostEntity>> _ghosts;
 };
 
 // ============================================================================
