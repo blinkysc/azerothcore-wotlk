@@ -22,6 +22,8 @@
 #include "Map.h"
 #include "Object.h"
 #include "Unit.h"
+#include "WorkStealingPool.h"
+#include <thread>
 
 namespace GhostActor
 {
@@ -306,17 +308,21 @@ void CellActor::HandleMessage(ActorMessage& msg)
 
 void CellActor::UpdateEntities(uint32_t diff)
 {
-    // Phase 7A: Update GameObjects in this cell
+    // Phase 7A/7B: Update GameObjects and creature regeneration in this cell
     for (WorldObject* entity : _entities)
     {
         if (!entity || !entity->IsInWorld())
             continue;
 
-        // Only update GameObjects for now (Phase 7A)
-        // Creatures have more complex cross-cell dependencies
         if (GameObject* go = entity->ToGameObject())
         {
             go->Update(diff);
+        }
+        else if (Creature* creature = entity->ToCreature())
+        {
+            // Phase 7B: Only regeneration is safe for parallel execution
+            // AI, combat, threat management remain centralized in Map::Update
+            creature->UpdateRegeneration(diff);
         }
     }
 }
@@ -434,13 +440,42 @@ CellActor* CellActorManager::GetCellActorForPosition(float x, float y)
 
 void CellActorManager::Update(uint32_t diff)
 {
-    // Update all active cell actors
-    // In the future, these could be submitted to the work-stealing pool
+    if (!_workPool || _activeCells.empty())
+    {
+        // No pool available - sequential fallback
+        for (CellActor* cell : _activeCells)
+        {
+            if (cell->HasWork())
+            {
+                cell->Update(diff);
+            }
+        }
+        return;
+    }
+
+    // Phase 7C: Parallel cell updates with task tagging
+    // Submit cell updates as CELL type tasks - these are separate from MAP tasks
+    // so TryExecuteOne(CELL) won't accidentally grab Map::Update() tasks
     for (CellActor* cell : _activeCells)
     {
         if (cell->HasWork())
         {
-            cell->Update(diff);
+            _pendingCellUpdates.fetch_add(1, std::memory_order_release);
+
+            _workPool->Submit(TaskType::CELL, [this, cell, diff]() {
+                cell->Update(diff);
+                _pendingCellUpdates.fetch_sub(1, std::memory_order_release);
+            });
+        }
+    }
+
+    // Work-assisting wait - ONLY executes CELL tasks, never MAP tasks
+    // This prevents the nested Map::Update problem
+    while (_pendingCellUpdates.load(std::memory_order_acquire) > 0)
+    {
+        if (!_workPool->TryExecuteOne(TaskType::CELL))
+        {
+            std::this_thread::yield();
         }
     }
 }

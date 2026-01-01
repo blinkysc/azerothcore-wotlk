@@ -31,6 +31,8 @@
 #include "LFGMgr.h"
 #include "MapGrid.h"
 #include "MapInstanced.h"
+#include "MapMgr.h"
+#include "MapUpdater.h"
 #include "Metric.h"
 #include "MiscPackets.h"
 #include "MMapFactory.h"
@@ -91,6 +93,15 @@ void Map::OnCreateMap()
 {
     // Initialize Ghost Actor System now that map is fully constructed
     _cellActorManager = std::make_unique<GhostActor::CellActorManager>(this);
+
+    // Phase 7C: Connect to WorkStealingPool for parallel cell updates
+    if (MapUpdater* updater = sMapMgr->GetMapUpdater())
+    {
+        if (WorkStealingPool* pool = updater->GetPool())
+        {
+            _cellActorManager->SetWorkPool(pool);
+        }
+    }
 
     // Instances load all grids by default (both base map and child maps)
     if (GetInstanceId())
