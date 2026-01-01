@@ -1362,6 +1362,18 @@ MapUpdateInterval = 10
 MapUpdate.Threads = 1
 
 #
+#    CellAwareThreat.Enable
+#        Description: Enable cell-aware threat system for parallel creature updates.
+#                     When enabled, DoZoneInCombat and cross-cell threat operations
+#                     use message passing instead of direct iteration, improving
+#                     parallel update performance in multi-threaded environments.
+#                     Requires MapUpdate.Threads > 1 to see benefits.
+#        Default:     0 - (Disabled)
+#                     1 - (Enabled)
+
+CellAwareThreat.Enable = 0
+
+#
 #    MoveMaps.Enable
 #        Description: Enable/Disable pathfinding using mmaps - recommended.
 #        Default:     0 - (Disabled)

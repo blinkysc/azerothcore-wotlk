@@ -674,4 +674,9 @@ void WorldConfig::BuildConfigCache()
     SetConfigValue<uint32>(CONFIG_SCOURGEINVASION_COUNTER_THIRD, "ScourgeInvasion.CounterThird", 150);
 
     SetConfigValue<std::string>(CONFIG_NEW_CHAR_STRING, "PlayerStart.String", "");
+
+    // Phase 6D: Cell-aware threat system
+    // When enabled, DoZoneInCombat and threat operations use cell-based message passing
+    // for cross-cell interactions, improving parallel update performance.
+    SetConfigValue<bool>(CONFIG_CELL_AWARE_THREAT_ENABLED, "CellAwareThreat.Enable", false);
 }

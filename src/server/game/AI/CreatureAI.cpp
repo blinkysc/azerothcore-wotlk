@@ -22,6 +22,7 @@
 #include "CreatureGroups.h"
 #include "CreatureTextMgr.h"
 #include "GameObjectAI.h"
+#include "GhostActorSystem.h"
 #include "Log.h"
 #include "MapReference.h"
 #include "Player.h"
@@ -119,6 +120,18 @@ void CreatureAI::DoZoneInCombat(Creature* creature /*= nullptr*/, float maxRange
         return;
     }
 
+    // Phase 6D: Use cell-aware version when enabled for parallel performance
+    if (sWorld->getBoolConfig(CONFIG_CELL_AWARE_THREAT_ENABLED))
+    {
+        GhostActor::CellActorManager* cellMgr = map->GetCellActorManager();
+        if (cellMgr)
+        {
+            cellMgr->DoZoneInCombatCellAware(creature, maxRangeToNearestTarget);
+            return;
+        }
+    }
+
+    // Fallback to traditional implementation
     Map::PlayerList const& playerList = map->GetPlayers();
     if (playerList.IsEmpty())
     {
