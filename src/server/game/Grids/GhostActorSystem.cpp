@@ -224,6 +224,80 @@ void CellActor::HandleMessage(ActorMessage& msg)
             break;
         }
 
+        // Phase 6D: Threat/AI messages
+        case MessageType::THREAT_UPDATE:
+        {
+            // Handle cross-cell threat modification
+            if (msg.complexPayload)
+            {
+                auto payload = std::static_pointer_cast<ThreatUpdatePayload>(msg.complexPayload);
+                LOG_DEBUG("server.ghost", "CellActor[{}]: THREAT_UPDATE attacker={} victim={} delta={:.1f} new={} remove={}",
+                    _cellId, payload->attackerGuid, payload->victimGuid,
+                    payload->threatDelta, payload->isNewThreat, payload->isRemoval);
+
+                // TODO: When parallel updates enabled:
+                // 1. Find victim Unit* in _entities by GUID
+                // 2. If isNewThreat, add to victim's HostileRefMgr
+                // 3. If isRemoval, remove from victim's HostileRefMgr
+                // 4. Otherwise, update threat value
+            }
+            break;
+        }
+
+        case MessageType::AGGRO_REQUEST:
+        {
+            // Handle zone-in-combat request from another cell
+            if (msg.complexPayload)
+            {
+                auto payload = std::static_pointer_cast<AggroRequestPayload>(msg.complexPayload);
+                LOG_DEBUG("server.ghost", "CellActor[{}]: AGGRO_REQUEST from creature={} at ({:.1f},{:.1f},{:.1f}) range={:.1f}",
+                    _cellId, payload->creatureGuid,
+                    payload->creatureX, payload->creatureY, payload->creatureZ,
+                    payload->maxRange);
+
+                // TODO: When parallel updates enabled:
+                // 1. Iterate players in _entities
+                // 2. Check distance to creature position
+                // 3. For each eligible player within range:
+                //    - Send COMBAT_INITIATED message back to creature's cell
+                //    - Include player GUID and initial threat
+            }
+            break;
+        }
+
+        case MessageType::COMBAT_INITIATED:
+        {
+            // Response from AGGRO_REQUEST - entity entered combat
+            if (msg.complexPayload)
+            {
+                auto payload = std::static_pointer_cast<CombatInitiatedPayload>(msg.complexPayload);
+                LOG_DEBUG("server.ghost", "CellActor[{}]: COMBAT_INITIATED entity={} entered combat with attacker={} threat={:.1f}",
+                    _cellId, payload->entityGuid, payload->attackerGuid, payload->threatAmount);
+
+                // TODO: When parallel updates enabled:
+                // 1. Find attacker Creature* in _entities by GUID
+                // 2. Add entity to creature's threat list (via ghost reference)
+                // 3. Update creature combat state if needed
+            }
+            break;
+        }
+
+        case MessageType::TARGET_SWITCH:
+        {
+            // AI changed target - update ghost tracking
+            if (msg.complexPayload)
+            {
+                auto payload = std::static_pointer_cast<TargetSwitchPayload>(msg.complexPayload);
+                LOG_DEBUG("server.ghost", "CellActor[{}]: TARGET_SWITCH creature={} oldTarget={} newTarget={}",
+                    _cellId, payload->creatureGuid, payload->oldTargetGuid, payload->newTargetGuid);
+
+                // TODO: When parallel updates enabled:
+                // 1. Update ghost state to reflect new target
+                // 2. May be used for target-of-target displays
+            }
+            break;
+        }
+
         default:
             break;
     }
@@ -1024,6 +1098,230 @@ bool CellActorManager::AreInSameCell(WorldObject* a, WorldObject* b) const
 bool CellActorManager::AreInSameCell(float x1, float y1, float x2, float y2) const
 {
     return GetCellIdForPosition(x1, y1) == GetCellIdForPosition(x2, y2);
+}
+
+// ============================================================================
+// Phase 6D: Threat/AI Integration
+// ============================================================================
+
+std::vector<uint32_t> CellActorManager::GetCellsInRadius(float x, float y, float radius) const
+{
+    std::vector<uint32_t> cells;
+
+    // Convert center position to cell coordinates
+    constexpr float kCellSize = 66.6666f;
+    constexpr float kCenterCellOffset = 256.0f;
+
+    // Calculate how many cells the radius spans
+    // +1 to be conservative and catch edge cases
+    int32_t cellRadius = static_cast<int32_t>(std::ceil(radius / kCellSize)) + 1;
+
+    // Get center cell coordinates
+    int32_t centerCellX = static_cast<int32_t>((kCenterCellOffset - (x / kCellSize)));
+    int32_t centerCellY = static_cast<int32_t>((kCenterCellOffset - (y / kCellSize)));
+
+    // Iterate through potential cells in a square around center
+    for (int32_t dy = -cellRadius; dy <= cellRadius; ++dy)
+    {
+        for (int32_t dx = -cellRadius; dx <= cellRadius; ++dx)
+        {
+            int32_t cellX = centerCellX + dx;
+            int32_t cellY = centerCellY + dy;
+
+            // Skip invalid cell coordinates
+            if (cellX < 0 || cellY < 0 || cellX >= 512 || cellY >= 512)
+                continue;
+
+            // Calculate center of this cell in world coords
+            float cellCenterX = (kCenterCellOffset - cellX - 0.5f) * kCellSize;
+            float cellCenterY = (kCenterCellOffset - cellY - 0.5f) * kCellSize;
+
+            // Check if any part of the cell is within radius
+            // Use distance to closest point in cell (clamped)
+            float closestX = std::max(cellCenterX - kCellSize / 2.0f,
+                             std::min(x, cellCenterX + kCellSize / 2.0f));
+            float closestY = std::max(cellCenterY - kCellSize / 2.0f,
+                             std::min(y, cellCenterY + kCellSize / 2.0f));
+
+            float distSq = (closestX - x) * (closestX - x) + (closestY - y) * (closestY - y);
+
+            if (distSq <= radius * radius)
+            {
+                cells.push_back(MakeCellId(static_cast<uint32_t>(cellX),
+                                          static_cast<uint32_t>(cellY)));
+            }
+        }
+    }
+
+    return cells;
+}
+
+void CellActorManager::DoZoneInCombatCellAware(WorldObject* creature, float maxRange)
+{
+    if (!creature)
+        return;
+
+    BroadcastAggroRequest(creature, maxRange, 0.0f);
+}
+
+void CellActorManager::BroadcastAggroRequest(WorldObject* creature, float maxRange, float initialThreat)
+{
+    if (!creature)
+        return;
+
+    float x = creature->GetPositionX();
+    float y = creature->GetPositionY();
+    float z = creature->GetPositionZ();
+
+    uint32_t creatureCellId = GetCellIdForEntity(creature);
+    uint64_t creatureGuid = creature->GetGUID().GetRawValue();
+
+    // Get all cells within the aggro range
+    std::vector<uint32_t> nearbyCells = GetCellsInRadius(x, y, maxRange);
+
+    LOG_DEBUG("server.ghost", "CellActorManager::BroadcastAggroRequest: creature={} at ({:.1f},{:.1f}) range={:.1f} cells={}",
+        creatureGuid, x, y, maxRange, nearbyCells.size());
+
+    // Send AGGRO_REQUEST to each nearby cell
+    for (uint32_t cellId : nearbyCells)
+    {
+        auto payload = std::make_shared<AggroRequestPayload>();
+        payload->creatureGuid = creatureGuid;
+        payload->creatureCellId = creatureCellId;
+        payload->creatureX = x;
+        payload->creatureY = y;
+        payload->creatureZ = z;
+        payload->maxRange = maxRange;
+        payload->initialThreat = initialThreat;
+
+        ActorMessage msg;
+        msg.type = MessageType::AGGRO_REQUEST;
+        msg.sourceGuid = creatureGuid;
+        msg.sourceCellId = creatureCellId;
+        msg.targetCellId = cellId;
+        msg.complexPayload = payload;
+
+        SendMessage(cellId, std::move(msg));
+    }
+}
+
+// ============================================================================
+// Phase 6D-3: Cell-Aware Threat Management
+// ============================================================================
+
+void CellActorManager::AddThreatCellAware(WorldObject* attacker, WorldObject* victim, float threat)
+{
+    if (!attacker || !victim)
+        return;
+
+    uint32_t attackerCellId = GetCellIdForEntity(attacker);
+    uint32_t victimCellId = GetCellIdForEntity(victim);
+
+    if (attackerCellId == victimCellId)
+    {
+        // Same cell - direct threat modification is safe
+        // The actual ThreatMgr::AddThreat call happens at the caller level
+        LOG_DEBUG("server.ghost", "AddThreatCellAware: same cell, direct threat ok attacker={} victim={} threat={:.1f}",
+            attacker->GetGUID().GetRawValue(), victim->GetGUID().GetRawValue(), threat);
+    }
+    else
+    {
+        // Different cells - send threat update message
+        // The victim's cell will process this and update the bidirectional links
+        SendThreatUpdate(
+            attacker->GetGUID().GetRawValue(),
+            victim->GetGUID().GetRawValue(),
+            victimCellId,
+            threat,
+            true,   // isNewThreat - caller should check, but default to true
+            false); // isRemoval
+    }
+}
+
+void CellActorManager::RemoveThreatCellAware(WorldObject* attacker, WorldObject* victim)
+{
+    if (!attacker || !victim)
+        return;
+
+    uint32_t attackerCellId = GetCellIdForEntity(attacker);
+    uint32_t victimCellId = GetCellIdForEntity(victim);
+
+    if (attackerCellId == victimCellId)
+    {
+        // Same cell - direct removal is safe
+        LOG_DEBUG("server.ghost", "RemoveThreatCellAware: same cell, direct removal ok attacker={} victim={}",
+            attacker->GetGUID().GetRawValue(), victim->GetGUID().GetRawValue());
+    }
+    else
+    {
+        // Different cells - send threat removal message
+        SendThreatUpdate(
+            attacker->GetGUID().GetRawValue(),
+            victim->GetGUID().GetRawValue(),
+            victimCellId,
+            0.0f,
+            false,  // isNewThreat
+            true);  // isRemoval
+    }
+}
+
+void CellActorManager::SendThreatUpdate(uint64_t attackerGuid, uint64_t victimGuid, uint32_t victimCellId,
+                                         float threatDelta, bool isNewThreat, bool isRemoval)
+{
+    auto payload = std::make_shared<ThreatUpdatePayload>();
+    payload->attackerGuid = attackerGuid;
+    payload->victimGuid = victimGuid;
+    payload->threatDelta = threatDelta;
+    payload->isNewThreat = isNewThreat;
+    payload->isRemoval = isRemoval;
+
+    ActorMessage msg;
+    msg.type = MessageType::THREAT_UPDATE;
+    msg.sourceGuid = attackerGuid;
+    msg.targetGuid = victimGuid;
+    msg.targetCellId = victimCellId;
+    msg.complexPayload = payload;
+
+    LOG_DEBUG("server.ghost", "SendThreatUpdate: attacker={} victim={} cell={} delta={:.1f} new={} remove={}",
+        attackerGuid, victimGuid, victimCellId, threatDelta, isNewThreat, isRemoval);
+
+    SendMessage(victimCellId, std::move(msg));
+}
+
+// ============================================================================
+// Phase 6D-4: Cell-Aware Victim Selection
+// ============================================================================
+
+CellActorManager::VictimInfo CellActorManager::GetVictimCellAware(WorldObject* attacker)
+{
+    VictimInfo result;
+    if (!attacker)
+        return result;
+
+    uint32_t attackerCellId = GetCellIdForEntity(attacker);
+
+    // Get the cell actor for the attacker's cell
+    auto it = _cellActors.find(attackerCellId);
+    if (it == _cellActors.end())
+        return result;
+
+    // For now, this is a placeholder that returns empty
+    // In a full implementation with parallel updates:
+    // 1. Get attacker's ThreatMgr threat list
+    // 2. Iterate in threat order
+    // 3. For each target:
+    //    a. If in same cell, return as local
+    //    b. If in different cell, check ghost for validity
+    // 4. Return first valid target
+
+    // The actual victim selection still happens via ThreatMgr::SelectVictim()
+    // This method is for future use when entity updates are fully parallelized
+    // and we need to validate cross-cell targets
+
+    LOG_DEBUG("server.ghost", "GetVictimCellAware: attacker={} cell={} (placeholder)",
+        attacker->GetGUID().GetRawValue(), attackerCellId);
+
+    return result;
 }
 
 } // namespace GhostActor

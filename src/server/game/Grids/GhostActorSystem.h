@@ -112,6 +112,12 @@ enum class MessageType : uint8_t
     MIGRATION_ACK,        // New cell → Old cell: "Ownership accepted"
     MIGRATION_COMPLETE,   // Old cell → New cell: "Buffered messages forwarded, done"
     MIGRATION_FORWARD,    // Forwarded message during migration handoff
+
+    // Phase 6D: Threat/AI messages
+    THREAT_UPDATE,        // Notify threat change across cells
+    AGGRO_REQUEST,        // Request nearby entities enter combat
+    COMBAT_INITIATED,     // Confirm combat started with entity
+    TARGET_SWITCH,        // AI changed its target
 };
 
 struct ActorMessage
@@ -562,6 +568,67 @@ struct HealPayload
 };
 
 // ============================================================================
+// PHASE 6D: Threat/AI Message Payloads
+// ============================================================================
+
+/**
+ * @brief Payload for THREAT_UPDATE message
+ *
+ * Sent when a creature adds/modifies threat on a target in a different cell.
+ * The target's cell processes this to update bidirectional threat links.
+ */
+struct ThreatUpdatePayload
+{
+    uint64_t attackerGuid{0};   // Creature adding threat
+    uint64_t victimGuid{0};     // Target receiving threat
+    float threatDelta{0.0f};    // Amount of threat to add/subtract
+    bool isNewThreat{false};    // True if this is a new threat entry
+    bool isRemoval{false};      // True if removing from threat list
+};
+
+/**
+ * @brief Payload for AGGRO_REQUEST message
+ *
+ * Sent by DoZoneInCombatCellAware to request nearby cells add
+ * their eligible entities to the creature's threat list.
+ */
+struct AggroRequestPayload
+{
+    uint64_t creatureGuid{0};   // Creature requesting aggro
+    uint32_t creatureCellId{0}; // Home cell of creature
+    float creatureX{0.0f};      // Position for range check
+    float creatureY{0.0f};
+    float creatureZ{0.0f};
+    float maxRange{0.0f};       // Maximum aggro range
+    float initialThreat{0.0f};  // Initial threat amount
+};
+
+/**
+ * @brief Payload for COMBAT_INITIATED message
+ *
+ * Sent as response to AGGRO_REQUEST when an entity enters combat.
+ */
+struct CombatInitiatedPayload
+{
+    uint64_t entityGuid{0};     // Entity that entered combat
+    uint64_t attackerGuid{0};   // Creature that initiated
+    float threatAmount{0.0f};   // Initial threat value
+};
+
+/**
+ * @brief Payload for TARGET_SWITCH message
+ *
+ * Sent when a creature's AI switches target, allowing ghosts
+ * and other cells to update their target tracking.
+ */
+struct TargetSwitchPayload
+{
+    uint64_t creatureGuid{0};   // Creature switching target
+    uint64_t oldTargetGuid{0};  // Previous target (0 if none)
+    uint64_t newTargetGuid{0};  // New target (0 if none)
+};
+
+// ============================================================================
 // Cell Actor Manager - Integrates with Map (Phase 2 + Phase 3 + Phase 4)
 // ============================================================================
 
@@ -609,6 +676,28 @@ public:
     uint32_t GetCellIdForEntity(WorldObject* obj) const;
     bool AreInSameCell(WorldObject* a, WorldObject* b) const;
     bool AreInSameCell(float x1, float y1, float x2, float y2) const;
+
+    // Phase 6D: Threat/AI integration
+    std::vector<uint32_t> GetCellsInRadius(float x, float y, float radius) const;
+    void DoZoneInCombatCellAware(WorldObject* creature, float maxRange);
+    void BroadcastAggroRequest(WorldObject* creature, float maxRange, float initialThreat);
+
+    // Phase 6D-3: Cell-aware threat management
+    // These methods route threat operations through messages when targets are in different cells
+    void AddThreatCellAware(WorldObject* attacker, WorldObject* victim, float threat);
+    void RemoveThreatCellAware(WorldObject* attacker, WorldObject* victim);
+    void SendThreatUpdate(uint64_t attackerGuid, uint64_t victimGuid, uint32_t victimCellId,
+                          float threatDelta, bool isNewThreat, bool isRemoval);
+
+    // Phase 6D-4: Cell-aware victim selection
+    // Returns victim GUID and whether it's local (true) or cross-cell ghost (false)
+    struct VictimInfo
+    {
+        uint64_t guid{0};
+        bool isLocal{false};
+        float posX{0}, posY{0}, posZ{0};
+    };
+    VictimInfo GetVictimCellAware(WorldObject* attacker);
 
     // Stats
     [[nodiscard]] size_t GetActiveCellCount() const { return _activeCells.size(); }
