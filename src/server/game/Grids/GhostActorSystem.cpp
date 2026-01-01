@@ -55,23 +55,55 @@ void CellActor::HandleMessage(ActorMessage& msg)
     {
         case MessageType::SPELL_HIT:
         {
-            // Phase 6C: Find target entity in our cell, apply spell damage/effects
-            // For now, just log that we received the message
-            LOG_DEBUG("server.ghost", "CellActor[{}]: Received SPELL_HIT for target {}", _cellId, msg.targetGuid);
+            // Phase 6C: Apply spell damage/effects from cross-cell caster
+            // When entity updates are parallelized, this processes spell hits
+            // from casters in different cells.
+            if (msg.complexPayload)
+            {
+                auto payload = std::static_pointer_cast<SpellHitPayload>(msg.complexPayload);
+                LOG_DEBUG("server.ghost", "CellActor[{}]: SPELL_HIT spell={} target={} damage={} healing={}",
+                    _cellId, payload->spellId, msg.targetGuid, payload->damage, payload->healing);
+
+                // TODO: When parallel updates enabled:
+                // 1. Find target Unit* in _entities by GUID
+                // 2. Apply damage via Unit::DealDamageFromMessage(payload)
+                // 3. Apply healing via Unit::HealFromMessage(payload)
+                // 4. Broadcast HEALTH_CHANGED to ghosts
+            }
             break;
         }
 
         case MessageType::MELEE_DAMAGE:
         {
-            // Phase 6C: Apply melee damage to target
-            LOG_DEBUG("server.ghost", "CellActor[{}]: Received MELEE_DAMAGE for target {}", _cellId, msg.targetGuid);
+            // Phase 6C: Apply melee damage from cross-cell attacker
+            if (msg.complexPayload)
+            {
+                auto payload = std::static_pointer_cast<MeleeDamagePayload>(msg.complexPayload);
+                LOG_DEBUG("server.ghost", "CellActor[{}]: MELEE_DAMAGE target={} damage={} crit={}",
+                    _cellId, msg.targetGuid, payload->damage, payload->isCritical);
+
+                // TODO: When parallel updates enabled:
+                // 1. Find target Unit* in _entities by GUID
+                // 2. Apply damage via Unit::DealMeleeDamageFromMessage(payload)
+                // 3. Broadcast HEALTH_CHANGED to ghosts
+            }
             break;
         }
 
         case MessageType::HEAL:
         {
-            // Phase 6C: Apply healing to target
-            LOG_DEBUG("server.ghost", "CellActor[{}]: Received HEAL for target {}", _cellId, msg.targetGuid);
+            // Phase 6C: Apply healing from cross-cell healer
+            if (msg.complexPayload)
+            {
+                auto payload = std::static_pointer_cast<HealPayload>(msg.complexPayload);
+                LOG_DEBUG("server.ghost", "CellActor[{}]: HEAL spell={} target={} amount={}",
+                    _cellId, payload->spellId, msg.targetGuid, payload->healAmount);
+
+                // TODO: When parallel updates enabled:
+                // 1. Find target Unit* in _entities by GUID
+                // 2. Apply healing via Unit::HealFromMessage(payload)
+                // 3. Broadcast HEALTH_CHANGED to ghosts
+            }
             break;
         }
 
@@ -956,6 +988,42 @@ void CellActorManager::UpdateMigrations(uint32_t /*diff*/)
     {
         AbortMigration(guid);
     }
+}
+
+// ============================================================================
+// Phase 6C: Cross-Cell Combat Helpers
+// ============================================================================
+
+uint32_t CellActorManager::GetCellIdForPosition(float x, float y) const
+{
+    constexpr float kCellSize = 66.6666f;
+    constexpr float kCenterCellOffset = 256.0f;
+
+    uint32_t cellX = static_cast<uint32_t>((kCenterCellOffset - (x / kCellSize)));
+    uint32_t cellY = static_cast<uint32_t>((kCenterCellOffset - (y / kCellSize)));
+
+    return MakeCellId(cellX, cellY);
+}
+
+uint32_t CellActorManager::GetCellIdForEntity(WorldObject* obj) const
+{
+    if (!obj)
+        return 0;
+
+    return GetCellIdForPosition(obj->GetPositionX(), obj->GetPositionY());
+}
+
+bool CellActorManager::AreInSameCell(WorldObject* a, WorldObject* b) const
+{
+    if (!a || !b)
+        return false;
+
+    return GetCellIdForEntity(a) == GetCellIdForEntity(b);
+}
+
+bool CellActorManager::AreInSameCell(float x1, float y1, float x2, float y2) const
+{
+    return GetCellIdForPosition(x1, y1) == GetCellIdForPosition(x2, y2);
 }
 
 } // namespace GhostActor
