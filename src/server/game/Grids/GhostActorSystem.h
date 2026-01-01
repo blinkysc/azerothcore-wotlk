@@ -122,6 +122,9 @@ enum class MessageType : uint8_t
 
     // Phase 7E: Parallel AI messages
     ASSISTANCE_REQUEST,   // Request assistance from creatures in this cell
+
+    // Phase 9: Pet parallelization
+    PET_REMOVAL,          // Deferred pet removal to avoid race with owner
 };
 
 struct ActorMessage
@@ -659,6 +662,24 @@ struct TargetSwitchPayload
 };
 
 // ============================================================================
+// PHASE 9: Pet Parallelization Safety Payloads
+// ============================================================================
+
+/**
+ * @brief Payload for PET_REMOVAL message
+ *
+ * Sent when a pet needs to be removed during parallel update.
+ * Defers owner modification until owner's update completes.
+ */
+struct PetRemovalPayload
+{
+    uint64_t petGuid{0};        // Pet to remove
+    uint64_t ownerGuid{0};      // Owner player
+    uint8_t saveMode{0};        // PetSaveMode value
+    bool returnReagent{false};  // Whether to return reagent
+};
+
+// ============================================================================
 // Cell Actor Manager - Integrates with Map (Phase 2 + Phase 3 + Phase 4)
 // ============================================================================
 
@@ -715,6 +736,9 @@ public:
 
     // Phase 7E: Parallel AI integration
     void BroadcastAssistanceRequest(WorldObject* caller, uint64_t targetGuid, float radius);
+
+    // Phase 9: Pet parallelization safety
+    void QueuePetRemoval(WorldObject* pet, uint8_t saveMode, bool returnReagent);
 
     // Phase 6D-3: Cell-aware threat management
     // These methods route threat operations through messages when targets are in different cells

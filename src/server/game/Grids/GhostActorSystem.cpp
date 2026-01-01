@@ -23,6 +23,7 @@
 #include "Map.h"
 #include "Object.h"
 #include "ObjectAccessor.h"
+#include "Pet.h"
 #include "Player.h"
 #include "ThreatMgr.h"
 #include "Unit.h"
@@ -470,6 +471,48 @@ void CellActor::HandleMessage(ActorMessage& msg)
                 // TODO: When parallel updates enabled:
                 // 1. Update ghost state to reflect new target
                 // 2. May be used for target-of-target displays
+            }
+            break;
+        }
+
+        // Phase 9: Pet parallelization safety
+        case MessageType::PET_REMOVAL:
+        {
+            if (msg.complexPayload)
+            {
+                auto payload = std::static_pointer_cast<PetRemovalPayload>(msg.complexPayload);
+                LOG_DEBUG("server.ghost", "CellActor[{}]: PET_REMOVAL pet={} owner={} mode={}",
+                    _cellId, payload->petGuid, payload->ownerGuid, payload->saveMode);
+
+                // Find the owner player (should be in this cell)
+                Player* owner = nullptr;
+                for (WorldObject* entity : _entities)
+                {
+                    if (entity && entity->GetGUID().GetRawValue() == payload->ownerGuid)
+                    {
+                        owner = entity->ToPlayer();
+                        break;
+                    }
+                }
+
+                if (!owner)
+                {
+                    // Owner not in this cell - try ObjectAccessor
+                    owner = ObjectAccessor::FindPlayer(ObjectGuid(payload->ownerGuid));
+                }
+
+                if (owner)
+                {
+                    // Find the pet via owner
+                    Pet* pet = owner->GetPet();
+                    if (pet && pet->GetGUID().GetRawValue() == payload->petGuid)
+                    {
+                        // Now safe to remove - parallel updates finished
+                        owner->RemovePet(pet, static_cast<PetSaveMode>(payload->saveMode), payload->returnReagent);
+                        LOG_DEBUG("server.ghost", "CellActor[{}]: Pet {} removed from owner {}",
+                            _cellId, payload->petGuid, payload->ownerGuid);
+                    }
+                }
             }
             break;
         }
@@ -1559,6 +1602,50 @@ void CellActorManager::BroadcastAssistanceRequest(WorldObject* caller, uint64_t 
 
         SendMessage(cellId, std::move(msg));
     }
+}
+
+// ============================================================================
+// Phase 9: Pet Parallelization Safety
+// ============================================================================
+
+void CellActorManager::QueuePetRemoval(WorldObject* pet, uint8_t saveMode, bool returnReagent)
+{
+    if (!pet)
+        return;
+
+    // Get the pet as a Pet* to access owner (ToPet is on Unit, not WorldObject)
+    Unit* unitPet = pet->ToUnit();
+    if (!unitPet)
+        return;
+
+    Pet* petObj = unitPet->ToPet();
+    if (!petObj)
+        return;
+
+    Player* owner = petObj->GetOwner();
+    if (!owner)
+        return;
+
+    uint32_t ownerCellId = GetCellIdForEntity(owner);
+
+    auto payload = std::make_shared<PetRemovalPayload>();
+    payload->petGuid = pet->GetGUID().GetRawValue();
+    payload->ownerGuid = owner->GetGUID().GetRawValue();
+    payload->saveMode = saveMode;
+    payload->returnReagent = returnReagent;
+
+    ActorMessage msg;
+    msg.type = MessageType::PET_REMOVAL;
+    msg.sourceGuid = pet->GetGUID().GetRawValue();
+    msg.targetGuid = owner->GetGUID().GetRawValue();
+    msg.sourceCellId = GetCellIdForEntity(pet);
+    msg.targetCellId = ownerCellId;
+    msg.complexPayload = payload;
+
+    SendMessage(ownerCellId, std::move(msg));
+
+    LOG_DEBUG("server.ghost", "CellActorManager::QueuePetRemoval: pet={} owner={} mode={} queued to cell {}",
+        pet->GetGUID().GetRawValue(), owner->GetGUID().GetRawValue(), saveMode, ownerCellId);
 }
 
 // ============================================================================
