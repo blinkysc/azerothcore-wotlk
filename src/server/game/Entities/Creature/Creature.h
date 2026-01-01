@@ -69,6 +69,7 @@ public:
     [[nodiscard]] ObjectGuid::LowType GetSpawnId() const { return m_spawnId; }
 
     void Update(uint32 time) override;  // overwrited Unit::Update
+    void UpdateRegeneration(uint32 diff);  // Phase 7B: Parallel-safe regeneration
     void GetRespawnPosition(float& x, float& y, float& z, float* ori = nullptr, float* dist = nullptr) const;
 
     void SetCorpseDelay(uint32 delay) { m_corpseDelay = delay; }

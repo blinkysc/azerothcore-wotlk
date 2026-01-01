@@ -19,11 +19,25 @@
 #define _WORK_STEALING_POOL_H
 
 #include "Define.h"
+#include <array>
 #include <atomic>
 #include <functional>
 #include <memory>
 #include <thread>
 #include <vector>
+
+/**
+ * @brief Task type for logical queue separation
+ *
+ * Enables work-assisting waits to only execute tasks of matching type,
+ * preventing Map::Update from being executed during cell update waits.
+ */
+enum class TaskType : uint8_t
+{
+    MAP = 0,    // Map::Update, LFG updates, map preloads
+    CELL = 1,   // CellActor::Update tasks
+    COUNT = 2   // Number of task types (for array sizing)
+};
 
 /**
  * @brief Lock-free Work-Stealing Deque (Chase-Lev algorithm)
@@ -233,6 +247,9 @@ private:
  *
  * NO MUTEXES. NO LOCKS. Only atomics.
  * External submissions go to MPSC queue, workers drain to local deque.
+ *
+ * Supports task types for logical queue separation - TryExecuteOne(type)
+ * only executes tasks of the specified type, preventing cross-type interference.
  */
 class WorkStealingPool
 {
@@ -240,33 +257,55 @@ public:
     using Task = std::function<void()>;
     using TaskPtr = Task*;
 
+    static constexpr size_t NUM_TASK_TYPES = static_cast<size_t>(TaskType::COUNT);
+
     explicit WorkStealingPool(size_t numThreads);
     ~WorkStealingPool();
 
     WorkStealingPool(const WorkStealingPool&) = delete;
     WorkStealingPool& operator=(const WorkStealingPool&) = delete;
 
-    void Submit(Task task);
-    void SubmitToWorker(size_t workerIndex, Task task);
-    void Wait();      // Spin-wait for all tasks
+    // Type-aware submission
+    void Submit(TaskType type, Task task);
+    void SubmitToWorker(TaskType type, size_t workerIndex, Task task);
+
+    // Backward compatible (defaults to MAP type)
+    void Submit(Task task) { Submit(TaskType::MAP, std::move(task)); }
+    void SubmitToWorker(size_t workerIndex, Task task) {
+        SubmitToWorker(TaskType::MAP, workerIndex, std::move(task));
+    }
+
+    // Type-aware wait
+    void Wait(TaskType type);
+    void Wait() { Wait(TaskType::MAP); }  // Backward compat
+
     void Shutdown();
+
+    // Type-filtered task execution (for work-assisting waits)
+    // Only executes tasks of the specified type
+    bool TryExecuteOne(TaskType type);
+    bool TryExecuteOne() { return TryExecuteOne(TaskType::MAP); }
 
     [[nodiscard]] size_t NumWorkers() const { return _numWorkers; }
     [[nodiscard]] bool IsActive() const { return !_shutdown.load(std::memory_order_relaxed); }
 
 private:
     void WorkerLoop(size_t workerIndex);
-    bool TrySteal(size_t thiefIndex, TaskPtr& task);
+    bool TryExecuteFromType(size_t workerIndex, TaskType type);
+    bool TrySteal(size_t thiefIndex, TaskType type, TaskPtr& task);
 
     size_t _numWorkers;
-    std::vector<std::unique_ptr<WorkStealingDeque>> _deques;      // Local deques (owner-only push/pop)
-    std::vector<std::unique_ptr<MPSCTaskQueue<TaskPtr>>> _inboxes; // External submission queues
+
+    // Per-worker, per-type queues: [workerIndex][taskType]
+    std::vector<std::array<std::unique_ptr<WorkStealingDeque>, NUM_TASK_TYPES>> _deques;
+    std::vector<std::array<std::unique_ptr<MPSCTaskQueue<TaskPtr>>, NUM_TASK_TYPES>> _inboxes;
     std::vector<std::thread> _workers;
 
     alignas(64) std::atomic<bool> _shutdown{false};
-    alignas(64) std::atomic<size_t> _pendingTasks{0};
+    // Per-type pending counters
+    alignas(64) std::array<std::atomic<size_t>, NUM_TASK_TYPES> _pendingTasks{};
     alignas(64) std::atomic<size_t> _nextWorker{0};
-    alignas(64) std::atomic<size_t> _activeWorkers{0};  // For spinning coordination
+    alignas(64) std::atomic<size_t> _activeWorkers{0};
 };
 
 #endif // _WORK_STEALING_POOL_H

@@ -834,34 +834,38 @@ void Creature::Update(uint32 diff)
             if (!IsAlive())
                 break;
 
-            m_regenTimer -= diff;
-            if (m_regenTimer <= 0)
+            // Phase 7B: Skip regeneration if handled by cell actor
+            if (!IsCellManaged())
             {
-                if (!IsInEvadeMode())
+                m_regenTimer -= diff;
+                if (m_regenTimer <= 0)
                 {
-                    // regenerate health if not in combat or if polymorphed)
-                    if (!IsInCombat() || IsPolymorphed())
-                        RegenerateHealth();
-                    else if (IsNotReachableAndNeedRegen())
+                    if (!IsInEvadeMode())
                     {
-                        // regenerate health if cannot reach the target and the setting is set to do so.
-                        // this allows to disable the health regen of raid bosses if pathfinding has issues for whatever reason
-                        if (sWorld->getBoolConfig(CONFIG_REGEN_HP_CANNOT_REACH_TARGET_IN_RAID) || !GetMap()->IsRaid())
-                        {
+                        // regenerate health if not in combat or if polymorphed)
+                        if (!IsInCombat() || IsPolymorphed())
                             RegenerateHealth();
-                            LOG_DEBUG("entities.unit", "RegenerateHealth() enabled because Creature cannot reach the target. Detail: {}", GetDebugInfo());
+                        else if (IsNotReachableAndNeedRegen())
+                        {
+                            // regenerate health if cannot reach the target and the setting is set to do so.
+                            // this allows to disable the health regen of raid bosses if pathfinding has issues for whatever reason
+                            if (sWorld->getBoolConfig(CONFIG_REGEN_HP_CANNOT_REACH_TARGET_IN_RAID) || !GetMap()->IsRaid())
+                            {
+                                RegenerateHealth();
+                                LOG_DEBUG("entities.unit", "RegenerateHealth() enabled because Creature cannot reach the target. Detail: {}", GetDebugInfo());
+                            }
+                            else
+                                LOG_DEBUG("entities.unit", "RegenerateHealth() disabled even if the Creature cannot reach the target. Detail: {}", GetDebugInfo());
                         }
-                        else
-                            LOG_DEBUG("entities.unit", "RegenerateHealth() disabled even if the Creature cannot reach the target. Detail: {}", GetDebugInfo());
                     }
+
+                    if (getPowerType() == POWER_ENERGY)
+                        Regenerate(POWER_ENERGY);
+                    else
+                        Regenerate(POWER_MANA);
+
+                    m_regenTimer += CREATURE_REGEN_INTERVAL;
                 }
-
-                if (getPowerType() == POWER_ENERGY)
-                    Regenerate(POWER_ENERGY);
-                else
-                    Regenerate(POWER_MANA);
-
-                m_regenTimer += CREATURE_REGEN_INTERVAL;
             }
 
             if (CanNotReachTarget() && !IsInEvadeMode())
@@ -1050,6 +1054,41 @@ void Creature::RegenerateHealth()
     addvalue += GetTotalAuraModifier(SPELL_AURA_MOD_REGEN) * CREATURE_REGEN_INTERVAL  / (5 * IN_MILLISECONDS);
 
     ModifyHealth(addvalue);
+}
+
+void Creature::UpdateRegeneration(uint32 diff)
+{
+    // Phase 7B: Extracted regeneration logic for parallel cell updates
+    // This method is safe to call from cell threads - no cross-cell dependencies
+
+    if (!IsAlive())
+        return;
+
+    m_regenTimer -= diff;
+    if (m_regenTimer <= 0)
+    {
+        if (!IsInEvadeMode())
+        {
+            // regenerate health if not in combat or if polymorphed
+            if (!IsInCombat() || IsPolymorphed())
+                RegenerateHealth();
+            else if (IsNotReachableAndNeedRegen())
+            {
+                // regenerate health if cannot reach target and setting allows it
+                if (sWorld->getBoolConfig(CONFIG_REGEN_HP_CANNOT_REACH_TARGET_IN_RAID) || !GetMap()->IsRaid())
+                {
+                    RegenerateHealth();
+                }
+            }
+        }
+
+        if (getPowerType() == POWER_ENERGY)
+            Regenerate(POWER_ENERGY);
+        else
+            Regenerate(POWER_MANA);
+
+        m_regenTimer += CREATURE_REGEN_INTERVAL;
+    }
 }
 
 void Creature::DoFleeToGetAssistance()

@@ -45,6 +45,9 @@ public:
     void deactivate();
     bool activated();
 
+    // Access pool for nested parallelism (cell updates within map update)
+    WorkStealingPool* GetPool() { return _pool.get(); }
+
 private:
     std::unique_ptr<WorkStealingPool> _pool;
     alignas(64) std::atomic<size_t> _pendingTasks{0};

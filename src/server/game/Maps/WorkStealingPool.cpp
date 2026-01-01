@@ -24,21 +24,38 @@ static constexpr uint32 SPIN_COUNT_MAX = 4;
 static constexpr uint32 YIELD_COUNT_MAX = 2;
 static constexpr uint32 SLEEP_MICROS = 5000;  // 5ms
 
+// Thread-local worker index for CELL task routing
+// SIZE_MAX means "not a worker thread"
+static thread_local size_t tl_workerIndex = SIZE_MAX;
+
 WorkStealingPool::WorkStealingPool(size_t numThreads)
     : _numWorkers(numThreads)
     , _shutdown(false)
-    , _pendingTasks(0)
     , _nextWorker(0)
     , _activeWorkers(0)
 {
     ASSERT(numThreads > 0);
 
+    // Initialize per-type pending counters
+    for (size_t t = 0; t < NUM_TASK_TYPES; ++t)
+        _pendingTasks[t].store(0, std::memory_order_relaxed);
+
+    // Create per-worker, per-type queues
     _deques.reserve(numThreads);
     _inboxes.reserve(numThreads);
     for (size_t i = 0; i < numThreads; ++i)
     {
-        _deques.push_back(std::make_unique<WorkStealingDeque>());
-        _inboxes.push_back(std::make_unique<MPSCTaskQueue<TaskPtr>>());
+        std::array<std::unique_ptr<WorkStealingDeque>, NUM_TASK_TYPES> workerDeques;
+        std::array<std::unique_ptr<MPSCTaskQueue<TaskPtr>>, NUM_TASK_TYPES> workerInboxes;
+
+        for (size_t t = 0; t < NUM_TASK_TYPES; ++t)
+        {
+            workerDeques[t] = std::make_unique<WorkStealingDeque>();
+            workerInboxes[t] = std::make_unique<MPSCTaskQueue<TaskPtr>>();
+        }
+
+        _deques.push_back(std::move(workerDeques));
+        _inboxes.push_back(std::move(workerInboxes));
     }
 
     _workers.reserve(numThreads);
@@ -47,7 +64,8 @@ WorkStealingPool::WorkStealingPool(size_t numThreads)
         _workers.emplace_back(&WorkStealingPool::WorkerLoop, this, i);
     }
 
-    LOG_INFO("server.loading", ">> Work-stealing pool started with {} workers (lock-free)", numThreads);
+    LOG_INFO("server.loading", ">> Work-stealing pool started with {} workers, {} task types (lock-free)",
+        numThreads, NUM_TASK_TYPES);
 }
 
 WorkStealingPool::~WorkStealingPool()
@@ -55,36 +73,53 @@ WorkStealingPool::~WorkStealingPool()
     Shutdown();
 }
 
-void WorkStealingPool::Submit(Task task)
+void WorkStealingPool::Submit(TaskType type, Task task)
 {
     if (_shutdown.load(std::memory_order_relaxed))
         return;
 
     size_t worker = _nextWorker.fetch_add(1, std::memory_order_relaxed) % _numWorkers;
-    SubmitToWorker(worker, std::move(task));
+    SubmitToWorker(type, worker, std::move(task));
 }
 
-void WorkStealingPool::SubmitToWorker(size_t workerIndex, Task task)
+void WorkStealingPool::SubmitToWorker(TaskType type, size_t workerIndex, Task task)
 {
     if (_shutdown.load(std::memory_order_relaxed))
         return;
 
     ASSERT(workerIndex < _numWorkers);
+    size_t typeIdx = static_cast<size_t>(type);
+    ASSERT(typeIdx < NUM_TASK_TYPES);
 
-    _pendingTasks.fetch_add(1, std::memory_order_release);
+    _pendingTasks[typeIdx].fetch_add(1, std::memory_order_release);
 
-    // Push to worker's MPSC inbox (safe for external threads)
-    TaskPtr ptr = new Task(std::move(task));
-    _inboxes[workerIndex]->Push(ptr);
+    if (type == TaskType::CELL)
+    {
+        // CELL tasks go directly to deque for immediate stealability
+        // Use thread-local worker index - CELL submissions always happen from
+        // within Map::Update which runs on a worker thread
+        size_t targetWorker = tl_workerIndex;
+        ASSERT(targetWorker != SIZE_MAX && "CELL tasks must be submitted from worker threads");
+        ASSERT(targetWorker < _numWorkers);
+        _deques[targetWorker][typeIdx]->Push(std::move(task));
+    }
+    else
+    {
+        // MAP tasks go through inbox (normal path)
+        TaskPtr ptr = new Task(std::move(task));
+        _inboxes[workerIndex][typeIdx]->Push(ptr);
+    }
 }
 
-void WorkStealingPool::Wait()
+void WorkStealingPool::Wait(TaskType type)
 {
+    size_t typeIdx = static_cast<size_t>(type);
+
     // Simple spin-wait with fixed backoff
     uint32 spinCount = 0;
     uint32 yieldCount = 0;
 
-    while (_pendingTasks.load(std::memory_order_acquire) > 0)
+    while (_pendingTasks[typeIdx].load(std::memory_order_acquire) > 0)
     {
         if (spinCount < SPIN_COUNT_MAX)
         {
@@ -115,8 +150,9 @@ void WorkStealingPool::Shutdown()
     if (_shutdown.exchange(true, std::memory_order_acq_rel))
         return;
 
-    // Wait for pending work
-    Wait();
+    // Wait for all pending work of all types
+    for (size_t t = 0; t < NUM_TASK_TYPES; ++t)
+        Wait(static_cast<TaskType>(t));
 
     // Join all workers
     for (auto& thread : _workers)
@@ -130,6 +166,9 @@ void WorkStealingPool::Shutdown()
 
 void WorkStealingPool::WorkerLoop(size_t workerIndex)
 {
+    // Set thread-local worker index for CELL task routing
+    tl_workerIndex = workerIndex;
+
     LOG_INFO("server", "WorkStealingPool: Worker {} starting", workerIndex);
 
     // Warn about sync queries from worker threads
@@ -146,23 +185,36 @@ void WorkStealingPool::WorkerLoop(size_t workerIndex)
 
     while (!_shutdown.load(std::memory_order_relaxed))
     {
-        TaskPtr taskPtr = nullptr;
         bool foundWork = false;
 
-        // 1. Check MPSC inbox for externally submitted tasks
-        if (_inboxes[workerIndex]->Pop(taskPtr))
+        // Check all task types (MAP first, then CELL)
+        for (size_t t = 0; t < NUM_TASK_TYPES && !foundWork; ++t)
         {
-            foundWork = true;
+            TaskType type = static_cast<TaskType>(t);
+            if (TryExecuteFromType(workerIndex, type))
+            {
+                foundWork = true;
+            }
         }
-        // 2. Try own deque (for subtasks spawned by worker)
-        else if (_deques[workerIndex]->Pop(taskPtr))
+
+        // Try stealing from other workers if no local work
+        if (!foundWork)
         {
-            foundWork = true;
-        }
-        // 3. Try stealing from others
-        else if (TrySteal(workerIndex, taskPtr))
-        {
-            foundWork = true;
+            TaskPtr taskPtr = nullptr;
+            for (size_t t = 0; t < NUM_TASK_TYPES && !foundWork; ++t)
+            {
+                TaskType type = static_cast<TaskType>(t);
+                if (TrySteal(workerIndex, type, taskPtr))
+                {
+                    // Execute and cleanup
+                    (*taskPtr)();
+                    delete taskPtr;
+
+                    // Decrement type-specific pending count
+                    _pendingTasks[t].fetch_sub(1, std::memory_order_release);
+                    foundWork = true;
+                }
+            }
         }
 
         if (foundWork)
@@ -170,13 +222,6 @@ void WorkStealingPool::WorkerLoop(size_t workerIndex)
             // Reset backoff
             spinCount = 0;
             yieldCount = 0;
-
-            // Execute and cleanup
-            (*taskPtr)();
-            delete taskPtr;
-
-            // Decrement pending count
-            _pendingTasks.fetch_sub(1, std::memory_order_release);
         }
         else
         {
@@ -208,10 +253,38 @@ void WorkStealingPool::WorkerLoop(size_t workerIndex)
     _activeWorkers.fetch_sub(1, std::memory_order_relaxed);
 }
 
-bool WorkStealingPool::TrySteal(size_t thiefIndex, TaskPtr& task)
+bool WorkStealingPool::TryExecuteFromType(size_t workerIndex, TaskType type)
+{
+    size_t typeIdx = static_cast<size_t>(type);
+    TaskPtr taskPtr = nullptr;
+
+    // 1. Check type-specific MPSC inbox
+    if (_inboxes[workerIndex][typeIdx]->Pop(taskPtr))
+    {
+        (*taskPtr)();
+        delete taskPtr;
+        _pendingTasks[typeIdx].fetch_sub(1, std::memory_order_release);
+        return true;
+    }
+
+    // 2. Try own type-specific deque
+    if (_deques[workerIndex][typeIdx]->Pop(taskPtr))
+    {
+        (*taskPtr)();
+        delete taskPtr;
+        _pendingTasks[typeIdx].fetch_sub(1, std::memory_order_release);
+        return true;
+    }
+
+    return false;
+}
+
+bool WorkStealingPool::TrySteal(size_t thiefIndex, TaskType type, TaskPtr& task)
 {
     if (_numWorkers <= 1)
         return false;
+
+    size_t typeIdx = static_cast<size_t>(type);
 
     // Start from a pseudo-random victim to avoid contention
     size_t start = thiefIndex + 1;
@@ -220,8 +293,36 @@ bool WorkStealingPool::TrySteal(size_t thiefIndex, TaskPtr& task)
     {
         size_t victim = (start + i) % _numWorkers;
 
-        if (_deques[victim]->Steal(task))
+        if (_deques[victim][typeIdx]->Steal(task))
             return true;
+    }
+
+    return false;
+}
+
+bool WorkStealingPool::TryExecuteOne(TaskType type)
+{
+    if (_shutdown.load(std::memory_order_relaxed))
+        return false;
+
+    size_t typeIdx = static_cast<size_t>(type);
+    TaskPtr taskPtr = nullptr;
+
+    // Only steal from deques - DO NOT touch inboxes!
+    // Inboxes are MPSC (single consumer = owning worker only)
+    // Multiple threads calling Pop() on inboxes causes race conditions
+    for (size_t i = 0; i < _numWorkers; ++i)
+    {
+        if (_deques[i][typeIdx]->Steal(taskPtr))
+        {
+            // Execute the stolen task
+            (*taskPtr)();
+            delete taskPtr;
+
+            // Decrement type-specific pending count
+            _pendingTasks[typeIdx].fetch_sub(1, std::memory_order_release);
+            return true;
+        }
     }
 
     return false;

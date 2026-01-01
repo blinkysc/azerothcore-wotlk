@@ -70,6 +70,7 @@
 class WorldObject;
 class Cell;
 class Map;
+class WorkStealingPool;
 
 namespace GhostActor
 {
@@ -703,6 +704,10 @@ public:
     bool IsCellManaged(WorldObject* obj) const;
     bool IsCellManagedByGuid(uint64_t guid) const;  // Deprecated - always returns false
 
+    // Phase 7C: Parallel execution
+    void SetWorkPool(WorkStealingPool* pool) { _workPool = pool; }
+    bool HasWorkPool() const { return _workPool != nullptr; }
+
     // Stats
     [[nodiscard]] size_t GetActiveCellCount() const { return _activeCells.size(); }
     [[nodiscard]] size_t GetGhostCount() const { return _entityGhostInfo.size(); }
@@ -746,7 +751,9 @@ private:
     std::unordered_map<uint64_t, EntityMigrationInfo> _entityMigrations;
     std::atomic<uint64_t> _nextMigrationId{1};
 
-    // Phase 7A: Cell-managed tracking uses WorldObject::_isCellManaged flag (O(1))
+    // Phase 7C: Parallel execution
+    WorkStealingPool* _workPool{nullptr};
+    alignas(64) std::atomic<size_t> _pendingCellUpdates{0};
 };
 
 } // namespace GhostActor
