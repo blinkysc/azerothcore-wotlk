@@ -19,10 +19,10 @@
 #include "DatabaseEnv.h"
 #include "Log.h"
 
-// Exponential backoff parameters
-static constexpr uint32 SPIN_COUNT_BEFORE_YIELD = 32;
-static constexpr uint32 YIELD_COUNT_BEFORE_SLEEP = 16;
-static constexpr uint32 SLEEP_MICROSECONDS = 100;
+// Simple backoff: spin briefly, yield briefly, then sleep
+static constexpr uint32 SPIN_COUNT_MAX = 4;
+static constexpr uint32 YIELD_COUNT_MAX = 2;
+static constexpr uint32 SLEEP_MICROS = 5000;  // 5ms
 
 WorkStealingPool::WorkStealingPool(size_t numThreads)
     : _numWorkers(numThreads)
@@ -80,15 +80,14 @@ void WorkStealingPool::SubmitToWorker(size_t workerIndex, Task task)
 
 void WorkStealingPool::Wait()
 {
-    // Spin-wait with exponential backoff - NO LOCKS
+    // Simple spin-wait with fixed backoff
     uint32 spinCount = 0;
     uint32 yieldCount = 0;
 
     while (_pendingTasks.load(std::memory_order_acquire) > 0)
     {
-        if (spinCount < SPIN_COUNT_BEFORE_YIELD)
+        if (spinCount < SPIN_COUNT_MAX)
         {
-            // Busy spin with pause instruction
             for (int i = 0; i < 16; ++i)
             {
                 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
@@ -99,14 +98,14 @@ void WorkStealingPool::Wait()
             }
             ++spinCount;
         }
-        else if (yieldCount < YIELD_COUNT_BEFORE_SLEEP)
+        else if (yieldCount < YIELD_COUNT_MAX)
         {
             std::this_thread::yield();
             ++yieldCount;
         }
         else
         {
-            std::this_thread::sleep_for(std::chrono::microseconds(SLEEP_MICROSECONDS));
+            std::this_thread::sleep_for(std::chrono::microseconds(SLEEP_MICROS));
         }
     }
 }
@@ -181,8 +180,8 @@ void WorkStealingPool::WorkerLoop(size_t workerIndex)
         }
         else
         {
-            // Exponential backoff - NO LOCKS
-            if (spinCount < SPIN_COUNT_BEFORE_YIELD)
+            // Simple fixed backoff
+            if (spinCount < SPIN_COUNT_MAX)
             {
                 for (int i = 0; i < 16; ++i)
                 {
@@ -194,15 +193,14 @@ void WorkStealingPool::WorkerLoop(size_t workerIndex)
                 }
                 ++spinCount;
             }
-            else if (yieldCount < YIELD_COUNT_BEFORE_SLEEP)
+            else if (yieldCount < YIELD_COUNT_MAX)
             {
                 std::this_thread::yield();
                 ++yieldCount;
             }
             else
             {
-                // Brief sleep to avoid burning CPU when truly idle
-                std::this_thread::sleep_for(std::chrono::microseconds(SLEEP_MICROSECONDS));
+                std::this_thread::sleep_for(std::chrono::microseconds(SLEEP_MICROS));
             }
         }
     }
