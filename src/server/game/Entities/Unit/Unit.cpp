@@ -485,29 +485,33 @@ void Unit::Update(uint32 p_time)
         }
     }
 
-    if (!suspendAttackTimer)
+    // Phase 7D: Skip attack timer updates for cell-managed creatures (already done in UpdateAttackTimersParallel)
+    if (!IsCellManaged())
     {
-        if (int32 base_attack = getAttackTimer(BASE_ATTACK))
+        if (!suspendAttackTimer)
         {
-            setAttackTimer(BASE_ATTACK, base_attack > 0 ? base_attack - (int32) p_time : 0);
+            if (int32 base_attack = getAttackTimer(BASE_ATTACK))
+            {
+                setAttackTimer(BASE_ATTACK, base_attack > 0 ? base_attack - (int32) p_time : 0);
+            }
+
+            if (int32 off_attack = getAttackTimer(OFF_ATTACK))
+            {
+                setAttackTimer(OFF_ATTACK, off_attack > 0 ? off_attack - (int32) p_time : 0);
+            }
         }
 
-        if (int32 off_attack = getAttackTimer(OFF_ATTACK))
+        if (!suspendRangedAttackTimer)
         {
-            setAttackTimer(OFF_ATTACK, off_attack > 0 ? off_attack - (int32) p_time : 0);
+            if (int32 ranged_attack = getAttackTimer(RANGED_ATTACK))
+            {
+                setAttackTimer(RANGED_ATTACK, ranged_attack > 0 ? ranged_attack - (int32)p_time : 0);
+            }
         }
+
+        // update abilities available only for fraction of time
+        UpdateReactives(p_time);
     }
-
-    if (!suspendRangedAttackTimer)
-    {
-        if (int32 ranged_attack = getAttackTimer(RANGED_ATTACK))
-        {
-            setAttackTimer(RANGED_ATTACK, ranged_attack > 0 ? ranged_attack - (int32)p_time : 0);
-        }
-    }
-
-    // update abilities available only for fraction of time
-    UpdateReactives(p_time);
 
     ModifyAuraState(AURA_STATE_HEALTHLESS_20_PERCENT, IsAlive() ? HealthBelowPct(20) : false);
     ModifyAuraState(AURA_STATE_HEALTHLESS_35_PERCENT, IsAlive() ? HealthBelowPct(35) : false);
@@ -517,6 +521,27 @@ void Unit::Update(uint32 p_time)
     GetMotionMaster()->UpdateMotion(p_time);
 
     InvalidateValuesUpdateCache();
+}
+
+void Unit::UpdateAttackTimersParallel(uint32 diff)
+{
+    // Phase 7D: Parallel-safe attack timer updates
+    // Called from Creature::UpdateTimersParallel for cell-managed creatures
+    //
+    // Note: Player-specific suspendAttackTimer logic is not applied here
+    // since this is only called for creatures via cell updates
+
+    if (int32 base_attack = getAttackTimer(BASE_ATTACK))
+        setAttackTimer(BASE_ATTACK, base_attack > (int32)diff ? base_attack - (int32)diff : 0);
+
+    if (int32 off_attack = getAttackTimer(OFF_ATTACK))
+        setAttackTimer(OFF_ATTACK, off_attack > (int32)diff ? off_attack - (int32)diff : 0);
+
+    if (int32 ranged_attack = getAttackTimer(RANGED_ATTACK))
+        setAttackTimer(RANGED_ATTACK, ranged_attack > (int32)diff ? ranged_attack - (int32)diff : 0);
+
+    // Reactive timer updates (parry, dodge, etc.)
+    UpdateReactives(diff);
 }
 
 bool Unit::haveOffhandWeapon() const
