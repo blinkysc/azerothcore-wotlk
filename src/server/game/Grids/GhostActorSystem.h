@@ -499,6 +499,69 @@ struct MigrationAckPayload
 constexpr uint32_t MIGRATION_TIMEOUT_MS = 5000;
 
 // ============================================================================
+// PHASE 6C: Cross-Cell Combat Payloads
+// ============================================================================
+
+/**
+ * @brief Payload for SPELL_HIT message
+ *
+ * Contains pre-calculated spell damage/healing to apply to target.
+ * Used when caster and target are in different cells.
+ */
+struct SpellHitPayload
+{
+    uint32_t spellId{0};
+    uint8_t effectMask{0};
+    uint8_t missInfo{0};        // SpellMissInfo
+    int32_t damage{0};
+    int32_t healing{0};
+    uint32_t schoolMask{0};
+    uint32_t absorb{0};
+    uint32_t resist{0};
+    uint32_t blocked{0};
+    bool isCritical{false};
+    uint32_t procAttacker{0};
+    uint32_t procVictim{0};
+    uint32_t procEx{0};
+};
+
+/**
+ * @brief Payload for MELEE_DAMAGE message
+ *
+ * Contains pre-calculated melee damage to apply to target.
+ */
+struct MeleeDamagePayload
+{
+    int32_t damage{0};
+    uint32_t schoolMask{0};
+    uint32_t blocked{0};
+    uint32_t absorbed{0};
+    uint32_t resisted{0};
+    uint8_t attackType{0};      // WeaponAttackType
+    uint8_t hitInfo{0};
+    bool isCritical{false};
+    uint32_t procAttacker{0};
+    uint32_t procVictim{0};
+    uint32_t procEx{0};
+};
+
+/**
+ * @brief Payload for HEAL message
+ *
+ * Contains pre-calculated healing to apply to target.
+ */
+struct HealPayload
+{
+    uint32_t spellId{0};
+    int32_t healAmount{0};
+    int32_t effectiveHeal{0};   // After overheal calculation
+    int32_t absorbed{0};
+    bool isCritical{false};
+    uint32_t procAttacker{0};
+    uint32_t procVictim{0};
+};
+
+// ============================================================================
 // Cell Actor Manager - Integrates with Map (Phase 2 + Phase 3 + Phase 4)
 // ============================================================================
 
@@ -540,6 +603,12 @@ public:
     void UpdateMigrations(uint32_t diff);
     bool IsEntityMigrating(uint64_t guid) const;
     void BufferMessageForMigrating(uint64_t guid, const ActorMessage& msg);
+
+    // Phase 6C: Cross-cell combat helpers
+    uint32_t GetCellIdForPosition(float x, float y) const;
+    uint32_t GetCellIdForEntity(WorldObject* obj) const;
+    bool AreInSameCell(WorldObject* a, WorldObject* b) const;
+    bool AreInSameCell(float x1, float y1, float x2, float y2) const;
 
     // Stats
     [[nodiscard]] size_t GetActiveCellCount() const { return _activeCells.size(); }
