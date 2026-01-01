@@ -19,10 +19,10 @@
 #include "DatabaseEnv.h"
 #include "Log.h"
 
-// Simple backoff: spin briefly, yield briefly, then sleep
-static constexpr uint32 SPIN_COUNT_MAX = 4;
-static constexpr uint32 YIELD_COUNT_MAX = 2;
-static constexpr uint32 SLEEP_MICROS = 5000;  // 5ms
+// Phase 8A: Tuned backoff - more spinning (cheap), less yielding (expensive syscall)
+static constexpr uint32 SPIN_COUNT_MAX = 64;   // 16x more spins before yield
+static constexpr uint32 YIELD_COUNT_MAX = 4;   // Double yields before sleep
+static constexpr uint32 SLEEP_MICROS = 1000;   // 1ms sleep (was 5ms)
 
 // Thread-local worker index for CELL task routing
 // SIZE_MAX means "not a worker thread"
@@ -225,7 +225,7 @@ void WorkStealingPool::WorkerLoop(size_t workerIndex)
         }
         else
         {
-            // Simple fixed backoff
+            // Phase 8A: Tuned backoff - more spinning (cheap), less yielding (expensive)
             if (spinCount < SPIN_COUNT_MAX)
             {
                 for (int i = 0; i < 16; ++i)
