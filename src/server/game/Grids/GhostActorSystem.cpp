@@ -55,38 +55,39 @@ void CellActor::HandleMessage(ActorMessage& msg)
     {
         case MessageType::SPELL_HIT:
         {
-            // Find target entity in our cell
-            // Apply spell damage/effects
-            // TODO: Implement when integrating with spell system
+            // Phase 6C: Find target entity in our cell, apply spell damage/effects
+            // For now, just log that we received the message
+            LOG_DEBUG("server.ghost", "CellActor[{}]: Received SPELL_HIT for target {}", _cellId, msg.targetGuid);
             break;
         }
 
         case MessageType::MELEE_DAMAGE:
         {
-            // Apply melee damage to target
-            // TODO: Implement when integrating with combat system
+            // Phase 6C: Apply melee damage to target
+            LOG_DEBUG("server.ghost", "CellActor[{}]: Received MELEE_DAMAGE for target {}", _cellId, msg.targetGuid);
             break;
         }
 
         case MessageType::HEAL:
         {
-            // Apply healing to target
+            // Phase 6C: Apply healing to target
+            LOG_DEBUG("server.ghost", "CellActor[{}]: Received HEAL for target {}", _cellId, msg.targetGuid);
             break;
         }
 
         case MessageType::ENTITY_ENTERING:
         {
             // Entity is transferring to this cell
-            // complexPayload contains serialized entity state
-            // TODO: Deserialize and take ownership
+            LOG_DEBUG("server.ghost", "CellActor[{}]: Entity {} entering from cell {}",
+                _cellId, msg.sourceGuid, msg.sourceCellId);
             break;
         }
 
         case MessageType::ENTITY_LEAVING:
         {
             // Entity is leaving this cell
-            // Remove from our entity list
-            // TODO: Implement entity removal
+            LOG_DEBUG("server.ghost", "CellActor[{}]: Entity {} leaving to cell {}",
+                _cellId, msg.sourceGuid, msg.targetCellId);
             break;
         }
 
@@ -96,8 +97,7 @@ void CellActor::HandleMessage(ActorMessage& msg)
             auto it = _ghosts.find(msg.sourceGuid);
             if (it != _ghosts.end())
             {
-                // Update ghost's cached position
-                // floatParam1/2/3 = x, y, z
+                it->second->SyncPosition(msg.floatParam1, msg.floatParam2, msg.floatParam3, 0.0f);
             }
             break;
         }
@@ -108,7 +108,20 @@ void CellActor::HandleMessage(ActorMessage& msg)
             auto it = _ghosts.find(msg.sourceGuid);
             if (it != _ghosts.end())
             {
-                // intParam1 = new health, intParam2 = max health
+                it->second->SyncHealth(
+                    static_cast<uint32_t>(msg.intParam1),
+                    static_cast<uint32_t>(msg.intParam2));
+            }
+            break;
+        }
+
+        case MessageType::COMBAT_STATE_CHANGED:
+        {
+            // Update ghost's combat state
+            auto it = _ghosts.find(msg.sourceGuid);
+            if (it != _ghosts.end())
+            {
+                it->second->SyncCombatState(msg.intParam1 != 0);
             }
             break;
         }
@@ -116,13 +129,39 @@ void CellActor::HandleMessage(ActorMessage& msg)
         case MessageType::GHOST_CREATE:
         {
             // Create a ghost for an entity in neighboring cell
-            // TODO: Implement ghost creation
+            if (_ghosts.find(msg.sourceGuid) == _ghosts.end())
+            {
+                auto ghost = std::make_unique<GhostEntity>(msg.sourceGuid, msg.sourceCellId);
+
+                // If we have a full snapshot in complexPayload, use it
+                if (msg.complexPayload)
+                {
+                    auto snapshot = std::static_pointer_cast<GhostSnapshot>(msg.complexPayload);
+                    ghost->SyncFromSnapshot(*snapshot);
+                }
+                else
+                {
+                    // Use basic params
+                    ghost->SyncPosition(msg.floatParam1, msg.floatParam2, msg.floatParam3, 0.0f);
+                    ghost->SyncHealth(
+                        static_cast<uint32_t>(msg.intParam1),
+                        static_cast<uint32_t>(msg.intParam2));
+                }
+
+                _ghosts[msg.sourceGuid] = std::move(ghost);
+            }
             break;
         }
 
         case MessageType::GHOST_UPDATE:
         {
             // Full state sync for a ghost
+            auto it = _ghosts.find(msg.sourceGuid);
+            if (it != _ghosts.end() && msg.complexPayload)
+            {
+                auto snapshot = std::static_pointer_cast<GhostSnapshot>(msg.complexPayload);
+                it->second->SyncFromSnapshot(*snapshot);
+            }
             break;
         }
 
@@ -133,6 +172,16 @@ void CellActor::HandleMessage(ActorMessage& msg)
             break;
         }
 
+        case MessageType::AURA_APPLY:
+        case MessageType::AURA_REMOVE:
+        case MessageType::POWER_CHANGED:
+        case MessageType::AURA_STATE_SYNC:
+        {
+            // Phase 6B+: Aura and power sync messages
+            // For now, just acknowledge receipt
+            break;
+        }
+
         // Phase 4: Migration messages are handled by CellActorManager
         case MessageType::MIGRATION_REQUEST:
         case MessageType::MIGRATION_ACK:
@@ -140,7 +189,6 @@ void CellActor::HandleMessage(ActorMessage& msg)
         case MessageType::MIGRATION_FORWARD:
         {
             // These are processed at the manager level
-            // Forward to manager if needed
             break;
         }
 
