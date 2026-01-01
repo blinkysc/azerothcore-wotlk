@@ -70,6 +70,7 @@ public:
 
     void Update(uint32 time) override;  // overwrited Unit::Update
     void UpdateRegeneration(uint32 diff);  // Phase 7B: Parallel-safe regeneration
+    void UpdateTimersParallel(uint32 diff);  // Phase 7D: Parallel-safe timer updates
     void GetRespawnPosition(float& x, float& y, float& z, float* ori = nullptr, float* dist = nullptr) const;
 
     void SetCorpseDelay(uint32 delay) { m_corpseDelay = delay; }

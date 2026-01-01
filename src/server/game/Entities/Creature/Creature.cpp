@@ -735,10 +735,14 @@ void Creature::Update(uint32 diff)
             // if periodic combat pulse is enabled and we are both in combat and in a dungeon, do this now
             if (m_combatPulseDelay > 0 && IsInCombat() && GetMap()->IsDungeon())
             {
-                if (diff > m_combatPulseTime)
-                    m_combatPulseTime = 0;
-                else
-                    m_combatPulseTime -= diff;
+                // Phase 7D: Skip decrement if cell-managed (already done in UpdateTimersParallel)
+                if (!IsCellManaged())
+                {
+                    if (diff > m_combatPulseTime)
+                        m_combatPulseTime = 0;
+                    else
+                        m_combatPulseTime -= diff;
+                }
 
                 if (m_combatPulseTime == 0)
                 {
@@ -753,7 +757,16 @@ void Creature::Update(uint32 diff)
             // periodic check to see if the creature has passed an evade boundary
             if (IsAIEnabled && !IsInEvadeMode() && IsEngaged())
             {
-                if (diff >= m_boundaryCheckTime)
+                // Phase 7D: For cell-managed, timer already decremented
+                if (IsCellManaged())
+                {
+                    if (m_boundaryCheckTime == 0)
+                    {
+                        AI()->CheckInRoom();
+                        m_boundaryCheckTime = 2500;
+                    }
+                }
+                else if (diff >= m_boundaryCheckTime)
                 {
                     AI()->CheckInRoom();
                     m_boundaryCheckTime = 2500;
@@ -770,8 +783,12 @@ void Creature::Update(uint32 diff)
 
             if (Unit* victim = GetVictim())
             {
+                // Phase 7D: For cell-managed, timers already decremented in UpdateTimersParallel
+                bool cellManaged = IsCellManaged();
+
                 // If we are closer than 50% of the combat reach we are going to reposition the victim
-                if (diff >= m_moveBackwardsMovementTime)
+                bool moveBackwardsFired = cellManaged ? (m_moveBackwardsMovementTime == 0) : (diff >= m_moveBackwardsMovementTime);
+                if (moveBackwardsFired)
                 {
                     float MaxRange = GetCollisionRadius() + GetVictim()->GetCollisionRadius();
 
@@ -780,33 +797,37 @@ void Creature::Update(uint32 diff)
 
                     m_moveBackwardsMovementTime = urand(MOVE_BACKWARDS_CHECK_INTERVAL, MOVE_BACKWARDS_CHECK_INTERVAL * 3);
                 }
-                else
+                else if (!cellManaged)
                     m_moveBackwardsMovementTime -= diff;
 
                 // Circling the target
-                if (diff >= m_moveCircleMovementTime)
+                bool moveCircleFired = cellManaged ? (m_moveCircleMovementTime == 0) : (diff >= m_moveCircleMovementTime);
+                if (moveCircleFired)
                 {
                     AI()->MoveCircleChecks();
                     m_moveCircleMovementTime = urand(MOVE_CIRCLE_CHECK_INTERVAL, MOVE_CIRCLE_CHECK_INTERVAL * 2);
                 }
-                else
+                else if (!cellManaged)
                     m_moveCircleMovementTime -= diff;
 
                 // Periodically check if able to move, if not, extend leash timer
-                if (diff >= m_extendLeashTime)
+                bool extendLeashFired = cellManaged ? (m_extendLeashTime == 0) : (diff >= m_extendLeashTime);
+                if (extendLeashFired)
                 {
                     if (HasUnitState(UNIT_STATE_LOST_CONTROL))
                         UpdateLeashExtensionTime();
                     m_extendLeashTime = EXTEND_LEASH_CHECK_INTERVAL;
                 }
-                else
+                else if (!cellManaged)
                     m_extendLeashTime -= diff;
             }
 
             // Call for assistance if not disabled
             if (m_assistanceTimer)
             {
-                if (m_assistanceTimer <= diff)
+                // Phase 7D: For cell-managed, timer already decremented
+                bool assistanceFired = IsCellManaged() ? (m_assistanceTimer == 0) : (m_assistanceTimer <= diff);
+                if (assistanceFired)
                 {
                     if (CanPeriodicallyCallForAssistance())
                     {
@@ -815,7 +836,7 @@ void Creature::Update(uint32 diff)
                     }
                     m_assistanceTimer = sWorld->getIntConfig(CONFIG_CREATURE_FAMILY_ASSISTANCE_PERIOD);
                 }
-                else
+                else if (!IsCellManaged())
                 {
                     m_assistanceTimer -= diff;
                 }
@@ -918,7 +939,9 @@ void Creature::Update(uint32 diff)
         // pussywizard:
         if (GetOwnerGUID().IsPlayer())
         {
-            if (m_transportCheckTimer <= diff)
+            // Phase 7D: For cell-managed, timer already decremented
+            bool transportCheckFired = IsCellManaged() ? (m_transportCheckTimer == 0) : (m_transportCheckTimer <= diff);
+            if (transportCheckFired)
             {
                 m_transportCheckTimer = 1000;
                 Transport* newTransport = GetMap()->GetTransportForPos(GetPhaseMask(), GetPositionX(), GetPositionY(), GetPositionZ(), this);
@@ -932,7 +955,7 @@ void Creature::Update(uint32 diff)
                     //SendMovementFlagUpdate();
                 }
             }
-            else
+            else if (!IsCellManaged())
                 m_transportCheckTimer -= diff;
         }
 
@@ -1089,6 +1112,64 @@ void Creature::UpdateRegeneration(uint32 diff)
 
         m_regenTimer += CREATURE_REGEN_INTERVAL;
     }
+}
+
+void Creature::UpdateTimersParallel(uint32 diff)
+{
+    // Phase 7D: Parallel-safe timer updates (decrements only, no callbacks)
+    // Callbacks are handled in centralized Creature::Update() when timers fire
+    //
+    // Safe because:
+    // - Simple arithmetic on self-owned member variables
+    // - No cross-cell dependencies or shared state access
+
+    if (!IsAlive())
+        return;
+
+    // Combat pulse timer - callback fires DoZoneInCombat (unsafe)
+    if (m_combatPulseTime > diff)
+        m_combatPulseTime -= diff;
+    else
+        m_combatPulseTime = 0;
+
+    // Boundary check timer - callback fires AI()->CheckInRoom() (unsafe)
+    if (m_boundaryCheckTime > diff)
+        m_boundaryCheckTime -= diff;
+    else
+        m_boundaryCheckTime = 0;
+
+    // Move backwards timer - callback fires AI()->MoveBackwardsChecks() (unsafe)
+    if (m_moveBackwardsMovementTime > diff)
+        m_moveBackwardsMovementTime -= diff;
+    else
+        m_moveBackwardsMovementTime = 0;
+
+    // Move circle timer - callback fires AI()->MoveCircleChecks() (unsafe)
+    if (m_moveCircleMovementTime > diff)
+        m_moveCircleMovementTime -= diff;
+    else
+        m_moveCircleMovementTime = 0;
+
+    // Extend leash timer - callback fires UpdateLeashExtensionTime() (unsafe)
+    if (m_extendLeashTime > diff)
+        m_extendLeashTime -= diff;
+    else
+        m_extendLeashTime = 0;
+
+    // Assistance timer - callback fires CallAssistance() (unsafe)
+    if (m_assistanceTimer > diff)
+        m_assistanceTimer -= diff;
+    else
+        m_assistanceTimer = 0;
+
+    // Transport check timer - callback accesses Map (unsafe)
+    if (m_transportCheckTimer > diff)
+        m_transportCheckTimer -= diff;
+    else
+        m_transportCheckTimer = 0;
+
+    // Attack timers from Unit (safe arithmetic)
+    UpdateAttackTimersParallel(diff);
 }
 
 void Creature::DoFleeToGetAssistance()

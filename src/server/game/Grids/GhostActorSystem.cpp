@@ -320,9 +320,10 @@ void CellActor::UpdateEntities(uint32_t diff)
         }
         else if (Creature* creature = entity->ToCreature())
         {
-            // Phase 7B: Only regeneration is safe for parallel execution
-            // AI, combat, threat management remain centralized in Map::Update
+            // Phase 7B: Regeneration is safe for parallel execution
             creature->UpdateRegeneration(diff);
+            // Phase 7D: Timer decrements are safe (callbacks handled centrally)
+            creature->UpdateTimersParallel(diff);
         }
     }
 }
