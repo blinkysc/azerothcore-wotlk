@@ -183,7 +183,8 @@ void WorkStealingPool::WorkerLoop(size_t workerIndex)
     uint32 spinCount = 0;
     uint32 yieldCount = 0;
 
-    while (!_shutdown.load(std::memory_order_relaxed))
+    // Main worker loop - continues until shutdown AND all work is drained
+    while (true)
     {
         bool foundWork = false;
 
@@ -225,6 +226,24 @@ void WorkStealingPool::WorkerLoop(size_t workerIndex)
         }
         else
         {
+            // No work found - check if we should exit
+            // Only exit when shutdown is set AND no pending work remains
+            if (_shutdown.load(std::memory_order_acquire))
+            {
+                // Double-check all task types have no pending work
+                bool allDrained = true;
+                for (size_t t = 0; t < NUM_TASK_TYPES; ++t)
+                {
+                    if (_pendingTasks[t].load(std::memory_order_acquire) > 0)
+                    {
+                        allDrained = false;
+                        break;
+                    }
+                }
+                if (allDrained)
+                    break;  // Safe to exit - shutdown requested and all work done
+            }
+
             // Phase 8A: Tuned backoff - more spinning (cheap), less yielding (expensive)
             if (spinCount < SPIN_COUNT_MAX)
             {
