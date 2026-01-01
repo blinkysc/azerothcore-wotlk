@@ -785,6 +785,13 @@ private:
     GuidUnorderedSet _allowedLooters;
 
     ObjectVisibilityContainer _objectVisibilityContainer;
+
+    // Phase 7A: Cell-managed flag for parallel updates
+    bool _isCellManaged{false};
+
+public:
+    [[nodiscard]] bool IsCellManaged() const { return _isCellManaged; }
+    void SetCellManaged(bool managed) { _isCellManaged = managed; }
 };
 
 namespace Acore

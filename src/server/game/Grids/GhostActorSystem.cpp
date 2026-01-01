@@ -472,10 +472,10 @@ void CellActorManager::OnEntityAdded(WorldObject* obj)
     CellActor* cell = GetOrCreateCellActor(cellX, cellY);
     cell->AddEntity(obj);
 
-    // Phase 7A: Track GameObjects as cell-managed
+    // Phase 7A: Mark GameObjects as cell-managed (O(1) flag check)
     if (obj->IsGameObject())
     {
-        _cellManagedObjects.insert(obj->GetGUID().GetRawValue());
+        obj->SetCellManaged(true);
     }
 }
 
@@ -491,10 +491,10 @@ void CellActorManager::OnEntityRemoved(WorldObject* obj)
         cell->RemoveEntity(obj);
     }
 
-    // Phase 7A: Remove from cell-managed tracking
+    // Phase 7A: Clear cell-managed flag
     if (obj->IsGameObject())
     {
-        _cellManagedObjects.erase(obj->GetGUID().GetRawValue());
+        obj->SetCellManaged(false);
     }
 }
 
@@ -1351,12 +1351,15 @@ bool CellActorManager::IsCellManaged(WorldObject* obj) const
     if (!obj)
         return false;
 
-    return IsCellManagedByGuid(obj->GetGUID().GetRawValue());
+    // O(1) flag check instead of hash lookup
+    return obj->IsCellManaged();
 }
 
-bool CellActorManager::IsCellManagedByGuid(uint64_t guid) const
+bool CellActorManager::IsCellManagedByGuid([[maybe_unused]] uint64_t guid) const
 {
-    return _cellManagedObjects.find(guid) != _cellManagedObjects.end();
+    // Cannot check by GUID alone - need the object pointer for the flag
+    // This method is deprecated in favor of IsCellManaged(WorldObject*)
+    return false;
 }
 
 } // namespace GhostActor
