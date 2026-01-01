@@ -19,21 +19,24 @@
 #define _MAP_UPDATER_H_INCLUDED
 
 #include "Define.h"
-#include "PCQueue.h"
-#include <condition_variable>
-#include <thread>
+#include "WorkStealingPool.h"
 #include <atomic>
+#include <memory>
 
 class Map;
-class UpdateRequest;
 
+/**
+ * @brief Lock-free Map Update Scheduler
+ *
+ * Uses work-stealing thread pool for parallel map updates.
+ * Zero mutexes, zero locks - only atomic operations.
+ */
 class MapUpdater
 {
 public:
     MapUpdater();
-    ~MapUpdater() = default;
+    ~MapUpdater();
 
-    void schedule_task(UpdateRequest* request);
     void schedule_update(Map& map, uint32 diff, uint32 s_diff);
     void schedule_map_preload(uint32 mapid);
     void schedule_lfg_update(uint32 diff);
@@ -41,16 +44,11 @@ public:
     void activate(std::size_t num_threads);
     void deactivate();
     bool activated();
-    void update_finished();
 
 private:
-    void WorkerThread();
-    ProducerConsumerQueue<UpdateRequest*> _queue;
-    std::atomic<int> pending_requests;  // Use std::atomic for pending_requests to avoid lock contention
-    std::atomic<bool> _cancelationToken;  // Atomic flag for cancellation to avoid race conditions
-    std::vector<std::thread> _workerThreads;
-    std::mutex _lock; // Mutex and condition variable for synchronization
-    std::condition_variable _condition;
+    std::unique_ptr<WorkStealingPool> _pool;
+    alignas(64) std::atomic<size_t> _pendingTasks{0};
+    bool _activated{false};
 };
 
 #endif //_MAP_UPDATER_H_INCLUDED

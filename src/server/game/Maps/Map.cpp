@@ -23,6 +23,7 @@
 #include "DynamicTree.h"
 #include "GameTime.h"
 #include "Geometry.h"
+#include "GhostActorSystem.h"
 #include "GridNotifiers.h"
 #include "Group.h"
 #include "InstanceScript.h"
@@ -81,11 +82,16 @@ Map::Map(uint32 id, uint32 InstanceId, uint8 SpawnMode, Map* _parent) :
 
     _weatherUpdateTimer.SetInterval(1 * IN_MILLISECONDS);
     _corpseUpdateTimer.SetInterval(20 * MINUTE * IN_MILLISECONDS);
+
+    // Ghost Actor System - initialized in OnCreateMap() after map is fully set up
 }
 
 // Hook called after map is created AND after added to map list
 void Map::OnCreateMap()
 {
+    // Initialize Ghost Actor System now that map is fully constructed
+    _cellActorManager = std::make_unique<GhostActor::CellActorManager>(this);
+
     // Instances load all grids by default (both base map and child maps)
     if (GetInstanceId())
         LoadAllGrids();
@@ -489,6 +495,10 @@ void Map::Update(const uint32 t_diff, const uint32 s_diff, bool  /*thread*/)
 
     UpdateNonPlayerObjects(t_diff);
 
+    // Process cell actor messages
+    if (_cellActorManager)
+        _cellActorManager->Update(t_diff);
+
     SendObjectUpdates();
 
     ///- Process necessary scripts
@@ -783,7 +793,10 @@ void Map::RemoveFromMap(Transport* obj, bool remove)
 
 void Map::PlayerRelocation(Player* player, float x, float y, float z, float o)
 {
-    Cell old_cell(player->GetPositionX(), player->GetPositionY());
+    float oldX = player->GetPositionX();
+    float oldY = player->GetPositionY();
+
+    Cell old_cell(oldX, oldY);
     Cell new_cell(x, y);
 
     if (old_cell.DiffGrid(new_cell) || old_cell.DiffCell(new_cell))
@@ -801,10 +814,21 @@ void Map::PlayerRelocation(Player* player, float x, float y, float z, float o)
         player->GetVehicleKit()->RelocatePassengers();
     player->UpdatePositionData();
     player->UpdateObjectVisibility(false);
+
+    // Update ghost projections in neighboring cells
+    if (_cellActorManager)
+    {
+        _cellActorManager->UpdateEntityGhosts(player);
+        // Check if player crossed cell boundary and needs migration
+        _cellActorManager->CheckAndInitiateMigration(player, oldX, oldY);
+    }
 }
 
 void Map::CreatureRelocation(Creature* creature, float x, float y, float z, float o)
 {
+    float oldX = creature->GetPositionX();
+    float oldY = creature->GetPositionY();
+
     Cell old_cell = creature->GetCurrentCell();
     Cell new_cell(x, y);
 
@@ -823,6 +847,14 @@ void Map::CreatureRelocation(Creature* creature, float x, float y, float z, floa
         creature->GetVehicleKit()->RelocatePassengers();
     creature->UpdatePositionData();
     creature->UpdateObjectVisibility(false);
+
+    // Update ghost projections in neighboring cells
+    if (_cellActorManager)
+    {
+        _cellActorManager->UpdateEntityGhosts(creature);
+        // Check if creature crossed cell boundary and needs migration
+        _cellActorManager->CheckAndInitiateMigration(creature, oldX, oldY);
+    }
 }
 
 void Map::GameObjectRelocation(GameObject* go, float x, float y, float z, float o)
