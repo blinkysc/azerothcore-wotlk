@@ -518,13 +518,22 @@ void Vehicle::RelocatePassengers()
 {
     ASSERT(_me->GetMap());
 
+    // Phase 7E: Copy GUIDs first to avoid iterator invalidation during parallel updates
+    std::vector<ObjectGuid> passengerGuids;
+    passengerGuids.reserve(Seats.size());
+    for (auto const& seat : Seats)
+    {
+        if (!seat.second.Passenger.Guid.IsEmpty())
+            passengerGuids.push_back(seat.second.Passenger.Guid);
+    }
+
     std::vector<std::pair<Unit*, Position>> seatRelocation;
-    seatRelocation.reserve(Seats.size());
+    seatRelocation.reserve(passengerGuids.size());
 
     // not sure that absolute position calculation is correct, it must depend on vehicle pitch angle
-    for (auto const& itr : Seats)
+    for (ObjectGuid const& guid : passengerGuids)
     {
-        if (Unit* passenger = ObjectAccessor::GetUnit(*GetBase(), itr.second.Passenger.Guid))
+        if (Unit* passenger = ObjectAccessor::GetUnit(*GetBase(), guid))
         {
             ASSERT(passenger->IsInWorld());
 
