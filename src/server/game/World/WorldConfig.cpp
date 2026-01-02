@@ -677,5 +677,5 @@ void WorldConfig::BuildConfigCache()
 
     // Ghost Actor System: Parallel entity updates
     // Enables cell-aware threat, parallel AI, and message-based cross-cell operations.
-    SetConfigValue<bool>(CONFIG_PARALLEL_UPDATES_ENABLED, "ParallelUpdates.Enable", false);
+    SetConfigValue<bool>(CONFIG_PARALLEL_UPDATES_ENABLED, "GhostActorSystem.Enable", false);
 }
