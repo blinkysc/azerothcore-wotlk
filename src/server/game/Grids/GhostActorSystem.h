@@ -142,6 +142,7 @@ struct ActorMessage
     // Payload - could use variant or union for efficiency
     int32_t intParam1;
     int32_t intParam2;
+    int32_t intParam3;
     float floatParam1;
     float floatParam2;
     float floatParam3;
@@ -383,9 +384,13 @@ public:
     void SyncHealth(uint32_t health, uint32_t maxHealth);
     void SyncCombatState(bool inCombat);
     void SyncTargetGuid(uint64_t targetGuid) { _targetGuid = targetGuid; }
+    void SyncPower(uint8_t power, uint32_t value, uint32_t maxValue);
+    void SyncAuraState(uint32_t auraState) { _auraState = auraState; }
 
     // Target info (for AI target switching across cells)
     uint64_t GetTargetGuid() const { return _targetGuid; }
+    uint32_t GetPower(uint8_t power) const;
+    uint32_t GetAuraState() const { return _auraState; }
 
 private:
     uint64_t _guid;
@@ -397,6 +402,9 @@ private:
     uint32_t _displayId{0};
     uint32_t _moveFlags{0};
     uint64_t _targetGuid{0};  // Current target (for AI target switching)
+    uint32_t _auraState{0};
+    std::array<uint32_t, 7> _power{};     // MAX_POWERS = 7 (mana, rage, focus, energy, happiness, runes, runic)
+    std::array<uint32_t, 7> _maxPower{};
     bool _inCombat{false};
     bool _isDead{false};
 };
@@ -840,6 +848,10 @@ public:
     void UpdateEntityGhosts(WorldObject* obj);
     void OnEntityHealthChanged(WorldObject* obj, uint32_t health, uint32_t maxHealth);
     void OnEntityCombatStateChanged(WorldObject* obj, bool inCombat);
+    void OnEntityPowerChanged(WorldObject* obj, uint8_t power, uint32_t value, uint32_t maxValue);
+    void OnEntityAuraStateChanged(WorldObject* obj, uint32_t auraState);
+    void OnEntityAuraApplied(WorldObject* obj, uint32_t spellId, uint8_t effectMask);
+    void OnEntityAuraRemoved(WorldObject* obj, uint32_t spellId);
     void BroadcastToGhosts(uint64_t guid, const ActorMessage& msg);
     void DestroyAllGhostsForEntity(uint64_t guid);  // Phase 7G: Clear all ghosts on despawn
 

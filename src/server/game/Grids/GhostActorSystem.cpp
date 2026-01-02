@@ -240,12 +240,40 @@ void CellActor::HandleMessage(ActorMessage& msg)
         }
 
         case MessageType::AURA_APPLY:
+        {
+            // Aura visual sync - spellId in intParam1, effectMask in intParam2
+            LOG_DEBUG("server.ghost", "CellActor[{}]: AURA_APPLY entity={} spell={}",
+                _cellId, msg.sourceGuid, msg.intParam1);
+            break;
+        }
+
         case MessageType::AURA_REMOVE:
+        {
+            LOG_DEBUG("server.ghost", "CellActor[{}]: AURA_REMOVE entity={} spell={}",
+                _cellId, msg.sourceGuid, msg.intParam1);
+            break;
+        }
+
         case MessageType::POWER_CHANGED:
+        {
+            auto it = _ghosts.find(msg.sourceGuid);
+            if (it != _ghosts.end())
+            {
+                // Power type in intParam1, value in intParam2, max in intParam3
+                it->second->SyncPower(static_cast<uint8_t>(msg.intParam1),
+                    static_cast<uint32_t>(msg.intParam2),
+                    static_cast<uint32_t>(msg.intParam3));
+            }
+            break;
+        }
+
         case MessageType::AURA_STATE_SYNC:
         {
-            // Phase 6B+: Aura and power sync messages
-            // For now, just acknowledge receipt
+            auto it = _ghosts.find(msg.sourceGuid);
+            if (it != _ghosts.end())
+            {
+                it->second->SyncAuraState(static_cast<uint32_t>(msg.intParam1));
+            }
             break;
         }
 
@@ -706,6 +734,22 @@ void GhostEntity::SyncCombatState(bool inCombat)
     _inCombat = inCombat;
 }
 
+void GhostEntity::SyncPower(uint8_t power, uint32_t value, uint32_t maxValue)
+{
+    if (power < 7)  // MAX_POWERS
+    {
+        _power[power] = value;
+        _maxPower[power] = maxValue;
+    }
+}
+
+uint32_t GhostEntity::GetPower(uint8_t power) const
+{
+    if (power < 7)  // MAX_POWERS
+        return _power[power];
+    return 0;
+}
+
 // ============================================================================
 // CellActorManager Implementation
 // ============================================================================
@@ -1071,6 +1115,81 @@ void CellActorManager::OnEntityCombatStateChanged(WorldObject* obj, bool inComba
     msg.type = MessageType::COMBAT_STATE_CHANGED;
     msg.sourceGuid = guid;
     msg.intParam1 = inCombat ? 1 : 0;
+
+    BroadcastToGhosts(guid, msg);
+}
+
+void CellActorManager::OnEntityPowerChanged(WorldObject* obj, uint8_t power, uint32_t value, uint32_t maxValue)
+{
+    if (!obj)
+        return;
+
+    uint64_t guid = obj->GetGUID().GetRawValue();
+    auto it = _entityGhostInfo.find(guid);
+    if (it == _entityGhostInfo.end() || it->second.activeGhosts == NeighborFlags::NONE)
+        return;
+
+    ActorMessage msg{};
+    msg.type = MessageType::POWER_CHANGED;
+    msg.sourceGuid = guid;
+    msg.intParam1 = static_cast<int32_t>(power);
+    msg.intParam2 = static_cast<int32_t>(value);
+    msg.intParam3 = static_cast<int32_t>(maxValue);
+
+    BroadcastToGhosts(guid, msg);
+}
+
+void CellActorManager::OnEntityAuraStateChanged(WorldObject* obj, uint32_t auraState)
+{
+    if (!obj)
+        return;
+
+    uint64_t guid = obj->GetGUID().GetRawValue();
+    auto it = _entityGhostInfo.find(guid);
+    if (it == _entityGhostInfo.end() || it->second.activeGhosts == NeighborFlags::NONE)
+        return;
+
+    ActorMessage msg{};
+    msg.type = MessageType::AURA_STATE_SYNC;
+    msg.sourceGuid = guid;
+    msg.intParam1 = static_cast<int32_t>(auraState);
+
+    BroadcastToGhosts(guid, msg);
+}
+
+void CellActorManager::OnEntityAuraApplied(WorldObject* obj, uint32_t spellId, uint8_t effectMask)
+{
+    if (!obj)
+        return;
+
+    uint64_t guid = obj->GetGUID().GetRawValue();
+    auto it = _entityGhostInfo.find(guid);
+    if (it == _entityGhostInfo.end() || it->second.activeGhosts == NeighborFlags::NONE)
+        return;
+
+    ActorMessage msg{};
+    msg.type = MessageType::AURA_APPLY;
+    msg.sourceGuid = guid;
+    msg.intParam1 = static_cast<int32_t>(spellId);
+    msg.intParam2 = static_cast<int32_t>(effectMask);
+
+    BroadcastToGhosts(guid, msg);
+}
+
+void CellActorManager::OnEntityAuraRemoved(WorldObject* obj, uint32_t spellId)
+{
+    if (!obj)
+        return;
+
+    uint64_t guid = obj->GetGUID().GetRawValue();
+    auto it = _entityGhostInfo.find(guid);
+    if (it == _entityGhostInfo.end() || it->second.activeGhosts == NeighborFlags::NONE)
+        return;
+
+    ActorMessage msg{};
+    msg.type = MessageType::AURA_REMOVE;
+    msg.sourceGuid = guid;
+    msg.intParam1 = static_cast<int32_t>(spellId);
 
     BroadcastToGhosts(guid, msg);
 }
