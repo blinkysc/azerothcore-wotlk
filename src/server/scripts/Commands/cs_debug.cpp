@@ -1576,41 +1576,54 @@ public:
             return true;
         }
 
-        // First check if the entity is a ghost in the player's cell
+        // Check if the entity appears as a ghost in the player's cell
         GhostActor::CellActor* playerCell = cellMgr->GetCell(playerCellId);
         GhostActor::GhostEntity* ghost = playerCell ? playerCell->GetGhost(target->GetGUID().GetRawValue()) : nullptr;
 
         handler->SendSysMessage("=== Ghost Entity Info ===");
         handler->PSendSysMessage("Entity: {} (GUID: 0x{:016X})",
             target->GetName(), target->GetGUID().GetRawValue());
+        handler->PSendSysMessage("Cell ID: 0x{:08X}", targetCellId);
+        handler->PSendSysMessage("Health: {}/{}", target->GetHealth(), target->GetMaxHealth());
 
         if (ghost)
         {
-            handler->SendSysMessage("Is Real Entity: No (this is a ghost projection)");
-            handler->PSendSysMessage("Owner Cell: 0x{:08X}", ghost->GetOwnerCellId());
-            handler->PSendSysMessage("Ghost Health: {}/{}", ghost->GetHealth(), ghost->GetMaxHealth());
-            handler->PSendSysMessage("Ghost Position: ({:.2f}, {:.2f}, {:.2f})",
-                ghost->GetPositionX(), ghost->GetPositionY(), ghost->GetPositionZ());
+            handler->SendSysMessage("Viewing As: Ghost projection (you're in a neighbor cell)");
+            handler->PSendSysMessage("Ghost Owner Cell: 0x{:08X}", ghost->GetOwnerCellId());
         }
         else
         {
-            handler->SendSysMessage("Is Real Entity: Yes (not a ghost)");
-            handler->PSendSysMessage("Cell ID: 0x{:08X}", targetCellId);
-            handler->PSendSysMessage("Health: {}/{}", target->GetHealth(), target->GetMaxHealth());
-
-            // Count how many ghosts this entity has in neighbor cells
-            std::vector<uint32_t> neighbors = cellMgr->GetNeighborCellIds(targetCellId);
-            size_t ghostCount = 0;
-            for (uint32_t neighborId : neighbors)
-            {
-                GhostActor::CellActor* neighborCell = cellMgr->GetCell(neighborId);
-                if (neighborCell && neighborCell->GetGhost(target->GetGUID().GetRawValue()))
-                {
-                    ++ghostCount;
-                }
-            }
-            handler->PSendSysMessage("Ghosts in Neighbor Cells: {}", ghostCount);
+            handler->SendSysMessage("Viewing As: Real entity");
         }
+
+        // Count actual ghosts in neighbor cells
+        std::vector<uint32_t> neighbors = cellMgr->GetNeighborCellIds(targetCellId);
+        size_t actualGhostCount = 0;
+        size_t existingCellCount = 0;
+        for (uint32_t neighborId : neighbors)
+        {
+            GhostActor::CellActor* neighborCell = cellMgr->GetCell(neighborId);
+            if (neighborCell)
+            {
+                ++existingCellCount;
+                if (neighborCell->GetGhost(target->GetGUID().GetRawValue()))
+                    ++actualGhostCount;
+            }
+        }
+
+        // Get tracked ghost info
+        const GhostActor::EntityGhostInfo* ghostInfo = cellMgr->GetEntityGhostInfo(target->GetGUID().GetRawValue());
+        uint8_t trackedFlags = ghostInfo ? static_cast<uint8_t>(ghostInfo->activeGhosts) : 0;
+        size_t trackedCount = 0;
+        for (uint8_t f = trackedFlags; f; f >>= 1) trackedCount += f & 1;
+
+        handler->PSendSysMessage("Ghosts in Neighbor Cells: {} (of {} active cells)",
+            actualGhostCount, existingCellCount);
+        handler->PSendSysMessage("Tracked Ghost Directions: {} (flags: 0x{:02X})",
+            trackedCount, trackedFlags);
+
+        if (trackedCount > 0 && actualGhostCount == 0)
+            handler->SendSysMessage("|cffff0000WARNING: Ghosts tracked but not found - cells may not exist|r");
 
         return true;
     }

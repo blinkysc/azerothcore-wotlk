@@ -17,8 +17,10 @@
 
 #include "GhostActorSystem.h"
 #include "gtest/gtest.h"
+#include <atomic>
 #include <cmath>
 #include <set>
+#include <thread>
 #include <vector>
 
 using namespace GhostActor;
@@ -569,4 +571,233 @@ TEST_F(GhostActorSystemTest, ActorMessagesHighVolume)
     {
         EXPECT_NEAR(typeCount[i], NUM_MESSAGES / 4, 1);
     }
+}
+
+// ============================================================================
+// MPSC Queue Tests - Lock-Free Queue Correctness and Performance
+// ============================================================================
+
+// Basic MPSC queue push/pop correctness
+TEST_F(GhostActorSystemTest, MPSCQueueBasicOperations)
+{
+    MPSCQueue<ActorMessage> queue;
+
+    // Queue should be empty initially
+    ActorMessage msg;
+    EXPECT_FALSE(queue.Pop(msg));
+
+    // Push and pop single message
+    ActorMessage testMsg{};
+    testMsg.type = MessageType::SPELL_HIT;
+    testMsg.sourceGuid = 12345;
+    testMsg.targetGuid = 67890;
+    testMsg.intParam1 = 500;
+
+    queue.Push(testMsg);
+    EXPECT_TRUE(queue.Pop(msg));
+    EXPECT_EQ(msg.type, MessageType::SPELL_HIT);
+    EXPECT_EQ(msg.sourceGuid, 12345u);
+    EXPECT_EQ(msg.targetGuid, 67890u);
+    EXPECT_EQ(msg.intParam1, 500);
+
+    // Queue should be empty again
+    EXPECT_FALSE(queue.Pop(msg));
+}
+
+// FIFO ordering verification
+TEST_F(GhostActorSystemTest, MPSCQueueFIFOOrder)
+{
+    MPSCQueue<ActorMessage> queue;
+
+    // Push 100 messages with sequential IDs
+    for (int i = 0; i < 100; ++i)
+    {
+        ActorMessage msg{};
+        msg.sourceGuid = static_cast<uint64_t>(i);
+        queue.Push(msg);
+    }
+
+    // Pop and verify order
+    for (int i = 0; i < 100; ++i)
+    {
+        ActorMessage msg;
+        EXPECT_TRUE(queue.Pop(msg));
+        EXPECT_EQ(msg.sourceGuid, static_cast<uint64_t>(i));
+    }
+
+    // Queue should be empty
+    ActorMessage msg;
+    EXPECT_FALSE(queue.Pop(msg));
+}
+
+// High-volume queue drain test
+// This tests the actual drain pattern: while(Pop()) HandleMessage()
+TEST_F(GhostActorSystemTest, MPSCQueueDrainHighVolume)
+{
+    MPSCQueue<ActorMessage> queue;
+
+    // Push 1,000,000 messages (simulates extreme message storm)
+    // Real scenario: 100 players × 50 actions/tick × 200 ticks = 1M messages
+    constexpr int NUM_MESSAGES = 1000000;
+
+    for (int i = 0; i < NUM_MESSAGES; ++i)
+    {
+        ActorMessage msg{};
+        msg.type = static_cast<MessageType>(i % 4);
+        msg.sourceGuid = static_cast<uint64_t>(i);
+        msg.targetGuid = static_cast<uint64_t>(NUM_MESSAGES - i);
+        msg.intParam1 = 100 + (i % 1000);
+        queue.Push(msg);
+    }
+
+    // Drain all messages (the actual pattern used in CellActor::ProcessMessages)
+    int processedCount = 0;
+    int typeCounts[4] = {0, 0, 0, 0};
+    ActorMessage msg;
+
+    while (queue.Pop(msg))
+    {
+        // Simulate minimal message handling (type dispatch)
+        typeCounts[static_cast<int>(msg.type)]++;
+        processedCount++;
+    }
+
+    // Verify all messages were processed
+    EXPECT_EQ(processedCount, NUM_MESSAGES);
+
+    // Verify type distribution
+    for (int i = 0; i < 4; ++i)
+    {
+        EXPECT_EQ(typeCounts[i], NUM_MESSAGES / 4);
+    }
+
+    // Queue should be empty
+    EXPECT_FALSE(queue.Pop(msg));
+}
+
+// Multi-threaded producer, single consumer drain test
+// Validates lock-free correctness under contention
+TEST_F(GhostActorSystemTest, MPSCQueueMultiProducerDrain)
+{
+    MPSCQueue<ActorMessage> queue;
+
+    // 8 neighbor cells each sending 125k messages = 1M total
+    // Simulates worst-case cross-cell traffic during mass combat
+    constexpr int NUM_PRODUCERS = 8;
+    constexpr int MESSAGES_PER_PRODUCER = 125000;
+    constexpr int TOTAL_MESSAGES = NUM_PRODUCERS * MESSAGES_PER_PRODUCER;
+
+    std::vector<std::thread> producers;
+    std::atomic<int> producersReady{0};
+    std::atomic<bool> startSignal{false};
+
+    // Launch producer threads
+    for (int p = 0; p < NUM_PRODUCERS; ++p)
+    {
+        producers.emplace_back([&queue, &producersReady, &startSignal, p]()
+        {
+            producersReady.fetch_add(1);
+
+            // Wait for start signal (ensures all producers start simultaneously)
+            while (!startSignal.load(std::memory_order_acquire))
+                std::this_thread::yield();
+
+            // Push messages with producer ID encoded
+            for (int i = 0; i < MESSAGES_PER_PRODUCER; ++i)
+            {
+                ActorMessage msg{};
+                msg.sourceGuid = static_cast<uint64_t>(p);  // Producer ID
+                msg.targetGuid = static_cast<uint64_t>(i);  // Message sequence
+                msg.intParam1 = p * MESSAGES_PER_PRODUCER + i;  // Unique ID
+                queue.Push(msg);
+            }
+        });
+    }
+
+    // Wait for all producers to be ready
+    while (producersReady.load() < NUM_PRODUCERS)
+        std::this_thread::yield();
+
+    // Start all producers simultaneously
+    startSignal.store(true, std::memory_order_release);
+
+    // Wait for all producers to finish
+    for (auto& t : producers)
+        t.join();
+
+    // Single consumer drains all messages
+    std::set<int> uniqueIds;
+    int perProducerCount[NUM_PRODUCERS] = {0};
+    ActorMessage msg;
+
+    while (queue.Pop(msg))
+    {
+        uniqueIds.insert(msg.intParam1);
+        perProducerCount[msg.sourceGuid]++;
+    }
+
+    // Verify all messages were received (no loss)
+    EXPECT_EQ(uniqueIds.size(), static_cast<size_t>(TOTAL_MESSAGES));
+
+    // Verify each producer's messages were received
+    for (int p = 0; p < NUM_PRODUCERS; ++p)
+    {
+        EXPECT_EQ(perProducerCount[p], MESSAGES_PER_PRODUCER);
+    }
+}
+
+// Interleaved push/pop test (producer and consumer running concurrently)
+TEST_F(GhostActorSystemTest, MPSCQueueConcurrentPushPop)
+{
+    MPSCQueue<ActorMessage> queue;
+
+    // 2M messages with concurrent producer/consumer
+    // Tests real-world scenario where messages arrive while being processed
+    constexpr int NUM_MESSAGES = 2000000;
+    std::atomic<bool> producerDone{false};
+    std::atomic<int> consumed{0};
+
+    // Producer thread
+    std::thread producer([&queue, &producerDone]()
+    {
+        for (int i = 0; i < NUM_MESSAGES; ++i)
+        {
+            ActorMessage msg{};
+            msg.sourceGuid = static_cast<uint64_t>(i);
+            queue.Push(msg);
+
+            // Occasional yield to allow consumer to run
+            if (i % 1000 == 0)
+                std::this_thread::yield();
+        }
+        producerDone.store(true, std::memory_order_release);
+    });
+
+    // Consumer runs in main thread
+    std::set<uint64_t> receivedIds;
+
+    while (!producerDone.load(std::memory_order_acquire) || consumed.load() < NUM_MESSAGES)
+    {
+        ActorMessage msg;
+        while (queue.Pop(msg))
+        {
+            receivedIds.insert(msg.sourceGuid);
+            consumed.fetch_add(1);
+        }
+        std::this_thread::yield();
+    }
+
+    // Final drain
+    ActorMessage msg;
+    while (queue.Pop(msg))
+    {
+        receivedIds.insert(msg.sourceGuid);
+        consumed.fetch_add(1);
+    }
+
+    producer.join();
+
+    // Verify all messages received
+    EXPECT_EQ(receivedIds.size(), static_cast<size_t>(NUM_MESSAGES));
+    EXPECT_EQ(consumed.load(), NUM_MESSAGES);
 }

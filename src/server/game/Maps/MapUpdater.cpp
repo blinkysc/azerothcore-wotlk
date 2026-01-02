@@ -21,11 +21,14 @@
 #include "Map.h"
 #include "MapMgr.h"
 #include "Metric.h"
+#include "World.h"
 
 MapUpdater::MapUpdater()
-    : _pool(nullptr)
+    : _workStealingPool(nullptr)
+    , _legacyQueue(nullptr)
     , _pendingTasks(0)
     , _activated(false)
+    , _useWorkStealing(false)
 {
 }
 
@@ -39,7 +42,22 @@ void MapUpdater::activate(std::size_t num_threads)
     if (_activated)
         return;
 
-    _pool = std::make_unique<WorkStealingPool>(num_threads);
+    _useWorkStealing = sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED);
+
+    if (_useWorkStealing)
+    {
+        _workStealingPool = std::make_unique<WorkStealingPool>(num_threads);
+        LOG_INFO("server.loading", ">> Using WorkStealingPool for map/cell updates ({} threads)", num_threads);
+    }
+    else
+    {
+        _legacyQueue = std::make_unique<ProducerConsumerQueue<std::function<void()>>>();
+        _legacyThreads.reserve(num_threads);
+        for (std::size_t i = 0; i < num_threads; ++i)
+            _legacyThreads.emplace_back(&MapUpdater::LegacyWorkerThread, this);
+        LOG_INFO("server.loading", ">> Using ProducerConsumerQueue for map updates ({} threads)", num_threads);
+    }
+
     _activated = true;
 }
 
@@ -50,8 +68,23 @@ void MapUpdater::deactivate()
 
     wait();
 
-    _pool->Shutdown();
-    _pool.reset();
+    if (_useWorkStealing)
+    {
+        _workStealingPool->Shutdown();
+        _workStealingPool.reset();
+    }
+    else
+    {
+        _legacyQueue->Shutdown();
+        for (auto& thread : _legacyThreads)
+        {
+            if (thread.joinable())
+                thread.join();
+        }
+        _legacyThreads.clear();
+        _legacyQueue.reset();
+    }
+
     _activated = false;
 }
 
@@ -60,29 +93,52 @@ bool MapUpdater::activated()
     return _activated;
 }
 
+void MapUpdater::LegacyWorkerThread()
+{
+    while (true)
+    {
+        std::function<void()> task;
+        _legacyQueue->WaitAndPop(task);
+
+        if (!task)
+            break;
+
+        task();
+    }
+}
+
 void MapUpdater::wait()
 {
-    if (!_pool)
-        return;
-
-    // Spin-wait with backoff - NO LOCKS
-    uint32 spinCount = 0;
-
-    while (_pendingTasks.load(std::memory_order_acquire) > 0)
+    if (_useWorkStealing)
     {
-        if (spinCount < 64)
+        if (!_workStealingPool)
+            return;
+
+        uint32 spinCount = 0;
+        while (_pendingTasks.load(std::memory_order_acquire) > 0)
         {
-            #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
-                __builtin_ia32_pause();
-            #else
-                std::atomic_signal_fence(std::memory_order_seq_cst);
-            #endif
-            ++spinCount;
+            if (spinCount < 64)
+            {
+                #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+                    __builtin_ia32_pause();
+                #else
+                    std::atomic_signal_fence(std::memory_order_seq_cst);
+                #endif
+                ++spinCount;
+            }
+            else
+            {
+                std::this_thread::yield();
+            }
         }
-        else
-        {
+    }
+    else
+    {
+        if (!_legacyQueue)
+            return;
+
+        while (_pendingTasks.load(std::memory_order_acquire) > 0)
             std::this_thread::yield();
-        }
     }
 }
 
@@ -93,15 +149,21 @@ void MapUpdater::schedule_update(Map& map, uint32 diff, uint32 s_diff)
 
     _pendingTasks.fetch_add(1, std::memory_order_release);
 
-    // Use map ID for worker affinity - same map ID goes to same worker
-    // This improves cache locality
-    size_t workerIndex = map.GetId() % _pool->NumWorkers();
-
-    _pool->SubmitToWorker(workerIndex, [this, &map, diff, s_diff]() {
+    auto task = [this, &map, diff, s_diff]() {
         METRIC_TIMER("map_update_time_diff", METRIC_TAG("map_id", std::to_string(map.GetId())));
         map.Update(diff, s_diff);
         _pendingTasks.fetch_sub(1, std::memory_order_release);
-    });
+    };
+
+    if (_useWorkStealing)
+    {
+        size_t workerIndex = map.GetId() % _workStealingPool->NumWorkers();
+        _workStealingPool->SubmitToWorker(workerIndex, std::move(task));
+    }
+    else
+    {
+        _legacyQueue->Push(std::move(task));
+    }
 }
 
 void MapUpdater::schedule_map_preload(uint32 mapId)
@@ -111,12 +173,17 @@ void MapUpdater::schedule_map_preload(uint32 mapId)
 
     _pendingTasks.fetch_add(1, std::memory_order_release);
 
-    _pool->Submit([this, mapId]() {
+    auto task = [this, mapId]() {
         Map* map = sMapMgr->CreateBaseMap(mapId);
         LOG_INFO("server.loading", ">> Loading All Grids For Map {} ({})", map->GetId(), map->GetMapName());
         map->LoadAllGrids();
         _pendingTasks.fetch_sub(1, std::memory_order_release);
-    });
+    };
+
+    if (_useWorkStealing)
+        _workStealingPool->Submit(std::move(task));
+    else
+        _legacyQueue->Push(std::move(task));
 }
 
 void MapUpdater::schedule_lfg_update(uint32 diff)
@@ -126,8 +193,13 @@ void MapUpdater::schedule_lfg_update(uint32 diff)
 
     _pendingTasks.fetch_add(1, std::memory_order_release);
 
-    _pool->Submit([this, diff]() {
+    auto task = [this, diff]() {
         sLFGMgr->Update(diff, 1);
         _pendingTasks.fetch_sub(1, std::memory_order_release);
-    });
+    };
+
+    if (_useWorkStealing)
+        _workStealingPool->Submit(std::move(task));
+    else
+        _legacyQueue->Push(std::move(task));
 }

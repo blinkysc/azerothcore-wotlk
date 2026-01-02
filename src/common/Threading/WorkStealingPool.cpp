@@ -16,13 +16,11 @@
  */
 
 #include "WorkStealingPool.h"
-#include "DatabaseEnv.h"
 #include "Log.h"
 
-// Phase 8A: Tuned backoff - more spinning (cheap), less yielding (expensive syscall)
-static constexpr uint32 SPIN_COUNT_MAX = 64;   // 16x more spins before yield
-static constexpr uint32 YIELD_COUNT_MAX = 4;   // Double yields before sleep
-static constexpr uint32 SLEEP_MICROS = 1000;   // 1ms sleep (was 5ms)
+static constexpr uint32 SPIN_COUNT_MAX = 64;
+static constexpr uint32 YIELD_COUNT_MAX = 4;
+static constexpr uint32 SLEEP_MICROS = 1000;
 
 // Thread-local worker index for CELL task routing
 // SIZE_MAX means "not a worker thread"
@@ -171,11 +169,6 @@ void WorkStealingPool::WorkerLoop(size_t workerIndex)
 
     LOG_INFO("server", "WorkStealingPool: Worker {} starting", workerIndex);
 
-    // Warn about sync queries from worker threads
-    LoginDatabase.WarnAboutSyncQueries(true);
-    CharacterDatabase.WarnAboutSyncQueries(true);
-    WorldDatabase.WarnAboutSyncQueries(true);
-
     _activeWorkers.fetch_add(1, std::memory_order_relaxed);
 
     LOG_INFO("server", "WorkStealingPool: Worker {} ready", workerIndex);
@@ -244,7 +237,6 @@ void WorkStealingPool::WorkerLoop(size_t workerIndex)
                     break;  // Safe to exit - shutdown requested and all work done
             }
 
-            // Phase 8A: Tuned backoff - more spinning (cheap), less yielding (expensive)
             if (spinCount < SPIN_COUNT_MAX)
             {
                 for (int i = 0; i < 16; ++i)
