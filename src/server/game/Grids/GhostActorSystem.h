@@ -59,6 +59,8 @@
 #ifndef GHOST_ACTOR_SYSTEM_H
 #define GHOST_ACTOR_SYSTEM_H
 
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
@@ -68,6 +70,7 @@
 
 // Forward declarations
 class WorldObject;
+class Unit;
 class Cell;
 class Map;
 class WorkStealingPool;
@@ -119,6 +122,7 @@ enum class MessageType : uint8_t
     AGGRO_REQUEST,        // Request nearby entities enter combat
     COMBAT_INITIATED,     // Confirm combat started with entity
     TARGET_SWITCH,        // AI changed its target
+    EVADE_TRIGGERED,      // Creature entered evade mode
 
     // Phase 7E: Parallel AI messages
     ASSISTANCE_REQUEST,   // Request assistance from creatures in this cell
@@ -205,6 +209,20 @@ public:
         return _tail->next.load(std::memory_order_acquire) == nullptr;
     }
 
+    // Approximate count of pending messages (for debug only, not precise)
+    [[nodiscard]] size_t ApproximateSize() const
+    {
+        size_t count = 0;
+        Node* current = _tail;
+        while (current->next.load(std::memory_order_acquire) != nullptr)
+        {
+            current = current->next.load(std::memory_order_acquire);
+            ++count;
+            if (count > 10000) break;  // Safety limit
+        }
+        return count;
+    }
+
 private:
     std::atomic<Node*> _head;
     Node* _tail;  // Only accessed by consumer
@@ -247,10 +265,29 @@ public:
     uint32_t GetCellId() const { return _cellId; }
     bool HasWork() const { return !_entities.empty() || !_inbox.Empty(); }
 
+    // Debug query methods
+    [[nodiscard]] size_t GetEntityCount() const { return _entities.size(); }
+    [[nodiscard]] size_t GetGhostCount() const { return _ghosts.size(); }
+    [[nodiscard]] size_t GetPendingMessageCount() const { return _inbox.ApproximateSize(); }
+    [[nodiscard]] GhostEntity* GetGhost(uint64_t guid) const
+    {
+        auto it = _ghosts.find(guid);
+        return it != _ghosts.end() ? it->second.get() : nullptr;
+    }
+
+    // Performance tracking
+    [[nodiscard]] uint32_t GetMessagesProcessedLastTick() const
+    {
+        return _messagesProcessedLastTick.load(std::memory_order_relaxed);
+    }
+    void IncrementMessageCount() { _messagesProcessedLastTick.fetch_add(1, std::memory_order_relaxed); }
+    void ResetMessageCount() { _messagesProcessedLastTick.store(0, std::memory_order_relaxed); }
+
 private:
     void ProcessMessages();
     void UpdateEntities(uint32_t diff);
     void HandleMessage(ActorMessage& msg);
+    void BroadcastHealthChange(Unit* unit);
 
     uint32_t _cellId;
     Map* _map;
@@ -261,6 +298,9 @@ private:
 
     // Ghost tracking - read-only projections of entities in neighboring cells
     std::unordered_map<uint64_t, std::unique_ptr<GhostEntity>> _ghosts;
+
+    // Performance tracking
+    std::atomic<uint32_t> _messagesProcessedLastTick{0};
 };
 
 // ============================================================================
@@ -342,6 +382,10 @@ public:
     void SyncPosition(float x, float y, float z, float o);
     void SyncHealth(uint32_t health, uint32_t maxHealth);
     void SyncCombatState(bool inCombat);
+    void SyncTargetGuid(uint64_t targetGuid) { _targetGuid = targetGuid; }
+
+    // Target info (for AI target switching across cells)
+    uint64_t GetTargetGuid() const { return _targetGuid; }
 
 private:
     uint64_t _guid;
@@ -352,6 +396,7 @@ private:
     uint32_t _health{0}, _maxHealth{0};
     uint32_t _displayId{0};
     uint32_t _moveFlags{0};
+    uint64_t _targetGuid{0};  // Current target (for AI target switching)
     bool _inCombat{false};
     bool _isDead{false};
 };
@@ -366,6 +411,25 @@ struct EntityGhostInfo
     NeighborFlags activeGhosts{NeighborFlags::NONE};  // Which neighbors have ghosts
     GhostSnapshot lastSnapshot;
 };
+
+// Standalone cell ID calculation for debug commands
+inline uint32_t CalculateCellId(float worldX, float worldY)
+{
+    // Convert world coordinates to cell coordinates (same as GetCellIdForPosition)
+    float cellFloatX = CENTER_CELL_OFFSET - (worldX / CELL_SIZE);
+    float cellFloatY = CENTER_CELL_OFFSET - (worldY / CELL_SIZE);
+
+    uint32_t cellX = static_cast<uint32_t>(std::floor(cellFloatX));
+    uint32_t cellY = static_cast<uint32_t>(std::floor(cellFloatY));
+
+    return (cellY << 16) | cellX;
+}
+
+inline void ExtractCellCoords(uint32_t cellId, uint32_t& cellX, uint32_t& cellY)
+{
+    cellX = cellId & 0xFFFF;
+    cellY = cellId >> 16;
+}
 
 // Helper functions for ghost boundary detection
 namespace GhostBoundary
@@ -680,6 +744,71 @@ struct PetRemovalPayload
 };
 
 // ============================================================================
+// Performance Monitoring & Debug Tracing (Phase 10)
+// ============================================================================
+
+/**
+ * @brief Performance statistics for GhostActorSystem
+ *
+ * Tracks timing, message counts, and work-stealing stats for debug commands.
+ * All counters use atomics for thread-safe access during parallel updates.
+ */
+struct PerformanceStats
+{
+    // Timing (microseconds)
+    std::atomic<uint64_t> lastUpdateUs{0};
+    uint64_t avgUpdateUs{0};
+    uint64_t maxUpdateUs{0};
+
+    // Message counts by type (use MessageType as index)
+    static constexpr size_t MAX_MESSAGE_TYPES = 32;
+    std::array<std::atomic<uint32_t>, MAX_MESSAGE_TYPES> messageCountsByType{};
+    std::atomic<uint32_t> totalMessagesThisTick{0};
+
+    // Work stealing stats
+    std::atomic<uint32_t> tasksStolen{0};
+
+    // Rolling window tracking
+    uint32_t ticksTracked{0};
+    static constexpr uint32_t ROLLING_WINDOW = 100;
+
+    // Rolling sum for average calculation
+    uint64_t rollingUpdateSum{0};
+
+    void RecordUpdateTime(uint64_t us)
+    {
+        lastUpdateUs.store(us, std::memory_order_relaxed);
+        if (us > maxUpdateUs)
+            maxUpdateUs = us;
+
+        // Update rolling average
+        rollingUpdateSum += us;
+        ticksTracked++;
+        if (ticksTracked >= ROLLING_WINDOW)
+        {
+            avgUpdateUs = rollingUpdateSum / ticksTracked;
+            rollingUpdateSum = 0;
+            ticksTracked = 0;
+            maxUpdateUs = us;  // Reset max each window
+        }
+    }
+
+    void RecordMessage(MessageType type)
+    {
+        size_t idx = static_cast<size_t>(type);
+        if (idx < MAX_MESSAGE_TYPES)
+            messageCountsByType[idx].fetch_add(1, std::memory_order_relaxed);
+        totalMessagesThisTick.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    void ResetTickCounters()
+    {
+        totalMessagesThisTick.store(0, std::memory_order_relaxed);
+        tasksStolen.store(0, std::memory_order_relaxed);
+    }
+};
+
+// ============================================================================
 // Cell Actor Manager - Integrates with Map (Phase 2 + Phase 3 + Phase 4)
 // ============================================================================
 
@@ -747,6 +876,14 @@ public:
     void SendThreatUpdate(uint64_t attackerGuid, uint64_t victimGuid, uint32_t victimCellId,
                           float threatDelta, bool isNewThreat, bool isRemoval);
 
+    // Phase 6C: Cross-cell damage/healing message senders
+    // Route damage/healing through messages when target is in a different cell
+    void SendSpellHitMessage(Unit* caster, Unit* target, uint32_t spellId, int32_t damage, int32_t healing);
+    void SendMeleeDamageMessage(Unit* attacker, Unit* target, int32_t damage, bool isCrit);
+    void SendHealMessage(Unit* healer, Unit* target, uint32_t spellId, int32_t amount);
+    void SendTargetSwitchMessage(Unit* creature, uint64_t oldTargetGuid, uint64_t newTargetGuid);
+    void BroadcastEvadeTriggered(Unit* creature);
+
     // Phase 6D-4: Cell-aware victim selection
     // Returns victim GUID and whether it's local (true) or cross-cell ghost (false)
     struct VictimInfo
@@ -769,6 +906,122 @@ public:
     [[nodiscard]] size_t GetActiveCellCount() const { return _activeCells.size(); }
     [[nodiscard]] size_t GetGhostCount() const { return _entityGhostInfo.size(); }
     [[nodiscard]] size_t GetMigratingCount() const { return _entityMigrations.size(); }
+
+    // Performance stats access
+    [[nodiscard]] PerformanceStats& GetPerfStats() { return _perfStats; }
+    [[nodiscard]] PerformanceStats const& GetPerfStats() const { return _perfStats; }
+
+    // Get hotspot cells sorted by message count (top N)
+    [[nodiscard]] std::vector<std::pair<uint32_t, uint32_t>> GetHotspotCells(size_t count) const
+    {
+        std::vector<std::pair<uint32_t, uint32_t>> cells;
+        cells.reserve(_cellActors.size());
+        for (const auto& [id, cell] : _cellActors)
+            cells.emplace_back(id, cell->GetMessagesProcessedLastTick());
+
+        std::sort(cells.begin(), cells.end(),
+            [](const auto& a, const auto& b) { return a.second > b.second; });
+
+        if (cells.size() > count)
+            cells.resize(count);
+        return cells;
+    }
+
+    // Message tracing (lock-free with fixed slots)
+    static constexpr size_t MAX_TRACED_GUIDS = 8;
+
+    void StartTrace(uint64_t guid)
+    {
+        // Find empty slot and set
+        for (size_t i = 0; i < MAX_TRACED_GUIDS; ++i)
+        {
+            uint64_t expected = 0;
+            if (_tracedGuids[i].compare_exchange_strong(expected, guid, std::memory_order_acq_rel))
+                return;  // Successfully added
+            if (_tracedGuids[i].load(std::memory_order_relaxed) == guid)
+                return;  // Already tracing
+        }
+        // All slots full - silently fail
+    }
+
+    void StopTrace(uint64_t guid)
+    {
+        for (size_t i = 0; i < MAX_TRACED_GUIDS; ++i)
+        {
+            uint64_t expected = guid;
+            _tracedGuids[i].compare_exchange_strong(expected, 0, std::memory_order_acq_rel);
+        }
+    }
+
+    void StopAllTraces()
+    {
+        for (size_t i = 0; i < MAX_TRACED_GUIDS; ++i)
+            _tracedGuids[i].store(0, std::memory_order_relaxed);
+    }
+
+    [[nodiscard]] bool IsTracing(uint64_t guid) const
+    {
+        for (size_t i = 0; i < MAX_TRACED_GUIDS; ++i)
+        {
+            if (_tracedGuids[i].load(std::memory_order_relaxed) == guid)
+                return true;
+        }
+        return false;
+    }
+
+    [[nodiscard]] size_t GetTracedCount() const
+    {
+        size_t count = 0;
+        for (size_t i = 0; i < MAX_TRACED_GUIDS; ++i)
+        {
+            if (_tracedGuids[i].load(std::memory_order_relaxed) != 0)
+                ++count;
+        }
+        return count;
+    }
+
+    // Debug query methods
+    [[nodiscard]] CellActor* GetCell(uint32_t cellId) const
+    {
+        auto it = _cellActors.find(cellId);
+        return it != _cellActors.end() ? it->second.get() : nullptr;
+    }
+
+    [[nodiscard]] size_t GetTotalEntityCount() const
+    {
+        size_t total = 0;
+        for (const auto& [id, cell] : _cellActors)
+            total += cell->GetEntityCount();
+        return total;
+    }
+
+    [[nodiscard]] size_t GetTotalGhostCount() const
+    {
+        size_t total = 0;
+        for (const auto& [id, cell] : _cellActors)
+            total += cell->GetGhostCount();
+        return total;
+    }
+
+    [[nodiscard]] std::vector<uint32_t> GetNeighborCellIds(uint32_t cellId) const
+    {
+        std::vector<uint32_t> neighbors;
+        neighbors.reserve(8);
+        uint32_t cellX = cellId & 0xFFFF;
+        uint32_t cellY = cellId >> 16;
+
+        // All 8 neighbors
+        neighbors.push_back(((cellY + 1) << 16) | (cellX - 1));  // NW
+        neighbors.push_back(((cellY + 1) << 16) | cellX);        // N
+        neighbors.push_back(((cellY + 1) << 16) | (cellX + 1));  // NE
+        neighbors.push_back((cellY << 16) | (cellX - 1));        // W
+        neighbors.push_back((cellY << 16) | (cellX + 1));        // E
+        neighbors.push_back(((cellY - 1) << 16) | (cellX - 1));  // SW
+        neighbors.push_back(((cellY - 1) << 16) | cellX);        // S
+        neighbors.push_back(((cellY - 1) << 16) | (cellX + 1));  // SE
+
+        return neighbors;
+    }
 
 private:
     static uint32_t MakeCellId(uint32_t cellX, uint32_t cellY)
@@ -811,6 +1064,12 @@ private:
     // Phase 7C: Parallel execution
     WorkStealingPool* _workPool{nullptr};
     alignas(64) std::atomic<size_t> _pendingCellUpdates{0};
+
+    // Phase 10: Performance monitoring
+    PerformanceStats _perfStats;
+
+    // Phase 10: Message tracing (lock-free)
+    std::array<std::atomic<uint64_t>, MAX_TRACED_GUIDS> _tracedGuids{};
 };
 
 } // namespace GhostActor

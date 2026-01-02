@@ -76,11 +76,25 @@ void CellActor::HandleMessage(ActorMessage& msg)
                 LOG_DEBUG("server.ghost", "CellActor[{}]: SPELL_HIT spell={} target={} damage={} healing={}",
                     _cellId, payload->spellId, msg.targetGuid, payload->damage, payload->healing);
 
-                // TODO: When parallel updates enabled:
-                // 1. Find target Unit* in _entities by GUID
-                // 2. Apply damage via Unit::DealDamageFromMessage(payload)
-                // 3. Apply healing via Unit::HealFromMessage(payload)
-                // 4. Broadcast HEALTH_CHANGED to ghosts
+                WorldObject* targetObj = FindEntityByGuid(msg.targetGuid);
+                Unit* target = targetObj ? targetObj->ToUnit() : nullptr;
+
+                if (target && target->IsAlive())
+                {
+                    // Apply damage if present
+                    if (payload->damage > 0)
+                    {
+                        Unit::DealDamage(nullptr, target, payload->damage, nullptr,
+                            SPELL_DIRECT_DAMAGE, SPELL_SCHOOL_MASK_NORMAL, nullptr, false);
+                    }
+                    // Apply healing if present
+                    if (payload->healing > 0)
+                    {
+                        target->ModifyHealth(payload->healing);
+                    }
+                    // Broadcast health change to ghosts in neighboring cells
+                    BroadcastHealthChange(target);
+                }
             }
             break;
         }
@@ -94,10 +108,15 @@ void CellActor::HandleMessage(ActorMessage& msg)
                 LOG_DEBUG("server.ghost", "CellActor[{}]: MELEE_DAMAGE target={} damage={} crit={}",
                     _cellId, msg.targetGuid, payload->damage, payload->isCritical);
 
-                // TODO: When parallel updates enabled:
-                // 1. Find target Unit* in _entities by GUID
-                // 2. Apply damage via Unit::DealMeleeDamageFromMessage(payload)
-                // 3. Broadcast HEALTH_CHANGED to ghosts
+                WorldObject* targetObj = FindEntityByGuid(msg.targetGuid);
+                Unit* target = targetObj ? targetObj->ToUnit() : nullptr;
+
+                if (target && target->IsAlive())
+                {
+                    Unit::DealDamage(nullptr, target, payload->damage, nullptr,
+                        DIRECT_DAMAGE, SPELL_SCHOOL_MASK_NORMAL, nullptr, false);
+                    BroadcastHealthChange(target);
+                }
             }
             break;
         }
@@ -111,10 +130,14 @@ void CellActor::HandleMessage(ActorMessage& msg)
                 LOG_DEBUG("server.ghost", "CellActor[{}]: HEAL spell={} target={} amount={}",
                     _cellId, payload->spellId, msg.targetGuid, payload->healAmount);
 
-                // TODO: When parallel updates enabled:
-                // 1. Find target Unit* in _entities by GUID
-                // 2. Apply healing via Unit::HealFromMessage(payload)
-                // 3. Broadcast HEALTH_CHANGED to ghosts
+                WorldObject* targetObj = FindEntityByGuid(msg.targetGuid);
+                Unit* target = targetObj ? targetObj->ToUnit() : nullptr;
+
+                if (target && target->IsAlive())
+                {
+                    target->ModifyHealth(payload->effectiveHeal);
+                    BroadcastHealthChange(target);
+                }
             }
             break;
         }
@@ -468,9 +491,26 @@ void CellActor::HandleMessage(ActorMessage& msg)
                 LOG_DEBUG("server.ghost", "CellActor[{}]: TARGET_SWITCH creature={} oldTarget={} newTarget={}",
                     _cellId, payload->creatureGuid, payload->oldTargetGuid, payload->newTargetGuid);
 
-                // TODO: When parallel updates enabled:
-                // 1. Update ghost state to reflect new target
-                // 2. May be used for target-of-target displays
+                // Update ghost's target info if we have a ghost for this creature
+                auto it = _ghosts.find(payload->creatureGuid);
+                if (it != _ghosts.end())
+                {
+                    it->second->SyncTargetGuid(payload->newTargetGuid);
+                }
+            }
+            break;
+        }
+
+        case MessageType::EVADE_TRIGGERED:
+        {
+            LOG_DEBUG("server.ghost", "CellActor[{}]: EVADE_TRIGGERED creature={}",
+                _cellId, msg.sourceGuid);
+
+            // Update ghost's combat state to not-in-combat
+            auto it = _ghosts.find(msg.sourceGuid);
+            if (it != _ghosts.end())
+            {
+                it->second->SyncCombatState(false);
             }
             break;
         }
@@ -596,6 +636,30 @@ WorldObject* CellActor::FindEntityByGuid(uint64_t guid) const
             return entity;
     }
     return nullptr;
+}
+
+void CellActor::BroadcastHealthChange(Unit* unit)
+{
+    if (!unit || !_map)
+        return;
+
+    auto* cellMgr = _map->GetCellActorManager();
+    if (!cellMgr)
+        return;
+
+    ActorMessage msg{};
+    msg.type = MessageType::HEALTH_CHANGED;
+    msg.sourceGuid = unit->GetGUID().GetRawValue();
+    msg.sourceCellId = _cellId;
+    msg.intParam1 = static_cast<int64_t>(unit->GetHealth());
+    msg.intParam2 = static_cast<int64_t>(unit->GetMaxHealth());
+
+    // Send to all neighboring cells that might have ghosts of this entity
+    std::vector<uint32_t> neighbors = cellMgr->GetNeighborCellIds(_cellId);
+    for (uint32_t neighborCellId : neighbors)
+    {
+        cellMgr->SendMessage(neighborCellId, msg);
+    }
 }
 
 // ============================================================================
@@ -1732,6 +1796,137 @@ void CellActorManager::SendThreatUpdate(uint64_t attackerGuid, uint64_t victimGu
 }
 
 // ============================================================================
+// Phase 6C: Cross-Cell Damage/Healing Message Senders
+// ============================================================================
+
+void CellActorManager::SendSpellHitMessage(Unit* caster, Unit* target, uint32_t spellId, int32_t damage, int32_t healing)
+{
+    if (!target)
+        return;
+
+    uint32_t targetCellId = GetCellIdForEntity(target);
+
+    auto payload = std::make_shared<SpellHitPayload>();
+    payload->spellId = spellId;
+    payload->damage = damage;
+    payload->healing = healing;
+    payload->effectMask = 1;
+
+    ActorMessage msg{};
+    msg.type = MessageType::SPELL_HIT;
+    msg.sourceGuid = caster ? caster->GetGUID().GetRawValue() : 0;
+    msg.targetGuid = target->GetGUID().GetRawValue();
+    msg.sourceCellId = caster ? GetCellIdForEntity(caster) : 0;
+    msg.targetCellId = targetCellId;
+    msg.complexPayload = payload;
+
+    LOG_DEBUG("server.ghost", "SendSpellHitMessage: spell={} caster={} target={} damage={} healing={}",
+        spellId, msg.sourceGuid, msg.targetGuid, damage, healing);
+
+    SendMessage(targetCellId, std::move(msg));
+}
+
+void CellActorManager::SendMeleeDamageMessage(Unit* attacker, Unit* target, int32_t damage, bool isCrit)
+{
+    if (!target)
+        return;
+
+    uint32_t targetCellId = GetCellIdForEntity(target);
+
+    auto payload = std::make_shared<MeleeDamagePayload>();
+    payload->damage = damage;
+    payload->isCritical = isCrit;
+
+    ActorMessage msg{};
+    msg.type = MessageType::MELEE_DAMAGE;
+    msg.sourceGuid = attacker ? attacker->GetGUID().GetRawValue() : 0;
+    msg.targetGuid = target->GetGUID().GetRawValue();
+    msg.sourceCellId = attacker ? GetCellIdForEntity(attacker) : 0;
+    msg.targetCellId = targetCellId;
+    msg.complexPayload = payload;
+
+    LOG_DEBUG("server.ghost", "SendMeleeDamageMessage: attacker={} target={} damage={} crit={}",
+        msg.sourceGuid, msg.targetGuid, damage, isCrit);
+
+    SendMessage(targetCellId, std::move(msg));
+}
+
+void CellActorManager::SendHealMessage(Unit* healer, Unit* target, uint32_t spellId, int32_t amount)
+{
+    if (!target)
+        return;
+
+    uint32_t targetCellId = GetCellIdForEntity(target);
+
+    auto payload = std::make_shared<HealPayload>();
+    payload->spellId = spellId;
+    payload->healAmount = amount;
+    payload->effectiveHeal = amount;
+
+    ActorMessage msg{};
+    msg.type = MessageType::HEAL;
+    msg.sourceGuid = healer ? healer->GetGUID().GetRawValue() : 0;
+    msg.targetGuid = target->GetGUID().GetRawValue();
+    msg.sourceCellId = healer ? GetCellIdForEntity(healer) : 0;
+    msg.targetCellId = targetCellId;
+    msg.complexPayload = payload;
+
+    LOG_DEBUG("server.ghost", "SendHealMessage: spell={} healer={} target={} amount={}",
+        spellId, msg.sourceGuid, msg.targetGuid, amount);
+
+    SendMessage(targetCellId, std::move(msg));
+}
+
+void CellActorManager::SendTargetSwitchMessage(Unit* creature, uint64_t oldTargetGuid, uint64_t newTargetGuid)
+{
+    if (!creature)
+        return;
+
+    auto payload = std::make_shared<TargetSwitchPayload>();
+    payload->creatureGuid = creature->GetGUID().GetRawValue();
+    payload->oldTargetGuid = oldTargetGuid;
+    payload->newTargetGuid = newTargetGuid;
+
+    ActorMessage msg{};
+    msg.type = MessageType::TARGET_SWITCH;
+    msg.sourceGuid = creature->GetGUID().GetRawValue();
+    msg.complexPayload = payload;
+
+    // Broadcast to all neighboring cells so they can update their ghosts
+    uint32_t creatureCellId = GetCellIdForEntity(creature);
+    std::vector<uint32_t> neighbors = GetNeighborCellIds(creatureCellId);
+
+    LOG_DEBUG("server.ghost", "SendTargetSwitchMessage: creature={} cell={} old={} new={} neighbors={}",
+        msg.sourceGuid, creatureCellId, oldTargetGuid, newTargetGuid, neighbors.size());
+
+    for (uint32_t neighborCellId : neighbors)
+    {
+        SendMessage(neighborCellId, msg);
+    }
+}
+
+void CellActorManager::BroadcastEvadeTriggered(Unit* creature)
+{
+    if (!creature)
+        return;
+
+    ActorMessage msg{};
+    msg.type = MessageType::EVADE_TRIGGERED;
+    msg.sourceGuid = creature->GetGUID().GetRawValue();
+
+    uint32_t creatureCellId = GetCellIdForEntity(creature);
+    std::vector<uint32_t> neighbors = GetNeighborCellIds(creatureCellId);
+
+    LOG_DEBUG("server.ghost", "BroadcastEvadeTriggered: creature={} cell={}",
+        msg.sourceGuid, creatureCellId);
+
+    for (uint32_t neighborCellId : neighbors)
+    {
+        SendMessage(neighborCellId, msg);
+    }
+}
+
+// ============================================================================
 // Phase 6D-4: Cell-Aware Victim Selection
 // ============================================================================
 
@@ -1741,28 +1936,40 @@ CellActorManager::VictimInfo CellActorManager::GetVictimCellAware(WorldObject* a
     if (!attacker)
         return result;
 
-    uint32_t attackerCellId = GetCellIdForEntity(attacker);
-
-    // Get the cell actor for the attacker's cell
-    auto it = _cellActors.find(attackerCellId);
-    if (it == _cellActors.end())
+    Creature* creature = attacker->ToCreature();
+    if (!creature)
         return result;
 
-    // For now, this is a placeholder that returns empty
-    // In a full implementation with parallel updates:
-    // 1. Get attacker's ThreatMgr threat list
-    // 2. Iterate in threat order
-    // 3. For each target:
-    //    a. If in same cell, return as local
-    //    b. If in different cell, check ghost for validity
-    // 4. Return first valid target
+    uint32_t attackerCellId = GetCellIdForEntity(attacker);
 
-    // The actual victim selection still happens via ThreatMgr::SelectVictim()
-    // This method is for future use when entity updates are fully parallelized
-    // and we need to validate cross-cell targets
+    // First try local victim (same cell) via direct pointer
+    Unit* victim = creature->GetVictim();
+    if (victim)
+    {
+        result.guid = victim->GetGUID().GetRawValue();
+        result.isLocal = AreInSameCell(attacker, victim);
+        result.posX = victim->GetPositionX();
+        result.posY = victim->GetPositionY();
+        result.posZ = victim->GetPositionZ();
 
-    LOG_DEBUG("server.ghost", "GetVictimCellAware: attacker={} cell={} (placeholder)",
-        attacker->GetGUID().GetRawValue(), attackerCellId);
+        LOG_DEBUG("server.ghost", "GetVictimCellAware: attacker={} cell={} victim={} local={}",
+            attacker->GetGUID().GetRawValue(), attackerCellId, result.guid, result.isLocal);
+        return result;
+    }
+
+    // No direct victim - check ThreatMgr for current victim
+    ThreatMgr& threatMgr = creature->GetThreatMgr();
+    if (Unit* threatVictim = threatMgr.GetCurrentVictim())
+    {
+        result.guid = threatVictim->GetGUID().GetRawValue();
+        result.isLocal = AreInSameCell(attacker, threatVictim);
+        result.posX = threatVictim->GetPositionX();
+        result.posY = threatVictim->GetPositionY();
+        result.posZ = threatVictim->GetPositionZ();
+
+        LOG_DEBUG("server.ghost", "GetVictimCellAware: attacker={} cell={} threatVictim={} local={}",
+            attacker->GetGUID().GetRawValue(), attackerCellId, result.guid, result.isLocal);
+    }
 
     return result;
 }

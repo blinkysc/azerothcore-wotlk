@@ -20,6 +20,7 @@
 #include "CreatureAI.h"
 #include "GhostActorSystem.h"
 #include "Map.h"
+#include "World.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "SpellInfo.h"
@@ -656,11 +657,29 @@ void ThreatMgr::tauntFadeOut(Unit* taunter)
 
 void ThreatMgr::setCurrentVictim(HostileReference* pHostileReference)
 {
+    HostileReference* oldVictim = iCurrentVictim;
+
     if (pHostileReference && pHostileReference != iCurrentVictim)
     {
         iOwner->SendChangeCurrentVictimOpcode(pHostileReference);
     }
     iCurrentVictim = pHostileReference;
+
+    // Phase 6C: Notify neighboring cells of target switch
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED) && iOwner)
+    {
+        Map* map = iOwner->GetMap();
+        if (map)
+        {
+            auto* cellMgr = map->GetCellActorManager();
+            if (cellMgr)
+            {
+                uint64_t oldGuid = oldVictim ? oldVictim->getUnitGuid().GetRawValue() : 0;
+                uint64_t newGuid = pHostileReference ? pHostileReference->getUnitGuid().GetRawValue() : 0;
+                cellMgr->SendTargetSwitchMessage(iOwner, oldGuid, newGuid);
+            }
+        }
+    }
 }
 
 //============================================================
