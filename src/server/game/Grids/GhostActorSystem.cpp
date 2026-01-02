@@ -41,14 +41,7 @@ namespace GhostActor
 void CellActor::Update(uint32_t diff)
 {
     _lastUpdateTime += diff;
-
-    // 1. Process all incoming messages first
-    // Phase 7E: This includes deferred messages from parallel AI (previous tick)
-    // Messages queued during this tick's parallel AI will be processed next tick
     ProcessMessages();
-
-    // 2. Update all entities owned by this cell
-    // Phase 7E: When ParallelAI.Enable is on, AI runs here with deferred cross-cell effects
     UpdateEntities(diff);
 }
 
@@ -63,13 +56,12 @@ void CellActor::ProcessMessages()
 
 void CellActor::HandleMessage(ActorMessage& msg)
 {
+    IncrementMessageCount();
+
     switch (msg.type)
     {
         case MessageType::SPELL_HIT:
         {
-            // Phase 6C: Apply spell damage/effects from cross-cell caster
-            // When entity updates are parallelized, this processes spell hits
-            // from casters in different cells.
             if (msg.complexPayload)
             {
                 auto payload = std::static_pointer_cast<SpellHitPayload>(msg.complexPayload);
@@ -79,7 +71,7 @@ void CellActor::HandleMessage(ActorMessage& msg)
                 WorldObject* targetObj = FindEntityByGuid(msg.targetGuid);
                 Unit* target = targetObj ? targetObj->ToUnit() : nullptr;
 
-                if (target && target->IsAlive())
+                if (target && target->IsAlive() && target->IsInWorld())
                 {
                     // Apply damage if present
                     if (payload->damage > 0)
@@ -101,7 +93,6 @@ void CellActor::HandleMessage(ActorMessage& msg)
 
         case MessageType::MELEE_DAMAGE:
         {
-            // Phase 6C: Apply melee damage from cross-cell attacker
             if (msg.complexPayload)
             {
                 auto payload = std::static_pointer_cast<MeleeDamagePayload>(msg.complexPayload);
@@ -111,7 +102,7 @@ void CellActor::HandleMessage(ActorMessage& msg)
                 WorldObject* targetObj = FindEntityByGuid(msg.targetGuid);
                 Unit* target = targetObj ? targetObj->ToUnit() : nullptr;
 
-                if (target && target->IsAlive())
+                if (target && target->IsAlive() && target->IsInWorld())
                 {
                     Unit::DealDamage(nullptr, target, payload->damage, nullptr,
                         DIRECT_DAMAGE, SPELL_SCHOOL_MASK_NORMAL, nullptr, false);
@@ -123,7 +114,6 @@ void CellActor::HandleMessage(ActorMessage& msg)
 
         case MessageType::HEAL:
         {
-            // Phase 6C: Apply healing from cross-cell healer
             if (msg.complexPayload)
             {
                 auto payload = std::static_pointer_cast<HealPayload>(msg.complexPayload);
@@ -133,7 +123,7 @@ void CellActor::HandleMessage(ActorMessage& msg)
                 WorldObject* targetObj = FindEntityByGuid(msg.targetGuid);
                 Unit* target = targetObj ? targetObj->ToUnit() : nullptr;
 
-                if (target && target->IsAlive())
+                if (target && target->IsAlive() && target->IsInWorld())
                 {
                     target->ModifyHealth(payload->effectiveHeal);
                     BroadcastHealthChange(target);
@@ -287,17 +277,12 @@ void CellActor::HandleMessage(ActorMessage& msg)
             break;
         }
 
-        // Phase 4: Migration messages are handled by CellActorManager
         case MessageType::MIGRATION_REQUEST:
         case MessageType::MIGRATION_ACK:
         case MessageType::MIGRATION_COMPLETE:
         case MessageType::MIGRATION_FORWARD:
-        {
-            // These are processed at the manager level
             break;
-        }
 
-        // Phase 6D: Threat/AI messages
         case MessageType::THREAT_UPDATE:
         {
             // Handle cross-cell threat modification
@@ -374,12 +359,10 @@ void CellActor::HandleMessage(ActorMessage& msg)
                     if (!entity || !entity->IsInWorld())
                         continue;
 
-                    // Only process players for zone-in-combat
                     Player* player = entity->ToPlayer();
                     if (!player || !player->IsAlive())
                         continue;
 
-                    // Phase 7E: Skip players not in same phase as creature
                     if (!(player->GetPhaseMask() & payload->creaturePhaseMask))
                         continue;
 
@@ -456,7 +439,6 @@ void CellActor::HandleMessage(ActorMessage& msg)
             break;
         }
 
-        // Phase 7E: Assistance request for parallel AI
         case MessageType::ASSISTANCE_REQUEST:
         {
             if (msg.complexPayload)
@@ -488,11 +470,9 @@ void CellActor::HandleMessage(ActorMessage& msg)
                     if (!assistant || !assistant->IsAlive())
                         continue;
 
-                    // Skip caller itself
                     if (assistant->GetGUID().GetRawValue() == payload->callerGuid)
                         continue;
 
-                    // Phase 7E: Skip assistants not in same phase as caller
                     if (!(assistant->GetPhaseMask() & payload->callerPhaseMask))
                         continue;
 
@@ -561,7 +541,6 @@ void CellActor::HandleMessage(ActorMessage& msg)
             break;
         }
 
-        // Phase 9: Pet parallelization safety
         case MessageType::PET_REMOVAL:
         {
             if (msg.complexPayload)
@@ -612,7 +591,6 @@ void CellActor::UpdateEntities(uint32_t diff)
 {
     bool parallelUpdatesEnabled = sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED);
 
-    // Phase 7A/7B: Update GameObjects and creature regeneration in this cell
     for (WorldObject* entity : _entities)
     {
         if (!entity || !entity->IsInWorld())
@@ -624,38 +602,24 @@ void CellActor::UpdateEntities(uint32_t diff)
         }
         else if (Creature* creature = entity->ToCreature())
         {
-            // Phase 7E: Skip creatures on vehicles/transports - vehicle owner updates them
             if (creature->HasUnitMovementFlag(MOVEMENTFLAG_ONTRANSPORT))
                 continue;
 
-            // Phase 7F: Full parallel creature update
             if (parallelUpdatesEnabled)
-            {
-                // UpdateParallel sets deferral flag, runs full Update(), clears flag
-                // Cross-cell effects (assistance, threat, spells) queue as messages
                 creature->UpdateParallel(diff);
-            }
             else
             {
-                // Fallback: just regen and timers (AI runs in Map::Update)
                 creature->UpdateRegeneration(diff);
                 creature->UpdateTimersParallel(diff);
             }
         }
         else if (Player* player = entity->ToPlayer())
         {
-            // Phase 7E: Skip players on vehicles/transports - vehicle owner updates them
             if (player->HasUnitMovementFlag(MOVEMENTFLAG_ONTRANSPORT))
                 continue;
 
-            // Phase 7H: Full parallel player update
             if (parallelUpdatesEnabled)
-            {
-                // UpdateParallel sets deferral flag, runs full Update(), clears flag
-                // Cross-cell effects (group updates) queue as messages
                 player->UpdateParallel(diff);
-            }
-            // Note: No fallback for players - they run in Map::Update() if not parallelized
         }
     }
 }
@@ -811,9 +775,8 @@ CellActor* CellActorManager::GetCellActor(uint32_t gridX, uint32_t gridY)
 
 CellActor* CellActorManager::GetCellActorForPosition(float x, float y)
 {
-    // Convert world coords to cell coords (Phase 5: 66-yard cells)
     constexpr float kCellSize = 66.6666f;
-    constexpr float kCenterCellOffset = 256.0f;  // 512 cells / 2
+    constexpr float kCenterCellOffset = 256.0f;
 
     uint32_t cellX = static_cast<uint32_t>((kCenterCellOffset - (x / kCellSize)));
     uint32_t cellY = static_cast<uint32_t>((kCenterCellOffset - (y / kCellSize)));
@@ -825,20 +788,14 @@ void CellActorManager::Update(uint32_t diff)
 {
     if (!_workPool || _activeCells.empty())
     {
-        // No pool available - sequential fallback
         for (CellActor* cell : _activeCells)
         {
             if (cell->HasWork())
-            {
                 cell->Update(diff);
-            }
         }
         return;
     }
 
-    // Phase 7C: Parallel cell updates with task tagging
-    // Submit cell updates as CELL type tasks - these are separate from MAP tasks
-    // so TryExecuteOne(CELL) won't accidentally grab Map::Update() tasks
     for (CellActor* cell : _activeCells)
     {
         if (cell->HasWork())
@@ -852,14 +809,10 @@ void CellActorManager::Update(uint32_t diff)
         }
     }
 
-    // Work-assisting wait - ONLY executes CELL tasks, never MAP tasks
-    // This prevents the nested Map::Update problem
     while (_pendingCellUpdates.load(std::memory_order_acquire) > 0)
     {
         if (!_workPool->TryExecuteOne(TaskType::CELL))
-        {
             std::this_thread::yield();
-        }
     }
 }
 
@@ -880,7 +833,6 @@ void CellActorManager::OnEntityAdded(WorldObject* obj)
     float x = obj->GetPositionX();
     float y = obj->GetPositionY();
 
-    // Convert to cell coords and get/create cell actor (Phase 5: 66-yard cells)
     constexpr float kCellSize = 66.6666f;
     constexpr float kCenterCellOffset = 256.0f;
 
@@ -890,21 +842,12 @@ void CellActorManager::OnEntityAdded(WorldObject* obj)
     CellActor* cell = GetOrCreateCellActor(cellX, cellY);
     cell->AddEntity(obj);
 
-    // Phase 7A: Mark GameObjects as cell-managed (O(1) flag check)
     if (obj->IsGameObject())
-    {
         obj->SetCellManaged(true);
-    }
-    // Phase 7F: Mark Creatures as cell-managed when parallel updates enabled
     else if (obj->ToCreature() && sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
-    {
         obj->SetCellManaged(true);
-    }
-    // Phase 7H: Mark Players as cell-managed when parallel updates enabled
     else if (obj->ToPlayer() && sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
-    {
         obj->SetCellManaged(true);
-    }
 }
 
 void CellActorManager::OnEntityRemoved(WorldObject* obj)
@@ -912,28 +855,16 @@ void CellActorManager::OnEntityRemoved(WorldObject* obj)
     if (!obj)
         return;
 
-    // Find the cell this entity was in and remove it
     CellActor* cell = GetCellActorForPosition(obj->GetPositionX(), obj->GetPositionY());
     if (cell)
-    {
         cell->RemoveEntity(obj);
-    }
 
-    // Phase 7A: Clear cell-managed flag
     if (obj->IsGameObject())
-    {
         obj->SetCellManaged(false);
-    }
-    // Phase 7F: Clear cell-managed flag for Creatures
     else if (obj->ToCreature())
-    {
         obj->SetCellManaged(false);
-    }
-    // Phase 7H: Clear cell-managed flag for Players
     else if (obj->ToPlayer())
-    {
         obj->SetCellManaged(false);
-    }
 }
 
 void CellActorManager::OnEntityMoved(WorldObject* obj, float oldX, float oldY)
@@ -941,7 +872,6 @@ void CellActorManager::OnEntityMoved(WorldObject* obj, float oldX, float oldY)
     if (!obj)
         return;
 
-    // Phase 5: 66-yard cells
     constexpr float kCellSize = 66.6666f;
     constexpr float kCenterCellOffset = 256.0f;
 
@@ -992,7 +922,7 @@ void CellActorManager::OnEntityMoved(WorldObject* obj, float oldX, float oldY)
 }
 
 // ============================================================================
-// Phase 3: Ghost Management Implementation
+// Ghost Management
 // ============================================================================
 
 GhostSnapshot CellActorManager::CreateSnapshotFromEntity(WorldObject* obj)
@@ -1031,7 +961,6 @@ void CellActorManager::UpdateEntityGhosts(WorldObject* obj)
     float x = obj->GetPositionX();
     float y = obj->GetPositionY();
 
-    // Get current cell (Phase 5: 66-yard cells)
     constexpr float kCellSize = 66.6666f;
     constexpr float kCenterCellOffset = 256.0f;
     uint32_t cellX = static_cast<uint32_t>((kCenterCellOffset - (x / kCellSize)));
@@ -1325,7 +1254,6 @@ void CellActorManager::DestroyGhostInCell(uint32_t cellId, uint64_t guid)
 
 void CellActorManager::DestroyAllGhostsForEntity(uint64_t guid)
 {
-    // Phase 7G: Destroy all ghosts for an entity (used on despawn/corpse removal)
     auto it = _entityGhostInfo.find(guid);
     if (it == _entityGhostInfo.end())
         return;
@@ -1355,7 +1283,7 @@ void CellActorManager::DestroyAllGhostsForEntity(uint64_t guid)
 }
 
 // ============================================================================
-// Phase 4: Cell Migration Implementation
+// Cell Migration
 // ============================================================================
 
 uint64_t CellActorManager::GenerateMigrationId()
@@ -1406,7 +1334,6 @@ void CellActorManager::CheckAndInitiateMigration(WorldObject* obj, float oldX, f
     if (!obj)
         return;
 
-    // Phase 7E: Don't migrate entities on vehicles - their position is relative to vehicle
     if (Unit* unit = obj->ToUnit())
     {
         if (unit->HasUnitMovementFlag(MOVEMENTFLAG_ONTRANSPORT))
@@ -1415,11 +1342,9 @@ void CellActorManager::CheckAndInitiateMigration(WorldObject* obj, float oldX, f
 
     uint64_t guid = obj->GetGUID().GetRawValue();
 
-    // Skip if already migrating
     if (IsEntityMigrating(guid))
         return;
 
-    // Phase 5: 66-yard cells
     constexpr float kCellSize = 66.6666f;
     constexpr float kCenterCellOffset = 256.0f;
 
@@ -1676,7 +1601,7 @@ void CellActorManager::UpdateMigrations(uint32_t /*diff*/)
 }
 
 // ============================================================================
-// Phase 6C: Cross-Cell Combat Helpers
+// Cross-Cell Combat Helpers
 // ============================================================================
 
 uint32_t CellActorManager::GetCellIdForPosition(float x, float y) const
@@ -1712,7 +1637,7 @@ bool CellActorManager::AreInSameCell(float x1, float y1, float x2, float y2) con
 }
 
 // ============================================================================
-// Phase 6D: Threat/AI Integration
+// Threat/AI Integration
 // ============================================================================
 
 std::vector<uint32_t> CellActorManager::GetCellsInRadius(float x, float y, float radius) const
@@ -1804,7 +1729,7 @@ void CellActorManager::BroadcastAggroRequest(WorldObject* creature, float maxRan
         payload->creatureZ = z;
         payload->maxRange = maxRange;
         payload->initialThreat = initialThreat;
-        payload->creaturePhaseMask = creature->GetPhaseMask();  // Phase 7E
+        payload->creaturePhaseMask = creature->GetPhaseMask();
 
         ActorMessage msg;
         msg.type = MessageType::AGGRO_REQUEST;
@@ -1818,7 +1743,7 @@ void CellActorManager::BroadcastAggroRequest(WorldObject* creature, float maxRan
 }
 
 // ============================================================================
-// Phase 7E: Parallel AI Integration
+// Parallel AI Integration
 // ============================================================================
 
 void CellActorManager::BroadcastAssistanceRequest(WorldObject* caller, uint64_t targetGuid, float radius)
@@ -1850,7 +1775,7 @@ void CellActorManager::BroadcastAssistanceRequest(WorldObject* caller, uint64_t 
         payload->callerY = y;
         payload->callerZ = z;
         payload->radius = radius;
-        payload->callerPhaseMask = caller->GetPhaseMask();  // Phase 7E
+        payload->callerPhaseMask = caller->GetPhaseMask();
 
         ActorMessage msg;
         msg.type = MessageType::ASSISTANCE_REQUEST;
@@ -1865,7 +1790,7 @@ void CellActorManager::BroadcastAssistanceRequest(WorldObject* caller, uint64_t 
 }
 
 // ============================================================================
-// Phase 9: Pet Parallelization Safety
+// Pet Parallelization Safety
 // ============================================================================
 
 void CellActorManager::QueuePetRemoval(WorldObject* pet, uint8_t saveMode, bool returnReagent)
@@ -1909,7 +1834,7 @@ void CellActorManager::QueuePetRemoval(WorldObject* pet, uint8_t saveMode, bool 
 }
 
 // ============================================================================
-// Phase 6D-3: Cell-Aware Threat Management
+// Cell-Aware Threat Management
 // ============================================================================
 
 void CellActorManager::AddThreatCellAware(WorldObject* attacker, WorldObject* victim, float threat)
@@ -1917,7 +1842,6 @@ void CellActorManager::AddThreatCellAware(WorldObject* attacker, WorldObject* vi
     if (!attacker || !victim)
         return;
 
-    // Phase 7E: Skip cross-phase threat
     if (!CanInteractCrossPhase(attacker, victim->GetGUID().GetRawValue()))
         return;
 
@@ -1996,7 +1920,7 @@ void CellActorManager::SendThreatUpdate(uint64_t attackerGuid, uint64_t victimGu
 }
 
 // ============================================================================
-// Phase 6C: Cross-Cell Damage/Healing Message Senders
+// Cross-Cell Damage/Healing Message Senders
 // ============================================================================
 
 void CellActorManager::SendSpellHitMessage(Unit* caster, Unit* target, uint32_t spellId, int32_t damage, int32_t healing)
@@ -2004,7 +1928,6 @@ void CellActorManager::SendSpellHitMessage(Unit* caster, Unit* target, uint32_t 
     if (!target)
         return;
 
-    // Phase 7E: Skip cross-phase interactions
     if (caster && !CanInteractCrossPhase(caster, target->GetGUID().GetRawValue()))
         return;
 
@@ -2035,7 +1958,6 @@ void CellActorManager::SendMeleeDamageMessage(Unit* attacker, Unit* target, int3
     if (!target)
         return;
 
-    // Phase 7E: Skip cross-phase interactions
     if (attacker && !CanInteractCrossPhase(attacker, target->GetGUID().GetRawValue()))
         return;
 
@@ -2064,7 +1986,6 @@ void CellActorManager::SendHealMessage(Unit* healer, Unit* target, uint32_t spel
     if (!target)
         return;
 
-    // Phase 7E: Skip cross-phase interactions
     if (healer && !CanInteractCrossPhase(healer, target->GetGUID().GetRawValue()))
         return;
 
@@ -2139,7 +2060,7 @@ void CellActorManager::BroadcastEvadeTriggered(Unit* creature)
 }
 
 // ============================================================================
-// Phase 6D-4: Cell-Aware Victim Selection
+// Cell-Aware Victim Selection
 // ============================================================================
 
 CellActorManager::VictimInfo CellActorManager::GetVictimCellAware(WorldObject* attacker)
@@ -2187,7 +2108,7 @@ CellActorManager::VictimInfo CellActorManager::GetVictimCellAware(WorldObject* a
 }
 
 // ============================================================================
-// Phase 7A: Cell-Managed Object Tracking
+// Cell-Managed Object Tracking
 // ============================================================================
 
 bool CellActorManager::IsCellManaged(WorldObject* obj) const

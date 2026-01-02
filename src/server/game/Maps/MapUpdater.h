@@ -19,18 +19,16 @@
 #define _MAP_UPDATER_H_INCLUDED
 
 #include "Define.h"
+#include "PCQueue.h"
 #include "WorkStealingPool.h"
 #include <atomic>
+#include <functional>
 #include <memory>
+#include <thread>
+#include <vector>
 
 class Map;
 
-/**
- * @brief Lock-free Map Update Scheduler
- *
- * Uses work-stealing thread pool for parallel map updates.
- * Zero mutexes, zero locks - only atomic operations.
- */
 class MapUpdater
 {
 public:
@@ -45,13 +43,22 @@ public:
     void deactivate();
     bool activated();
 
-    // Access pool for nested parallelism (cell updates within map update)
-    WorkStealingPool* GetPool() { return _pool.get(); }
+    WorkStealingPool* GetPool() { return _useWorkStealing ? _workStealingPool.get() : nullptr; }
+    bool IsWorkStealingEnabled() const { return _useWorkStealing; }
 
 private:
-    std::unique_ptr<WorkStealingPool> _pool;
+    void LegacyWorkerThread();
+
+    // Work-stealing mode (GhostActorSystem ON)
+    std::unique_ptr<WorkStealingPool> _workStealingPool;
+
+    // Legacy mode (GhostActorSystem OFF)
+    std::unique_ptr<ProducerConsumerQueue<std::function<void()>>> _legacyQueue;
+    std::vector<std::thread> _legacyThreads;
+
     alignas(64) std::atomic<size_t> _pendingTasks{0};
     bool _activated{false};
+    bool _useWorkStealing{false};
 };
 
 #endif //_MAP_UPDATER_H_INCLUDED

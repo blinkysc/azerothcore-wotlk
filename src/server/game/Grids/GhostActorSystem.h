@@ -1,59 +1,33 @@
 /*
- * Ghost Actor System - Design Document
+ * This file is part of the AzerothCore Project. See AUTHORS file for Copyright information
  *
- * A lock-free, work-stealing concurrent architecture for MMO game worlds.
+ * This program is free software; you can redistribute it and/or modify it under
+ * the terms of the GNU General Public License as published by the Free Software
+ * Foundation; either version 2 of the License, or (at your option) any later version.
  *
- * CORE CONCEPTS:
+ * This program is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+ * PARTICULAR PURPOSE. See the GNU General Public License for more details.
  *
- * 1. CELL ACTORS
- *    - Each grid cell is an independent Actor with its own message queue
- *    - Cells process their entities without locks (single-writer principle)
- *    - Cell boundaries are defined by existing grid coordinates
+ * You should have received a copy of the GNU General Public License along with
+ * this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+/**
+ * @file GhostActorSystem.h
+ * @brief Lock-free parallel entity update system using cell-based actors
  *
- * 2. ENTITY OWNERSHIP
- *    - Every entity has exactly ONE owning cell (the "home" cell)
- *    - The home cell has exclusive write access to that entity's state
- *    - Entity position determines home cell (recomputed on movement)
+ * The GhostActorSystem enables multi-threaded entity updates without mutex locks
+ * by partitioning the world into cells, each with exclusive ownership of its entities.
  *
- * 3. GHOST ENTITIES
- *    - Read-only projections of entities visible in neighboring cells
- *    - Updated via one-way state sync messages from home cell
- *    - Cannot be modified directly - interactions route to home cell
+ * Key concepts:
+ * - Cell Actors: Each 66-yard cell processes its entities independently
+ * - Single-Writer: Only the owning cell can modify an entity's state
+ * - Ghost Entities: Read-only projections of entities visible in neighboring cells
+ * - Message Passing: Cross-cell interactions are asynchronous messages
+ * - Work Stealing: Load balancing via Chase-Lev deque algorithm
  *
- * 4. MESSAGE PASSING
- *    - Cross-cell interactions become async messages
- *    - Example: Player in Cell A casts spell on Mob in Cell B
- *      → Cell A queues SpellHitMessage to Cell B
- *      → Cell B processes message, applies damage to real Mob
- *      → Cell B queues StateUpdateMessage back (HP changed)
- *
- * 5. WORK STEALING
- *    - Workers have local deques (double-ended queues)
- *    - Push/pop own work from one end (no contention)
- *    - Steal from other workers' opposite end when idle
- *    - Based on Chase-Lev deque algorithm
- *
- * IMPLEMENTATION PHASES:
- *
- * Phase 1: Work-Stealing Thread Pool
- *   - Replace MapUpdater's simple queue with work-stealing deques
- *   - Cells become work items that can be stolen
- *   - No ghosting yet - just better load balancing
- *
- * Phase 2: Cell Actors with Message Queues
- *   - Each cell gets an MPSC (multi-producer, single-consumer) queue
- *   - Intra-cell updates remain direct
- *   - Cross-cell interactions route through messages
- *
- * Phase 3: Ghost Entity System
- *   - Implement read-only entity projections
- *   - State synchronization protocol
- *   - Visibility integration with existing system
- *
- * Phase 4: Cell Migration
- *   - Handle entities moving between cells
- *   - Ownership transfer protocol
- *   - Ghost lifecycle management
+ * Memory overhead: ~576 bytes per player (ghost projections to 8 neighbors)
  */
 
 #ifndef GHOST_ACTOR_SYSTEM_H
@@ -82,56 +56,52 @@ namespace GhostActor
 class GhostEntity;
 struct GhostSnapshot;
 
-// ============================================================================
-// PHASE 2: Cell Actor Message Types
-// ============================================================================
-
+/// Message types for cross-cell communication
 enum class MessageType : uint8_t
 {
-    // Combat messages
+    // Combat
     SPELL_HIT,
     MELEE_DAMAGE,
     HEAL,
     AURA_APPLY,
     AURA_REMOVE,
 
-    // Movement messages
-    ENTITY_ENTERING,      // Entity moving into this cell
-    ENTITY_LEAVING,       // Entity leaving this cell
-    POSITION_UPDATE,      // Ghost position sync
+    // Movement
+    ENTITY_ENTERING,
+    ENTITY_LEAVING,
+    POSITION_UPDATE,
 
-    // State sync messages
+    // State sync
     HEALTH_CHANGED,
     POWER_CHANGED,
     AURA_STATE_SYNC,
     COMBAT_STATE_CHANGED,
-    PHASE_CHANGED,        // Entity phase mask changed
+    PHASE_CHANGED,
 
-    // Visibility messages
+    // Ghost lifecycle
     GHOST_CREATE,
     GHOST_UPDATE,
     GHOST_DESTROY,
 
-    // Phase 4: Cell Migration messages
-    MIGRATION_REQUEST,    // Old cell → New cell: "Take ownership of this entity"
-    MIGRATION_ACK,        // New cell → Old cell: "Ownership accepted"
-    MIGRATION_COMPLETE,   // Old cell → New cell: "Buffered messages forwarded, done"
-    MIGRATION_FORWARD,    // Forwarded message during migration handoff
+    // Cell migration
+    MIGRATION_REQUEST,
+    MIGRATION_ACK,
+    MIGRATION_COMPLETE,
+    MIGRATION_FORWARD,
 
-    // Phase 6D: Threat/AI messages
-    THREAT_UPDATE,        // Notify threat change across cells
-    AGGRO_REQUEST,        // Request nearby entities enter combat
-    COMBAT_INITIATED,     // Confirm combat started with entity
-    TARGET_SWITCH,        // AI changed its target
-    EVADE_TRIGGERED,      // Creature entered evade mode
+    // Threat/AI
+    THREAT_UPDATE,
+    AGGRO_REQUEST,
+    COMBAT_INITIATED,
+    TARGET_SWITCH,
+    EVADE_TRIGGERED,
+    ASSISTANCE_REQUEST,
 
-    // Phase 7E: Parallel AI messages
-    ASSISTANCE_REQUEST,   // Request assistance from creatures in this cell
-
-    // Phase 9: Pet parallelization
-    PET_REMOVAL,          // Deferred pet removal to avoid race with owner
+    // Pet safety
+    PET_REMOVAL,
 };
 
+/// Message passed between cell actors
 struct ActorMessage
 {
     MessageType type;
@@ -140,7 +110,6 @@ struct ActorMessage
     uint32_t sourceCellId;
     uint32_t targetCellId;
 
-    // Payload - could use variant or union for efficiency
     int32_t intParam1;
     int32_t intParam2;
     int32_t intParam3;
@@ -148,14 +117,10 @@ struct ActorMessage
     float floatParam2;
     float floatParam3;
 
-    // For complex payloads
     std::shared_ptr<void> complexPayload;
 };
 
-// ============================================================================
-// PHASE 2: Lock-Free MPSC Queue for Cell Message Inbox
-// ============================================================================
-
+/// Lock-free multi-producer single-consumer queue
 template<typename T>
 class MPSCQueue
 {
@@ -180,38 +145,31 @@ public:
         delete _tail;
     }
 
-    // Called by multiple producer threads
     void Push(T item)
     {
         Node* node = new Node();
         node->data = std::move(item);
-
         Node* prev = _head.exchange(node, std::memory_order_acq_rel);
         prev->next.store(node, std::memory_order_release);
     }
 
-    // Called by single consumer (cell owner thread)
     bool Pop(T& result)
     {
         Node* tail = _tail;
         Node* next = tail->next.load(std::memory_order_acquire);
-
         if (next == nullptr)
             return false;
-
         result = std::move(next->data);
         _tail = next;
         delete tail;
         return true;
     }
 
-    // Check if queue is empty (approximate - may have race)
     [[nodiscard]] bool Empty() const
     {
         return _tail->next.load(std::memory_order_acquire) == nullptr;
     }
 
-    // Approximate count of pending messages (for debug only, not precise)
     [[nodiscard]] size_t ApproximateSize() const
     {
         size_t count = 0;
@@ -220,54 +178,35 @@ public:
         {
             current = current->next.load(std::memory_order_acquire);
             ++count;
-            if (count > 10000) break;  // Safety limit
+            if (count > 10000) break;
         }
         return count;
     }
 
 private:
     std::atomic<Node*> _head;
-    Node* _tail;  // Only accessed by consumer
+    Node* _tail;
 };
 
-// ============================================================================
-// PHASE 2: Cell Actor
-// ============================================================================
-
+/// Actor representing a single grid cell with exclusive entity ownership
 class CellActor
 {
 public:
     CellActor(uint32_t cellId, Map* map)
-        : _cellId(cellId), _map(map), _lastUpdateTime(0)
-    {
-    }
+        : _cellId(cellId), _map(map), _lastUpdateTime(0) {}
 
-    // Process all pending messages and update entities
     void Update(uint32_t diff);
+    void SendMessage(ActorMessage msg) { _inbox.Push(std::move(msg)); }
 
-    // Send message to this cell (thread-safe)
-    void SendMessage(ActorMessage msg)
-    {
-        _inbox.Push(std::move(msg));
-    }
-
-    // Add/remove entities (called during cell transfer)
     void AddEntity(WorldObject* obj);
     void RemoveEntity(WorldObject* obj);
-
-    // Find entity by GUID (returns nullptr if not found in this cell)
     WorldObject* FindEntityByGuid(uint64_t guid) const;
 
-    // Get all entities (for iteration)
     const std::vector<WorldObject*>& GetEntities() const { return _entities; }
-
-    // Get owning map
     Map* GetMap() const { return _map; }
-
     uint32_t GetCellId() const { return _cellId; }
     bool HasWork() const { return !_entities.empty() || !_inbox.Empty(); }
 
-    // Debug query methods
     [[nodiscard]] size_t GetEntityCount() const { return _entities.size(); }
     [[nodiscard]] size_t GetGhostCount() const { return _ghosts.size(); }
     [[nodiscard]] size_t GetPendingMessageCount() const { return _inbox.ApproximateSize(); }
@@ -277,7 +216,6 @@ public:
         return it != _ghosts.end() ? it->second.get() : nullptr;
     }
 
-    // Performance tracking
     [[nodiscard]] uint32_t GetMessagesProcessedLastTick() const
     {
         return _messagesProcessedLastTick.load(std::memory_order_relaxed);
@@ -296,37 +234,30 @@ private:
     uint32_t _lastUpdateTime;
 
     MPSCQueue<ActorMessage> _inbox;
-    std::vector<WorldObject*> _entities;  // Entities owned by this cell
-
-    // Ghost tracking - read-only projections of entities in neighboring cells
+    std::vector<WorldObject*> _entities;
     std::unordered_map<uint64_t, std::unique_ptr<GhostEntity>> _ghosts;
-
-    // Performance tracking
     std::atomic<uint32_t> _messagesProcessedLastTick{0};
 };
 
-// ============================================================================
-// PHASE 3: Ghost Entity System
-// ============================================================================
+// ---------------------------------------------------------------------------
+// Ghost Entity System
+// ---------------------------------------------------------------------------
 
-// Ghost visibility threshold - entities within this distance of grid boundary
-// Phase 5: Using actual 66-yard cells instead of 533-yard grids
-constexpr float GHOST_VISIBILITY_DISTANCE = 250.0f;  // MAX_VISIBILITY_DISTANCE
-constexpr float CELL_SIZE = 66.6666f;                // SIZE_OF_GRIDS / MAX_NUMBER_OF_CELLS
-constexpr float CENTER_CELL_OFFSET = 256.0f;         // 512 cells / 2
+constexpr float GHOST_VISIBILITY_DISTANCE = 250.0f;
+constexpr float CELL_SIZE = 66.6666f;
+constexpr float CENTER_CELL_OFFSET = 256.0f;
 
-// Flags for which neighbor grids need ghosts
 enum class NeighborFlags : uint8_t
 {
     NONE        = 0x00,
-    NORTH       = 0x01,  // +Y
-    SOUTH       = 0x02,  // -Y
-    EAST        = 0x04,  // +X
-    WEST        = 0x08,  // -X
-    NORTH_EAST  = 0x10,  // +X+Y
-    NORTH_WEST  = 0x20,  // -X+Y
-    SOUTH_EAST  = 0x40,  // +X-Y
-    SOUTH_WEST  = 0x80,  // -X-Y
+    NORTH       = 0x01,
+    SOUTH       = 0x02,
+    EAST        = 0x04,
+    WEST        = 0x08,
+    NORTH_EAST  = 0x10,
+    NORTH_WEST  = 0x20,
+    SOUTH_EAST  = 0x40,
+    SOUTH_WEST  = 0x80,
     ALL         = 0xFF
 };
 
@@ -345,13 +276,11 @@ inline bool HasFlag(NeighborFlags flags, NeighborFlags check)
     return (static_cast<uint8_t>(flags) & static_cast<uint8_t>(check)) != 0;
 }
 
-/**
- * @brief Snapshot of entity state for ghost synchronization
- */
+/// Snapshot of entity state for ghost synchronization
 struct GhostSnapshot
 {
     uint64_t guid{0};
-    uint32_t phaseMask{1};  // PHASEMASK_NORMAL = 0x00000001
+    uint32_t phaseMask{1};
     float posX{0}, posY{0}, posZ{0}, orientation{0};
     uint32_t health{0}, maxHealth{0};
     uint32_t displayId{0};
@@ -360,15 +289,12 @@ struct GhostSnapshot
     bool isDead{false};
 };
 
-/**
- * @brief Read-only projection of an entity in a neighboring cell
- */
+/// Read-only projection of an entity in a neighboring cell
 class GhostEntity
 {
 public:
     GhostEntity(uint64_t guid, uint32_t ownerCellId);
 
-    // Read-only accessors
     uint64_t GetGUID() const { return _guid; }
     float GetPositionX() const { return _posX; }
     float GetPositionY() const { return _posY; }
@@ -379,8 +305,12 @@ public:
     uint32_t GetOwnerCellId() const { return _ownerCellId; }
     bool IsInCombat() const { return _inCombat; }
     bool IsDead() const { return _isDead; }
+    uint64_t GetTargetGuid() const { return _targetGuid; }
+    uint32_t GetPower(uint8_t power) const;
+    uint32_t GetAuraState() const { return _auraState; }
+    uint32_t GetPhaseMask() const { return _phaseMask; }
+    bool InSamePhase(uint32_t otherMask) const { return _phaseMask & otherMask; }
 
-    // State sync (called when home cell sends update)
     void SyncFromSnapshot(const GhostSnapshot& snapshot);
     void SyncPosition(float x, float y, float z, float o);
     void SyncHealth(uint32_t health, uint32_t maxHealth);
@@ -390,52 +320,36 @@ public:
     void SyncAuraState(uint32_t auraState) { _auraState = auraState; }
     void SyncPhaseMask(uint32_t phaseMask) { _phaseMask = phaseMask; }
 
-    // Target info (for AI target switching across cells)
-    uint64_t GetTargetGuid() const { return _targetGuid; }
-    uint32_t GetPower(uint8_t power) const;
-    uint32_t GetAuraState() const { return _auraState; }
-    uint32_t GetPhaseMask() const { return _phaseMask; }
-    bool InSamePhase(uint32_t otherMask) const { return _phaseMask & otherMask; }
-
 private:
     uint64_t _guid;
     uint32_t _ownerCellId;
-
-    // Cached state (read-only snapshot)
     float _posX{0}, _posY{0}, _posZ{0}, _orientation{0};
     uint32_t _health{0}, _maxHealth{0};
     uint32_t _displayId{0};
     uint32_t _moveFlags{0};
-    uint64_t _targetGuid{0};  // Current target (for AI target switching)
+    uint64_t _targetGuid{0};
     uint32_t _auraState{0};
-    uint32_t _phaseMask{1};  // PHASEMASK_NORMAL
-    std::array<uint32_t, 7> _power{};     // MAX_POWERS = 7 (mana, rage, focus, energy, happiness, runes, runic)
+    uint32_t _phaseMask{1};
+    std::array<uint32_t, 7> _power{};
     std::array<uint32_t, 7> _maxPower{};
     bool _inCombat{false};
     bool _isDead{false};
 };
 
-/**
- * @brief Tracks which neighbors have ghosts of an entity
- */
 struct EntityGhostInfo
 {
     uint64_t guid{0};
     uint32_t homeCellId{0};
-    NeighborFlags activeGhosts{NeighborFlags::NONE};  // Which neighbors have ghosts
+    NeighborFlags activeGhosts{NeighborFlags::NONE};
     GhostSnapshot lastSnapshot;
 };
 
-// Standalone cell ID calculation for debug commands
 inline uint32_t CalculateCellId(float worldX, float worldY)
 {
-    // Convert world coordinates to cell coordinates (same as GetCellIdForPosition)
     float cellFloatX = CENTER_CELL_OFFSET - (worldX / CELL_SIZE);
     float cellFloatY = CENTER_CELL_OFFSET - (worldY / CELL_SIZE);
-
     uint32_t cellX = static_cast<uint32_t>(std::floor(cellFloatX));
     uint32_t cellY = static_cast<uint32_t>(std::floor(cellFloatY));
-
     return (cellY << 16) | cellX;
 }
 
@@ -445,40 +359,21 @@ inline void ExtractCellCoords(uint32_t cellId, uint32_t& cellX, uint32_t& cellY)
     cellY = cellId >> 16;
 }
 
-// Helper functions for ghost boundary detection
 namespace GhostBoundary
 {
-    /**
-     * @brief Get position within current cell (0 to CELL_SIZE)
-     */
     inline void GetPositionInCell(float worldX, float worldY, float& cellLocalX, float& cellLocalY)
     {
-        // Convert to cell-local coordinates (Phase 5: 66-yard cells)
         float cellFloatX = CENTER_CELL_OFFSET - (worldX / CELL_SIZE);
         float cellFloatY = CENTER_CELL_OFFSET - (worldY / CELL_SIZE);
-
-        // Get fractional part (position within cell)
         cellLocalX = (cellFloatX - std::floor(cellFloatX)) * CELL_SIZE;
         cellLocalY = (cellFloatY - std::floor(cellFloatY)) * CELL_SIZE;
     }
 
-    /**
-     * @brief Determine which neighbor cells need ghosts based on position
-     *
-     * Phase 5: With 66-yard cells and 250-yard visibility, entities are always
-     * within visibility distance of all 8 neighbors (66 < 250). So we always
-     * return ALL neighbors for ghost propagation.
-     */
     inline NeighborFlags GetNeighborsNeedingGhosts([[maybe_unused]] float worldX, [[maybe_unused]] float worldY)
     {
-        // With 66-yard cells and 250-yard visibility, every entity is visible
-        // from all 8 neighboring cells. Always create ghosts in all neighbors.
         return NeighborFlags::ALL;
     }
 
-    /**
-     * @brief Get neighbor cell ID from current cell and direction
-     */
     inline uint32_t GetNeighborCellId(uint32_t cellId, NeighborFlags direction)
     {
         uint32_t cellX = cellId & 0xFFFF;
@@ -501,46 +396,25 @@ namespace GhostBoundary
     }
 }
 
-// ============================================================================
-// PHASE 4: Cell Migration System
-// ============================================================================
+// ---------------------------------------------------------------------------
+// Cell Migration System
+// ---------------------------------------------------------------------------
 
-/**
- * @brief Migration state machine
- *
- * Protocol:
- * 1. Entity crosses cell boundary → IDLE → PENDING
- * 2. Old cell sends MIGRATION_REQUEST with snapshot → TRANSFERRING
- * 3. New cell receives, takes ownership, sends MIGRATION_ACK
- * 4. Old cell receives ACK, forwards buffered messages → COMPLETING
- * 5. Old cell sends MIGRATION_COMPLETE, removes entity → IDLE
- *
- * During TRANSFERRING state, messages to entity are buffered in old cell
- * and forwarded after ACK is received.
- */
 enum class MigrationState : uint8_t
 {
-    IDLE,           // Not migrating
-    PENDING,        // Detected boundary cross, preparing to migrate
-    TRANSFERRING,   // Sent request, waiting for ACK (buffering messages)
-    COMPLETING,     // Received ACK, forwarding buffered messages
+    IDLE,
+    PENDING,
+    TRANSFERRING,
+    COMPLETING,
 };
 
-/**
- * @brief Full entity snapshot for migration (more complete than GhostSnapshot)
- */
 struct MigrationSnapshot
 {
-    // Identity
     uint64_t guid{0};
     uint32_t entry{0};
-    uint8_t typeId{0};  // TYPEID_UNIT, TYPEID_PLAYER, etc.
-
-    // Position
+    uint8_t typeId{0};
     float posX{0}, posY{0}, posZ{0}, orientation{0};
     uint32_t mapId{0};
-
-    // State
     uint32_t health{0}, maxHealth{0};
     uint32_t power{0}, maxPower{0};
     uint8_t powerType{0};
@@ -548,71 +422,47 @@ struct MigrationSnapshot
     uint32_t nativeDisplayId{0};
     uint32_t moveFlags{0};
     float speed{0};
-
-    // Combat state
     bool inCombat{false};
     bool isDead{false};
     uint64_t targetGuid{0};
-
-    // For creatures: AI state
     uint32_t aiState{0};
     uint32_t reactState{0};
 };
 
-/**
- * @brief Tracks migration state for an entity
- */
 struct EntityMigrationInfo
 {
     uint64_t guid{0};
     uint32_t oldCellId{0};
     uint32_t newCellId{0};
     MigrationState state{MigrationState::IDLE};
-    uint64_t migrationStartTime{0};  // For timeout detection
-
-    // Buffered messages during TRANSFERRING state
+    uint64_t migrationStartTime{0};
     std::vector<ActorMessage> bufferedMessages;
-
-    // Migration snapshot
     MigrationSnapshot snapshot;
 };
 
-/**
- * @brief Payload for MIGRATION_REQUEST message
- */
 struct MigrationRequestPayload
 {
     MigrationSnapshot snapshot;
-    uint64_t migrationId;  // Unique ID for this migration (for ACK matching)
+    uint64_t migrationId;
 };
 
-/**
- * @brief Payload for MIGRATION_ACK message
- */
 struct MigrationAckPayload
 {
     uint64_t migrationId;
-    bool accepted;  // True if new cell accepted ownership
+    bool accepted;
 };
 
-// Migration timeout (ms) - if ACK not received, abort and keep in old cell
 constexpr uint32_t MIGRATION_TIMEOUT_MS = 5000;
 
-// ============================================================================
-// PHASE 6C: Cross-Cell Combat Payloads
-// ============================================================================
+// ---------------------------------------------------------------------------
+// Message Payloads
+// ---------------------------------------------------------------------------
 
-/**
- * @brief Payload for SPELL_HIT message
- *
- * Contains pre-calculated spell damage/healing to apply to target.
- * Used when caster and target are in different cells.
- */
 struct SpellHitPayload
 {
     uint32_t spellId{0};
     uint8_t effectMask{0};
-    uint8_t missInfo{0};        // SpellMissInfo
+    uint8_t missInfo{0};
     int32_t damage{0};
     int32_t healing{0};
     uint32_t schoolMask{0};
@@ -625,11 +475,6 @@ struct SpellHitPayload
     uint32_t procEx{0};
 };
 
-/**
- * @brief Payload for MELEE_DAMAGE message
- *
- * Contains pre-calculated melee damage to apply to target.
- */
 struct MeleeDamagePayload
 {
     int32_t damage{0};
@@ -637,7 +482,7 @@ struct MeleeDamagePayload
     uint32_t blocked{0};
     uint32_t absorbed{0};
     uint32_t resisted{0};
-    uint8_t attackType{0};      // WeaponAttackType
+    uint8_t attackType{0};
     uint8_t hitInfo{0};
     bool isCritical{false};
     uint32_t procAttacker{0};
@@ -645,150 +490,89 @@ struct MeleeDamagePayload
     uint32_t procEx{0};
 };
 
-/**
- * @brief Payload for HEAL message
- *
- * Contains pre-calculated healing to apply to target.
- */
 struct HealPayload
 {
     uint32_t spellId{0};
     int32_t healAmount{0};
-    int32_t effectiveHeal{0};   // After overheal calculation
+    int32_t effectiveHeal{0};
     int32_t absorbed{0};
     bool isCritical{false};
     uint32_t procAttacker{0};
     uint32_t procVictim{0};
 };
 
-// ============================================================================
-// PHASE 6D: Threat/AI Message Payloads
-// ============================================================================
-
-/**
- * @brief Payload for THREAT_UPDATE message
- *
- * Sent when a creature adds/modifies threat on a target in a different cell.
- * The target's cell processes this to update bidirectional threat links.
- */
 struct ThreatUpdatePayload
 {
-    uint64_t attackerGuid{0};   // Creature adding threat
-    uint64_t victimGuid{0};     // Target receiving threat
-    float threatDelta{0.0f};    // Amount of threat to add/subtract
-    bool isNewThreat{false};    // True if this is a new threat entry
-    bool isRemoval{false};      // True if removing from threat list
+    uint64_t attackerGuid{0};
+    uint64_t victimGuid{0};
+    float threatDelta{0.0f};
+    bool isNewThreat{false};
+    bool isRemoval{false};
 };
 
-/**
- * @brief Payload for AGGRO_REQUEST message
- *
- * Sent by DoZoneInCombatCellAware to request nearby cells add
- * their eligible entities to the creature's threat list.
- */
 struct AggroRequestPayload
 {
-    uint64_t creatureGuid{0};   // Creature requesting aggro
-    uint32_t creatureCellId{0}; // Home cell of creature
-    uint32_t creaturePhaseMask{1}; // Phase mask for phase-aware aggro
-    float creatureX{0.0f};      // Position for range check
+    uint64_t creatureGuid{0};
+    uint32_t creatureCellId{0};
+    uint32_t creaturePhaseMask{1};
+    float creatureX{0.0f};
     float creatureY{0.0f};
     float creatureZ{0.0f};
-    float maxRange{0.0f};       // Maximum aggro range
-    float initialThreat{0.0f};  // Initial threat amount
+    float maxRange{0.0f};
+    float initialThreat{0.0f};
 };
 
-/**
- * @brief Payload for COMBAT_INITIATED message
- *
- * Sent as response to AGGRO_REQUEST when an entity enters combat.
- */
 struct CombatInitiatedPayload
 {
-    uint64_t entityGuid{0};     // Entity that entered combat
-    uint64_t attackerGuid{0};   // Creature that initiated
-    float threatAmount{0.0f};   // Initial threat value
+    uint64_t entityGuid{0};
+    uint64_t attackerGuid{0};
+    float threatAmount{0.0f};
 };
 
-/**
- * @brief Payload for ASSISTANCE_REQUEST message (Phase 7E)
- *
- * Sent when a creature needs assistance from nearby creatures.
- * Each cell finds local creatures that can assist and queues them.
- */
 struct AssistanceRequestPayload
 {
-    uint64_t callerGuid{0};     // Creature requesting help
-    uint64_t targetGuid{0};     // Target to attack
-    uint32_t callerCellId{0};   // Home cell of caller
-    uint32_t callerPhaseMask{1}; // Phase mask for phase-aware assistance
-    float callerX{0.0f};        // Position for range check
+    uint64_t callerGuid{0};
+    uint64_t targetGuid{0};
+    uint32_t callerCellId{0};
+    uint32_t callerPhaseMask{1};
+    float callerX{0.0f};
     float callerY{0.0f};
     float callerZ{0.0f};
-    float radius{0.0f};         // Assistance radius
+    float radius{0.0f};
 };
 
-/**
- * @brief Payload for TARGET_SWITCH message
- *
- * Sent when a creature's AI switches target, allowing ghosts
- * and other cells to update their target tracking.
- */
 struct TargetSwitchPayload
 {
-    uint64_t creatureGuid{0};   // Creature switching target
-    uint64_t oldTargetGuid{0};  // Previous target (0 if none)
-    uint64_t newTargetGuid{0};  // New target (0 if none)
+    uint64_t creatureGuid{0};
+    uint64_t oldTargetGuid{0};
+    uint64_t newTargetGuid{0};
 };
 
-// ============================================================================
-// PHASE 9: Pet Parallelization Safety Payloads
-// ============================================================================
-
-/**
- * @brief Payload for PET_REMOVAL message
- *
- * Sent when a pet needs to be removed during parallel update.
- * Defers owner modification until owner's update completes.
- */
 struct PetRemovalPayload
 {
-    uint64_t petGuid{0};        // Pet to remove
-    uint64_t ownerGuid{0};      // Owner player
-    uint8_t saveMode{0};        // PetSaveMode value
-    bool returnReagent{false};  // Whether to return reagent
+    uint64_t petGuid{0};
+    uint64_t ownerGuid{0};
+    uint8_t saveMode{0};
+    bool returnReagent{false};
 };
 
-// ============================================================================
-// Performance Monitoring & Debug Tracing (Phase 10)
-// ============================================================================
+// ---------------------------------------------------------------------------
+// Performance Monitoring
+// ---------------------------------------------------------------------------
 
-/**
- * @brief Performance statistics for GhostActorSystem
- *
- * Tracks timing, message counts, and work-stealing stats for debug commands.
- * All counters use atomics for thread-safe access during parallel updates.
- */
 struct PerformanceStats
 {
-    // Timing (microseconds)
     std::atomic<uint64_t> lastUpdateUs{0};
     uint64_t avgUpdateUs{0};
     uint64_t maxUpdateUs{0};
 
-    // Message counts by type (use MessageType as index)
     static constexpr size_t MAX_MESSAGE_TYPES = 32;
     std::array<std::atomic<uint32_t>, MAX_MESSAGE_TYPES> messageCountsByType{};
     std::atomic<uint32_t> totalMessagesThisTick{0};
-
-    // Work stealing stats
     std::atomic<uint32_t> tasksStolen{0};
 
-    // Rolling window tracking
     uint32_t ticksTracked{0};
     static constexpr uint32_t ROLLING_WINDOW = 100;
-
-    // Rolling sum for average calculation
     uint64_t rollingUpdateSum{0};
 
     void RecordUpdateTime(uint64_t us)
@@ -796,8 +580,6 @@ struct PerformanceStats
         lastUpdateUs.store(us, std::memory_order_relaxed);
         if (us > maxUpdateUs)
             maxUpdateUs = us;
-
-        // Update rolling average
         rollingUpdateSum += us;
         ticksTracked++;
         if (ticksTracked >= ROLLING_WINDOW)
@@ -805,7 +587,7 @@ struct PerformanceStats
             avgUpdateUs = rollingUpdateSum / ticksTracked;
             rollingUpdateSum = 0;
             ticksTracked = 0;
-            maxUpdateUs = us;  // Reset max each window
+            maxUpdateUs = us;
         }
     }
 
@@ -824,9 +606,9 @@ struct PerformanceStats
     }
 };
 
-// ============================================================================
-// Cell Actor Manager - Integrates with Map (Phase 2 + Phase 3 + Phase 4)
-// ============================================================================
+// ---------------------------------------------------------------------------
+// Cell Actor Manager
+// ---------------------------------------------------------------------------
 
 class CellActorManager
 {
@@ -852,7 +634,7 @@ public:
     void OnEntityRemoved(WorldObject* obj);
     void OnEntityMoved(WorldObject* obj, float oldX, float oldY);
 
-    // Phase 3: Ghost management
+    // Ghost management
     void UpdateEntityGhosts(WorldObject* obj);
     void OnEntityHealthChanged(WorldObject* obj, uint32_t health, uint32_t maxHealth);
     void OnEntityCombatStateChanged(WorldObject* obj, bool inCombat);
@@ -862,10 +644,10 @@ public:
     void OnEntityAuraRemoved(WorldObject* obj, uint32_t spellId);
     void OnEntityPhaseChanged(WorldObject* obj, uint32_t newPhaseMask);
     void BroadcastToGhosts(uint64_t guid, const ActorMessage& msg);
-    void DestroyAllGhostsForEntity(uint64_t guid);  // Phase 7G: Clear all ghosts on despawn
-    bool CanInteractCrossPhase(WorldObject* source, uint64_t targetGuid);  // Phase check for cross-cell interactions
+    void DestroyAllGhostsForEntity(uint64_t guid);
+    bool CanInteractCrossPhase(WorldObject* source, uint64_t targetGuid);
 
-    // Phase 4: Cell Migration
+    // Cell migration
     void CheckAndInitiateMigration(WorldObject* obj, float oldX, float oldY);
     void ProcessMigrationRequest(const ActorMessage& msg);
     void ProcessMigrationAck(const ActorMessage& msg);
@@ -874,40 +656,32 @@ public:
     bool IsEntityMigrating(uint64_t guid) const;
     void BufferMessageForMigrating(uint64_t guid, const ActorMessage& msg);
 
-    // Phase 6C: Cross-cell combat helpers
+    // Cell queries
     uint32_t GetCellIdForPosition(float x, float y) const;
     uint32_t GetCellIdForEntity(WorldObject* obj) const;
     bool AreInSameCell(WorldObject* a, WorldObject* b) const;
     bool AreInSameCell(float x1, float y1, float x2, float y2) const;
-
-    // Phase 6D: Threat/AI integration
     std::vector<uint32_t> GetCellsInRadius(float x, float y, float radius) const;
+
+    // Cross-cell combat
     void DoZoneInCombatCellAware(WorldObject* creature, float maxRange);
     void BroadcastAggroRequest(WorldObject* creature, float maxRange, float initialThreat);
-
-    // Phase 7E: Parallel AI integration
     void BroadcastAssistanceRequest(WorldObject* caller, uint64_t targetGuid, float radius);
-
-    // Phase 9: Pet parallelization safety
     void QueuePetRemoval(WorldObject* pet, uint8_t saveMode, bool returnReagent);
 
-    // Phase 6D-3: Cell-aware threat management
-    // These methods route threat operations through messages when targets are in different cells
+    // Cross-cell threat
     void AddThreatCellAware(WorldObject* attacker, WorldObject* victim, float threat);
     void RemoveThreatCellAware(WorldObject* attacker, WorldObject* victim);
     void SendThreatUpdate(uint64_t attackerGuid, uint64_t victimGuid, uint32_t victimCellId,
                           float threatDelta, bool isNewThreat, bool isRemoval);
 
-    // Phase 6C: Cross-cell damage/healing message senders
-    // Route damage/healing through messages when target is in a different cell
+    // Cross-cell damage/healing
     void SendSpellHitMessage(Unit* caster, Unit* target, uint32_t spellId, int32_t damage, int32_t healing);
     void SendMeleeDamageMessage(Unit* attacker, Unit* target, int32_t damage, bool isCrit);
     void SendHealMessage(Unit* healer, Unit* target, uint32_t spellId, int32_t amount);
     void SendTargetSwitchMessage(Unit* creature, uint64_t oldTargetGuid, uint64_t newTargetGuid);
     void BroadcastEvadeTriggered(Unit* creature);
 
-    // Phase 6D-4: Cell-aware victim selection
-    // Returns victim GUID and whether it's local (true) or cross-cell ghost (false)
     struct VictimInfo
     {
         uint64_t guid{0};
@@ -916,11 +690,10 @@ public:
     };
     VictimInfo GetVictimCellAware(WorldObject* attacker);
 
-    // Phase 7A: Cell-managed object tracking (uses WorldObject::IsCellManaged() flag)
     bool IsCellManaged(WorldObject* obj) const;
-    bool IsCellManagedByGuid(uint64_t guid) const;  // Deprecated - always returns false
+    bool IsCellManagedByGuid(uint64_t guid) const;
 
-    // Phase 7C: Parallel execution
+    // Parallel execution
     void SetWorkPool(WorkStealingPool* pool) { _workPool = pool; }
     bool HasWorkPool() const { return _workPool != nullptr; }
 
@@ -1025,6 +798,12 @@ public:
         return total;
     }
 
+    [[nodiscard]] const EntityGhostInfo* GetEntityGhostInfo(uint64_t guid) const
+    {
+        auto it = _entityGhostInfo.find(guid);
+        return it != _entityGhostInfo.end() ? &it->second : nullptr;
+    }
+
     [[nodiscard]] std::vector<uint32_t> GetNeighborCellIds(uint32_t cellId) const
     {
         std::vector<uint32_t> neighbors;
@@ -1057,13 +836,11 @@ private:
         cellY = cellId >> 16;
     }
 
-    // Ghost lifecycle helpers
     void CreateGhostInCell(uint32_t cellId, const GhostSnapshot& snapshot);
     void UpdateGhostInCell(uint32_t cellId, uint64_t guid, const ActorMessage& msg);
     void DestroyGhostInCell(uint32_t cellId, uint64_t guid);
     GhostSnapshot CreateSnapshotFromEntity(WorldObject* obj);
 
-    // Phase 4: Migration helpers
     MigrationSnapshot CreateMigrationSnapshot(WorldObject* obj);
     void InitiateMigration(WorldObject* obj, uint32_t oldCellId, uint32_t newCellId);
     void CompleteMigration(uint64_t guid);
@@ -1074,23 +851,15 @@ private:
 
     Map* _map;
     std::unordered_map<uint32_t, std::unique_ptr<CellActor>> _cellActors;
-    std::vector<CellActor*> _activeCells;  // Cells with work to do
-
-    // Phase 3: Ghost tracking per entity
+    std::vector<CellActor*> _activeCells;
     std::unordered_map<uint64_t, EntityGhostInfo> _entityGhostInfo;
-
-    // Phase 4: Migration tracking per entity
     std::unordered_map<uint64_t, EntityMigrationInfo> _entityMigrations;
     std::atomic<uint64_t> _nextMigrationId{1};
 
-    // Phase 7C: Parallel execution
     WorkStealingPool* _workPool{nullptr};
     alignas(64) std::atomic<size_t> _pendingCellUpdates{0};
 
-    // Phase 10: Performance monitoring
     PerformanceStats _perfStats;
-
-    // Phase 10: Message tracing (lock-free)
     std::array<std::atomic<uint64_t>, MAX_TRACED_GUIDS> _tracedGuids{};
 };
 
