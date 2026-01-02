@@ -1513,6 +1513,21 @@ void Unit::DealSpellDamage(SpellNonMeleeDamage* damageInfo, bool durabilityLoss,
         return;
     }
 
+    // Phase 6C: Route cross-cell spell damage through message system
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
+    {
+        Map* map = GetMap();
+        if (map)
+        {
+            auto* cellMgr = map->GetCellActorManager();
+            if (cellMgr && !cellMgr->AreInSameCell(this, victim))
+            {
+                cellMgr->SendSpellHitMessage(this, victim, spellProto->Id, damageInfo->damage, 0);
+                return;  // Message will apply damage in target's cell
+            }
+        }
+    }
+
     // Call default DealDamage
     CleanDamage cleanDamage(damageInfo->cleanDamage, damageInfo->absorb, BASE_ATTACK, MELEE_HIT_NORMAL);
     Unit::DealDamage(this, victim, damageInfo->damage, &cleanDamage, SPELL_DIRECT_DAMAGE, SpellSchoolMask(damageInfo->schoolMask), spellProto, durabilityLoss, false, spell);
@@ -1896,6 +1911,28 @@ void Unit::DealMeleeDamage(CalcDamageInfo* damageInfo, bool durabilityLoss)
     if (!canTakeMeleeDamage())
     {
         return;
+    }
+
+    // Phase 6C: Route cross-cell melee damage through message system
+    // Note: Melee is typically close-range so cross-cell is rare
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
+    {
+        Map* map = GetMap();
+        if (map)
+        {
+            auto* cellMgr = map->GetCellActorManager();
+            if (cellMgr && !cellMgr->AreInSameCell(this, victim))
+            {
+                // Sum all damage types
+                int32_t totalDamage = 0;
+                for (uint8 i = 0; i < MAX_ITEM_PROTO_DAMAGES; ++i)
+                    totalDamage += damageInfo->damages[i].damage;
+
+                bool isCrit = (damageInfo->HitInfo & HITINFO_CRITICALHIT) != 0;
+                cellMgr->SendMeleeDamageMessage(this, victim, totalDamage, isCrit);
+                return;  // Message will apply damage in target's cell
+            }
+        }
     }
 
     // Hmmmm dont like this emotes client must by self do all animations
@@ -11493,7 +11530,29 @@ int32 Unit::HealBySpell(HealInfo& healInfo, bool critical)
     // calculate heal absorb and reduce healing
     CalcHealAbsorb(healInfo);
 
-    int32 gain = Unit::DealHeal(healInfo.GetHealer(), healInfo.GetTarget(), healInfo.GetHeal());
+    Unit* healer = healInfo.GetHealer();
+    Unit* target = healInfo.GetTarget();
+
+    // Phase 6C: Route cross-cell healing through message system
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED) && healer && target)
+    {
+        Map* map = healer->GetMap();
+        if (map)
+        {
+            auto* cellMgr = map->GetCellActorManager();
+            if (cellMgr && !cellMgr->AreInSameCell(healer, target))
+            {
+                SpellInfo const* spellInfo = healInfo.GetSpellInfo();
+                uint32 spellId = spellInfo ? spellInfo->Id : 0;
+                cellMgr->SendHealMessage(healer, target, spellId, healInfo.GetHeal());
+                healInfo.SetEffectiveHeal(healInfo.GetHeal());
+                SendHealSpellLog(healInfo, critical);
+                return healInfo.GetHeal();  // Approximate - actual applied in target's cell
+            }
+        }
+    }
+
+    int32 gain = Unit::DealHeal(healer, target, healInfo.GetHeal());
     healInfo.SetEffectiveHeal(gain);
 
     SendHealSpellLog(healInfo, critical);
