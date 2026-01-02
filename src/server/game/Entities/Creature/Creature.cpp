@@ -2601,6 +2601,20 @@ void Creature::CallForHelp(float radius, Unit* target /*= nullptr*/)
     if (m_alreadyCallForHelp) // avoid recursive call for help for any reason
         return;
 
+    // Phase 7E: Use cell-aware assistance when parallel updates enabled
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
+    {
+        if (Map* map = GetMap())
+        {
+            if (auto* cellMgr = map->GetCellActorManager())
+            {
+                m_alreadyCallForHelp = true;
+                cellMgr->BroadcastAssistanceRequest(this, target->GetGUID().GetRawValue(), radius);
+                return;
+            }
+        }
+    }
+
     Acore::CallOfHelpCreatureInRangeDo u_do(this, target, radius);
     Acore::CreatureWorker<Acore::CallOfHelpCreatureInRangeDo> worker(this, u_do);
     Cell::VisitObjects(this, worker, radius);

@@ -246,6 +246,18 @@ void CreatureAI::EnterEvadeMode(EvadeReason why)
 
     sScriptMgr->OnUnitEnterEvadeMode(me, why);
 
+    // Phase 7E: Notify neighboring cells of evade
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
+    {
+        if (Map* map = me->GetMap())
+        {
+            if (auto* cellMgr = map->GetCellActorManager())
+            {
+                cellMgr->BroadcastEvadeTriggered(me);
+            }
+        }
+    }
+
     // despawn bosses at reset - only verified tbc/woltk bosses with this reset type
     CreatureTemplate const* cInfo = sObjectMgr->GetCreatureTemplate(me->GetEntry());
     if (cInfo && cInfo->HasFlagsExtra(CREATURE_FLAG_EXTRA_HARD_RESET))
