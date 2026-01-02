@@ -277,6 +277,16 @@ void CellActor::HandleMessage(ActorMessage& msg)
             break;
         }
 
+        case MessageType::PHASE_CHANGED:
+        {
+            auto it = _ghosts.find(msg.sourceGuid);
+            if (it != _ghosts.end())
+            {
+                it->second->SyncPhaseMask(static_cast<uint32_t>(msg.intParam1));
+            }
+            break;
+        }
+
         // Phase 4: Migration messages are handled by CellActorManager
         case MessageType::MIGRATION_REQUEST:
         case MessageType::MIGRATION_ACK:
@@ -367,6 +377,10 @@ void CellActor::HandleMessage(ActorMessage& msg)
                     // Only process players for zone-in-combat
                     Player* player = entity->ToPlayer();
                     if (!player || !player->IsAlive())
+                        continue;
+
+                    // Phase 7E: Skip players not in same phase as creature
+                    if (!(player->GetPhaseMask() & payload->creaturePhaseMask))
                         continue;
 
                     // Check distance
@@ -476,6 +490,10 @@ void CellActor::HandleMessage(ActorMessage& msg)
 
                     // Skip caller itself
                     if (assistant->GetGUID().GetRawValue() == payload->callerGuid)
+                        continue;
+
+                    // Phase 7E: Skip assistants not in same phase as caller
+                    if (!(assistant->GetPhaseMask() & payload->callerPhaseMask))
                         continue;
 
                     // Check distance from caller position
@@ -606,6 +624,10 @@ void CellActor::UpdateEntities(uint32_t diff)
         }
         else if (Creature* creature = entity->ToCreature())
         {
+            // Phase 7E: Skip creatures on vehicles/transports - vehicle owner updates them
+            if (creature->HasUnitMovementFlag(MOVEMENTFLAG_ONTRANSPORT))
+                continue;
+
             // Phase 7F: Full parallel creature update
             if (parallelUpdatesEnabled)
             {
@@ -622,6 +644,10 @@ void CellActor::UpdateEntities(uint32_t diff)
         }
         else if (Player* player = entity->ToPlayer())
         {
+            // Phase 7E: Skip players on vehicles/transports - vehicle owner updates them
+            if (player->HasUnitMovementFlag(MOVEMENTFLAG_ONTRANSPORT))
+                continue;
+
             // Phase 7H: Full parallel player update
             if (parallelUpdatesEnabled)
             {
@@ -976,6 +1002,7 @@ GhostSnapshot CellActorManager::CreateSnapshotFromEntity(WorldObject* obj)
         return snapshot;
 
     snapshot.guid = obj->GetGUID().GetRawValue();
+    snapshot.phaseMask = obj->GetPhaseMask();
     snapshot.posX = obj->GetPositionX();
     snapshot.posY = obj->GetPositionY();
     snapshot.posZ = obj->GetPositionZ();
@@ -1194,6 +1221,47 @@ void CellActorManager::OnEntityAuraRemoved(WorldObject* obj, uint32_t spellId)
     BroadcastToGhosts(guid, msg);
 }
 
+void CellActorManager::OnEntityPhaseChanged(WorldObject* obj, uint32_t newPhaseMask)
+{
+    // Must be valid and in world (SetPhaseMask can be called during Create before object is ready)
+    if (!obj || !obj->IsInWorld())
+        return;
+
+    uint64_t guid = obj->GetGUID().GetRawValue();
+    auto it = _entityGhostInfo.find(guid);
+    if (it == _entityGhostInfo.end())
+        return;
+
+    // Update the cached phase mask in ghost info
+    it->second.lastSnapshot.phaseMask = newPhaseMask;
+
+    if (it->second.activeGhosts == NeighborFlags::NONE)
+        return;
+
+    ActorMessage msg{};
+    msg.type = MessageType::PHASE_CHANGED;
+    msg.sourceGuid = guid;
+    msg.intParam1 = static_cast<int32_t>(newPhaseMask);
+
+    BroadcastToGhosts(guid, msg);
+}
+
+bool CellActorManager::CanInteractCrossPhase(WorldObject* source, uint64_t targetGuid)
+{
+    if (!source)
+        return false;
+
+    // Check if target is tracked as a ghost - if so, use ghost's phase mask
+    auto it = _entityGhostInfo.find(targetGuid);
+    if (it != _entityGhostInfo.end())
+    {
+        return (source->GetPhaseMask() & it->second.lastSnapshot.phaseMask) != 0;
+    }
+
+    // Not a tracked entity, allow interaction (same-cell interactions use normal checks)
+    return true;
+}
+
 void CellActorManager::BroadcastToGhosts(uint64_t guid, const ActorMessage& msg)
 {
     auto it = _entityGhostInfo.find(guid);
@@ -1337,6 +1405,13 @@ void CellActorManager::CheckAndInitiateMigration(WorldObject* obj, float oldX, f
 {
     if (!obj)
         return;
+
+    // Phase 7E: Don't migrate entities on vehicles - their position is relative to vehicle
+    if (Unit* unit = obj->ToUnit())
+    {
+        if (unit->HasUnitMovementFlag(MOVEMENTFLAG_ONTRANSPORT))
+            return;
+    }
 
     uint64_t guid = obj->GetGUID().GetRawValue();
 
@@ -1729,6 +1804,7 @@ void CellActorManager::BroadcastAggroRequest(WorldObject* creature, float maxRan
         payload->creatureZ = z;
         payload->maxRange = maxRange;
         payload->initialThreat = initialThreat;
+        payload->creaturePhaseMask = creature->GetPhaseMask();  // Phase 7E
 
         ActorMessage msg;
         msg.type = MessageType::AGGRO_REQUEST;
@@ -1774,6 +1850,7 @@ void CellActorManager::BroadcastAssistanceRequest(WorldObject* caller, uint64_t 
         payload->callerY = y;
         payload->callerZ = z;
         payload->radius = radius;
+        payload->callerPhaseMask = caller->GetPhaseMask();  // Phase 7E
 
         ActorMessage msg;
         msg.type = MessageType::ASSISTANCE_REQUEST;
@@ -1838,6 +1915,10 @@ void CellActorManager::QueuePetRemoval(WorldObject* pet, uint8_t saveMode, bool 
 void CellActorManager::AddThreatCellAware(WorldObject* attacker, WorldObject* victim, float threat)
 {
     if (!attacker || !victim)
+        return;
+
+    // Phase 7E: Skip cross-phase threat
+    if (!CanInteractCrossPhase(attacker, victim->GetGUID().GetRawValue()))
         return;
 
     uint32_t attackerCellId = GetCellIdForEntity(attacker);
@@ -1923,6 +2004,10 @@ void CellActorManager::SendSpellHitMessage(Unit* caster, Unit* target, uint32_t 
     if (!target)
         return;
 
+    // Phase 7E: Skip cross-phase interactions
+    if (caster && !CanInteractCrossPhase(caster, target->GetGUID().GetRawValue()))
+        return;
+
     uint32_t targetCellId = GetCellIdForEntity(target);
 
     auto payload = std::make_shared<SpellHitPayload>();
@@ -1950,6 +2035,10 @@ void CellActorManager::SendMeleeDamageMessage(Unit* attacker, Unit* target, int3
     if (!target)
         return;
 
+    // Phase 7E: Skip cross-phase interactions
+    if (attacker && !CanInteractCrossPhase(attacker, target->GetGUID().GetRawValue()))
+        return;
+
     uint32_t targetCellId = GetCellIdForEntity(target);
 
     auto payload = std::make_shared<MeleeDamagePayload>();
@@ -1973,6 +2062,10 @@ void CellActorManager::SendMeleeDamageMessage(Unit* attacker, Unit* target, int3
 void CellActorManager::SendHealMessage(Unit* healer, Unit* target, uint32_t spellId, int32_t amount)
 {
     if (!target)
+        return;
+
+    // Phase 7E: Skip cross-phase interactions
+    if (healer && !CanInteractCrossPhase(healer, target->GetGUID().GetRawValue()))
         return;
 
     uint32_t targetCellId = GetCellIdForEntity(target);

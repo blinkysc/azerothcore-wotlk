@@ -105,6 +105,7 @@ enum class MessageType : uint8_t
     POWER_CHANGED,
     AURA_STATE_SYNC,
     COMBAT_STATE_CHANGED,
+    PHASE_CHANGED,        // Entity phase mask changed
 
     // Visibility messages
     GHOST_CREATE,
@@ -350,6 +351,7 @@ inline bool HasFlag(NeighborFlags flags, NeighborFlags check)
 struct GhostSnapshot
 {
     uint64_t guid{0};
+    uint32_t phaseMask{1};  // PHASEMASK_NORMAL = 0x00000001
     float posX{0}, posY{0}, posZ{0}, orientation{0};
     uint32_t health{0}, maxHealth{0};
     uint32_t displayId{0};
@@ -386,11 +388,14 @@ public:
     void SyncTargetGuid(uint64_t targetGuid) { _targetGuid = targetGuid; }
     void SyncPower(uint8_t power, uint32_t value, uint32_t maxValue);
     void SyncAuraState(uint32_t auraState) { _auraState = auraState; }
+    void SyncPhaseMask(uint32_t phaseMask) { _phaseMask = phaseMask; }
 
     // Target info (for AI target switching across cells)
     uint64_t GetTargetGuid() const { return _targetGuid; }
     uint32_t GetPower(uint8_t power) const;
     uint32_t GetAuraState() const { return _auraState; }
+    uint32_t GetPhaseMask() const { return _phaseMask; }
+    bool InSamePhase(uint32_t otherMask) const { return _phaseMask & otherMask; }
 
 private:
     uint64_t _guid;
@@ -403,6 +408,7 @@ private:
     uint32_t _moveFlags{0};
     uint64_t _targetGuid{0};  // Current target (for AI target switching)
     uint32_t _auraState{0};
+    uint32_t _phaseMask{1};  // PHASEMASK_NORMAL
     std::array<uint32_t, 7> _power{};     // MAX_POWERS = 7 (mana, rage, focus, energy, happiness, runes, runic)
     std::array<uint32_t, 7> _maxPower{};
     bool _inCombat{false};
@@ -684,6 +690,7 @@ struct AggroRequestPayload
 {
     uint64_t creatureGuid{0};   // Creature requesting aggro
     uint32_t creatureCellId{0}; // Home cell of creature
+    uint32_t creaturePhaseMask{1}; // Phase mask for phase-aware aggro
     float creatureX{0.0f};      // Position for range check
     float creatureY{0.0f};
     float creatureZ{0.0f};
@@ -714,6 +721,7 @@ struct AssistanceRequestPayload
     uint64_t callerGuid{0};     // Creature requesting help
     uint64_t targetGuid{0};     // Target to attack
     uint32_t callerCellId{0};   // Home cell of caller
+    uint32_t callerPhaseMask{1}; // Phase mask for phase-aware assistance
     float callerX{0.0f};        // Position for range check
     float callerY{0.0f};
     float callerZ{0.0f};
@@ -852,8 +860,10 @@ public:
     void OnEntityAuraStateChanged(WorldObject* obj, uint32_t auraState);
     void OnEntityAuraApplied(WorldObject* obj, uint32_t spellId, uint8_t effectMask);
     void OnEntityAuraRemoved(WorldObject* obj, uint32_t spellId);
+    void OnEntityPhaseChanged(WorldObject* obj, uint32_t newPhaseMask);
     void BroadcastToGhosts(uint64_t guid, const ActorMessage& msg);
     void DestroyAllGhostsForEntity(uint64_t guid);  // Phase 7G: Clear all ghosts on despawn
+    bool CanInteractCrossPhase(WorldObject* source, uint64_t targetGuid);  // Phase check for cross-cell interactions
 
     // Phase 4: Cell Migration
     void CheckAndInitiateMigration(WorldObject* obj, float oldX, float oldY);
