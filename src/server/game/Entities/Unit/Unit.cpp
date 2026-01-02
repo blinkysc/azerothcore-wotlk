@@ -4737,6 +4737,18 @@ void Unit::_ApplyAura(AuraApplication* aurApp, uint8 effMask)
     }
 
     sScriptMgr->OnAuraApply(this, aura);
+
+    // Phase 7E: Notify ghost system of aura application
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
+    {
+        if (Map* map = GetMap())
+        {
+            if (auto* cellMgr = map->GetCellActorManager())
+            {
+                cellMgr->OnEntityAuraApplied(this, aurApp->GetBase()->GetId(), effMask);
+            }
+        }
+    }
 }
 
 // removes aura application from lists and unapplies effects
@@ -4833,6 +4845,18 @@ void Unit::_UnapplyAura(AuraApplicationMap::iterator& i, AuraRemoveMode removeMo
 
     if (this->ToCreature() && this->ToCreature()->IsAIEnabled)
         this->ToCreature()->AI()->OnAuraRemove(aurApp, removeMode);
+
+    // Phase 7E: Notify ghost system of aura removal
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
+    {
+        if (Map* map = GetMap())
+        {
+            if (auto* cellMgr = map->GetCellActorManager())
+            {
+                cellMgr->OnEntityAuraRemoved(this, aurApp->GetBase()->GetId());
+            }
+        }
+    }
 }
 
 void Unit::_UnapplyAura(AuraApplication* aurApp, AuraRemoveMode removeMode)
@@ -10808,6 +10832,18 @@ void Unit::ModifyAuraState(AuraStateType flag, bool apply)
             }
         }
     }
+
+    // Phase 7E: Notify ghost system of aura state change
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
+    {
+        if (Map* map = GetMap())
+        {
+            if (auto* cellMgr = map->GetCellActorManager())
+            {
+                cellMgr->OnEntityAuraStateChanged(this, GetUInt32Value(UNIT_FIELD_AURASTATE));
+            }
+        }
+    }
 }
 
 uint32 Unit::BuildAuraStateUpdateForTarget(Unit* target) const
@@ -15973,6 +16009,18 @@ void Unit::SetPower(Powers power, uint32 val, bool withPowerUpdate /*= true*/, b
         // Update the pet's character sheet with happiness damage bonus
         if (pet->getPetType() == HUNTER_PET && power == POWER_HAPPINESS)
             pet->UpdateDamagePhysical(BASE_ATTACK);
+    }
+
+    // Phase 7E: Notify ghost system of power change
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
+    {
+        if (Map* map = GetMap())
+        {
+            if (auto* cellMgr = map->GetCellActorManager())
+            {
+                cellMgr->OnEntityPowerChanged(this, static_cast<uint8_t>(power), val, GetMaxPower(power));
+            }
+        }
     }
 }
 
