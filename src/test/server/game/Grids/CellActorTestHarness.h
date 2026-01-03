@@ -73,6 +73,18 @@ inline std::shared_ptr<ThreatUpdatePayload> MakeThreatUpdatePayload(uint64_t att
     return payload;
 }
 
+inline std::shared_ptr<ThreatUpdatePayload> MakeThreatPercentPayload(uint64_t attacker, uint64_t victim, int32_t percent)
+{
+    auto payload = std::make_shared<ThreatUpdatePayload>();
+    payload->attackerGuid = attacker;
+    payload->victimGuid = victim;
+    payload->threatDelta = 0.0f;
+    payload->percentModify = percent;
+    payload->isNewThreat = false;
+    payload->isRemoval = false;
+    return payload;
+}
+
 inline std::shared_ptr<AggroRequestPayload> MakeAggroRequestPayload(uint64_t creature, float x, float y, float z, float range)
 {
     auto payload = std::make_shared<AggroRequestPayload>();

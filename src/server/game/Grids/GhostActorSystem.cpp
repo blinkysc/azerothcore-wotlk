@@ -323,7 +323,13 @@ void CellActor::HandleMessage(ActorMessage& msg)
 
                 if (victim)
                 {
-                    if (payload->isRemoval)
+                    if (payload->percentModify != 0)
+                    {
+                        creature->GetThreatMgr().ModifyThreatByPercent(victim, payload->percentModify);
+                        LOG_DEBUG("server.ghost", "CellActor[{}]: Modified threat by {}% for victim {} on creature {}",
+                            _cellId, payload->percentModify, payload->victimGuid, payload->attackerGuid);
+                    }
+                    else if (payload->isRemoval)
                     {
                         creature->GetThreatMgr().ModifyThreatByPercent(victim, -100);
                         LOG_DEBUG("server.ghost", "CellActor[{}]: Removed threat for victim {} from creature {}",
@@ -1896,13 +1902,42 @@ void CellActorManager::RemoveThreatCellAware(WorldObject* attacker, WorldObject*
     }
 }
 
+void CellActorManager::ModifyThreatByPercentCellAware(WorldObject* attacker, WorldObject* victim, int32_t percent)
+{
+    if (!attacker || !victim)
+        return;
+
+    uint32_t attackerCellId = GetCellIdForEntity(attacker);
+    uint32_t victimCellId = GetCellIdForEntity(victim);
+
+    if (attackerCellId == victimCellId)
+    {
+        // Same cell - direct modification is safe
+        LOG_DEBUG("server.ghost", "ModifyThreatByPercentCellAware: same cell, direct modify ok attacker={} victim={} pct={}",
+            attacker->GetGUID().GetRawValue(), victim->GetGUID().GetRawValue(), percent);
+    }
+    else
+    {
+        // Different cells - send threat percentage modification message
+        SendThreatUpdate(
+            attacker->GetGUID().GetRawValue(),
+            victim->GetGUID().GetRawValue(),
+            attackerCellId,  // Message goes to creature's cell (threat list is on creature)
+            0.0f,
+            false,           // isNewThreat
+            false,           // isRemoval
+            percent);        // percentModify
+    }
+}
+
 void CellActorManager::SendThreatUpdate(uint64_t attackerGuid, uint64_t victimGuid, uint32_t victimCellId,
-                                         float threatDelta, bool isNewThreat, bool isRemoval)
+                                         float threatDelta, bool isNewThreat, bool isRemoval, int32_t percentModify)
 {
     auto payload = std::make_shared<ThreatUpdatePayload>();
     payload->attackerGuid = attackerGuid;
     payload->victimGuid = victimGuid;
     payload->threatDelta = threatDelta;
+    payload->percentModify = percentModify;
     payload->isNewThreat = isNewThreat;
     payload->isRemoval = isRemoval;
 
@@ -1913,8 +1948,8 @@ void CellActorManager::SendThreatUpdate(uint64_t attackerGuid, uint64_t victimGu
     msg.targetCellId = victimCellId;
     msg.complexPayload = payload;
 
-    LOG_DEBUG("server.ghost", "SendThreatUpdate: attacker={} victim={} cell={} delta={:.1f} new={} remove={}",
-        attackerGuid, victimGuid, victimCellId, threatDelta, isNewThreat, isRemoval);
+    LOG_DEBUG("server.ghost", "SendThreatUpdate: attacker={} victim={} cell={} delta={:.1f} new={} remove={} pct={}",
+        attackerGuid, victimGuid, victimCellId, threatDelta, isNewThreat, isRemoval, percentModify);
 
     SendMessage(victimCellId, std::move(msg));
 }
