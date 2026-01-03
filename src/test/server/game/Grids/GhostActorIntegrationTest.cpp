@@ -588,6 +588,74 @@ TEST_F(GhostActorIntegrationTest, ThreatBuildsAcrossCells)
     EXPECT_GE(GetCellB()->GetMessagesProcessedLastTick(), 1u);
 }
 
+TEST_F(GhostActorIntegrationTest, ThreatPercentModifyAcrossCells)
+{
+    // Test: Threat percent modification from Cell A reaches creature in Cell B
+    constexpr uint64_t PLAYER_GUID = 1001;
+    constexpr uint64_t CREATURE_GUID = 2001;
+
+    HarnessA().AddPlayer(PLAYER_GUID);
+    HarnessB().AddCreature(CREATURE_GUID, 100);
+
+    // WHEN: Spell reduces threat by 50%
+    ActorMessage threatMod{};
+    threatMod.type = MessageType::THREAT_UPDATE;
+    threatMod.complexPayload = MakeThreatPercentPayload(CREATURE_GUID, PLAYER_GUID, -50);
+    SendAtoB(std::move(threatMod));
+
+    GetCellB()->Update(0);
+
+    // THEN: Message should be processed
+    EXPECT_GE(GetCellB()->GetMessagesProcessedLastTick(), 1u);
+}
+
+TEST_F(GhostActorIntegrationTest, ThreatPercentIncreaseAcrossCells)
+{
+    // Test: Threat percent increase from Cell A reaches creature in Cell B
+    constexpr uint64_t PLAYER_GUID = 1001;
+    constexpr uint64_t CREATURE_GUID = 2001;
+
+    HarnessA().AddPlayer(PLAYER_GUID);
+    HarnessB().AddCreature(CREATURE_GUID, 100);
+
+    // WHEN: Ability increases threat by 100%
+    ActorMessage threatMod{};
+    threatMod.type = MessageType::THREAT_UPDATE;
+    threatMod.complexPayload = MakeThreatPercentPayload(CREATURE_GUID, PLAYER_GUID, 100);
+    SendAtoB(std::move(threatMod));
+
+    GetCellB()->Update(0);
+
+    // THEN: Message should be processed
+    EXPECT_GE(GetCellB()->GetMessagesProcessedLastTick(), 1u);
+}
+
+TEST_F(GhostActorIntegrationTest, ThreatAddAndPercentSequence)
+{
+    // Test: Threat add followed by percent modify both reach creature
+    constexpr uint64_t PLAYER_GUID = 1001;
+    constexpr uint64_t CREATURE_GUID = 2001;
+
+    HarnessA().AddPlayer(PLAYER_GUID);
+    HarnessB().AddCreature(CREATURE_GUID, 100);
+
+    // WHEN: Add threat then reduce by percent
+    ActorMessage threatAdd{};
+    threatAdd.type = MessageType::THREAT_UPDATE;
+    threatAdd.complexPayload = MakeThreatUpdatePayload(CREATURE_GUID, PLAYER_GUID, 1000.0f);
+    SendAtoB(std::move(threatAdd));
+
+    ActorMessage threatMod{};
+    threatMod.type = MessageType::THREAT_UPDATE;
+    threatMod.complexPayload = MakeThreatPercentPayload(CREATURE_GUID, PLAYER_GUID, -25);
+    SendAtoB(std::move(threatMod));
+
+    GetCellB()->Update(0);
+
+    // THEN: Both messages should be processed
+    EXPECT_GE(GetCellB()->GetMessagesProcessedLastTick(), 2u);
+}
+
 TEST_F(GhostActorIntegrationTest, AggroRequestAndCombatInitiated)
 {
     // Test: AGGRO_REQUEST triggers COMBAT_INITIATED response

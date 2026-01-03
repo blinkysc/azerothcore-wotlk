@@ -593,6 +593,22 @@ void ThreatMgr::_addThreat(Unit* victim, float threat)
 
 void ThreatMgr::ModifyThreatByPercent(Unit* victim, int32 percent)
 {
+    // Cross-cell threat modification - queue message instead of direct modification
+    Unit* owner = GetOwner();
+    if (owner && owner->IsDeferringCrossCellEffects())
+    {
+        Map* map = owner->GetMap();
+        if (map)
+        {
+            GhostActor::CellActorManager* cellMgr = map->GetCellActorManager();
+            if (cellMgr && !cellMgr->AreInSameCell(owner, victim))
+            {
+                cellMgr->ModifyThreatByPercentCellAware(owner, victim, percent);
+                return;
+            }
+        }
+    }
+
     iThreatContainer.ModifyThreatByPercent(victim, percent);
 }
 

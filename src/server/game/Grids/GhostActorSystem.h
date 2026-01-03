@@ -506,6 +506,7 @@ struct ThreatUpdatePayload
     uint64_t attackerGuid{0};
     uint64_t victimGuid{0};
     float threatDelta{0.0f};
+    int32_t percentModify{0};  // For ModifyThreatByPercent cross-cell
     bool isNewThreat{false};
     bool isRemoval{false};
 };
@@ -672,8 +673,9 @@ public:
     // Cross-cell threat
     void AddThreatCellAware(WorldObject* attacker, WorldObject* victim, float threat);
     void RemoveThreatCellAware(WorldObject* attacker, WorldObject* victim);
+    void ModifyThreatByPercentCellAware(WorldObject* attacker, WorldObject* victim, int32_t percent);
     void SendThreatUpdate(uint64_t attackerGuid, uint64_t victimGuid, uint32_t victimCellId,
-                          float threatDelta, bool isNewThreat, bool isRemoval);
+                          float threatDelta, bool isNewThreat, bool isRemoval, int32_t percentModify = 0);
 
     // Cross-cell damage/healing
     void SendSpellHitMessage(Unit* caster, Unit* target, uint32_t spellId, int32_t damage, int32_t healing);
