@@ -17,6 +17,7 @@
 
 #include "SpellAuraEffects.h"
 #include "AreaDefines.h"
+#include "GhostActorSystem.h"
 #include "BattlefieldMgr.h"
 #include "Battleground.h"
 #include "CellImpl.h"
@@ -38,6 +39,7 @@
 #include "Unit.h"
 #include "Util.h"
 #include "Vehicle.h"
+#include "World.h"
 #include "WorldPacket.h"
 
 /// @todo: this import is not necessary for compilation and marked as unused by the IDE
@@ -6746,6 +6748,21 @@ void AuraEffect::HandlePeriodicDamageAurasTick(Unit* target, Unit* caster) const
     SpellPeriodicAuraLogInfo pInfo(this, damage, overkill, absorb, resist, 0.0f, crit);
     target->SendPeriodicAuraLog(&pInfo);
 
+    // Route cross-cell periodic damage through message system
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED) && caster && target)
+    {
+        Map* map = target->GetMap();
+        if (map)
+        {
+            auto* cellMgr = map->GetCellActorManager();
+            if (cellMgr && !cellMgr->AreInSameCell(caster, target))
+            {
+                cellMgr->SendSpellHitMessage(caster, target, GetId(), damage, 0);
+                return;
+            }
+        }
+    }
+
     Unit::DealDamage(caster, target, damage, &cleanDamage, DOT, GetSpellInfo()->GetSchoolMask(), GetSpellInfo(), true);
 
     Unit::ProcDamageAndSpell(caster, target, caster ? procAttacker : 0, procVictim, procEx, damage, BASE_ATTACK, GetSpellInfo(), nullptr, GetEffIndex(), nullptr, &dmgInfo);
@@ -6996,6 +7013,25 @@ void AuraEffect::HandlePeriodicHealAurasTick(Unit* target, Unit* caster) const
 
     HealInfo healInfo(caster, target, heal, GetSpellInfo(), GetSpellInfo()->GetSchoolMask());
     Unit::CalcHealAbsorb(healInfo);
+
+    // Route cross-cell periodic healing through message system
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED) && caster && target)
+    {
+        Map* map = target->GetMap();
+        if (map)
+        {
+            auto* cellMgr = map->GetCellActorManager();
+            if (cellMgr && !cellMgr->AreInSameCell(caster, target))
+            {
+                cellMgr->SendHealMessage(caster, target, GetId(), healInfo.GetHeal());
+                healInfo.SetEffectiveHeal(healInfo.GetHeal());
+                SpellPeriodicAuraLogInfo pInfo(this, healInfo.GetHeal(), 0, healInfo.GetAbsorb(), 0, 0.0f, crit);
+                target->SendPeriodicAuraLog(&pInfo);
+                return;
+            }
+        }
+    }
+
     int32 gain = Unit::DealHeal(caster, target, healInfo.GetHeal());
     healInfo.SetEffectiveHeal(gain);
 
