@@ -18528,6 +18528,16 @@ void Unit::SetControlled(bool apply, UnitState state, Unit* source /*= nullptr*/
         {
             sScriptMgr->AnticheatSetRootACKUpd(ToPlayer());
         }
+
+        // Notify ghost actor system of control state change
+        if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
+        {
+            if (Map* map = GetMap())
+            {
+                if (auto* cellMgr = map->GetCellActorManager())
+                    cellMgr->OnEntityControlStateChanged(this, state, true);
+            }
+        }
     }
     else
     {
@@ -18600,6 +18610,16 @@ void Unit::SetControlled(bool apply, UnitState state, Unit* source /*= nullptr*/
                 }
 
                 SetFeared(true, source, isFear);
+            }
+        }
+
+        // Notify ghost actor system of control state removal
+        if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
+        {
+            if (Map* map = GetMap())
+            {
+                if (auto* cellMgr = map->GetCellActorManager())
+                    cellMgr->OnEntityControlStateChanged(this, state, false);
             }
         }
     }

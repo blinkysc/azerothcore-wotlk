@@ -2474,3 +2474,389 @@ TEST_F(GhostActorIntegrationTest, AuraTrackingAndStateIndependent)
     // After recalculation with no spells, aura state is 0
     EXPECT_EQ(ghost->GetAuraState(), 0u);
 }
+
+// =============================================================================
+// Control Effect Integration Tests
+// =============================================================================
+
+TEST_F(GhostActorIntegrationTest, StunMessageAcrossCells)
+{
+    // Test: STUN message from Cell A reaches creature in Cell B
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+    constexpr uint32_t HAMMER_OF_JUSTICE = 853;
+
+    HarnessA().AddPlayer(CASTER_GUID);
+    TestCreature* target = HarnessB().AddCreature(TARGET_GUID, 100);
+
+    // WHEN: Stun message is sent to creature in Cell B
+    ActorMessage stun{};
+    stun.type = MessageType::STUN;
+    stun.sourceGuid = CASTER_GUID;
+    stun.targetGuid = TARGET_GUID;
+    stun.complexPayload = MakeControlEffectPayload(CASTER_GUID, TARGET_GUID, HAMMER_OF_JUSTICE, 6000, 5);
+    SendAtoB(std::move(stun));
+
+    GetCellB()->Update(0);
+
+    // THEN: Message should be processed
+    EXPECT_GE(GetCellB()->GetMessagesProcessedLastTick(), 1u);
+}
+
+TEST_F(GhostActorIntegrationTest, RootMessageAcrossCells)
+{
+    // Test: ROOT message from Cell A reaches creature in Cell B
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+    constexpr uint32_t FROST_NOVA = 122;
+
+    HarnessA().AddPlayer(CASTER_GUID);
+    HarnessB().AddCreature(TARGET_GUID, 100);
+
+    // WHEN: Root message is sent
+    ActorMessage root{};
+    root.type = MessageType::ROOT;
+    root.sourceGuid = CASTER_GUID;
+    root.targetGuid = TARGET_GUID;
+    root.complexPayload = MakeControlEffectPayload(CASTER_GUID, TARGET_GUID, FROST_NOVA, 8000, 1024);
+    SendAtoB(std::move(root));
+
+    GetCellB()->Update(0);
+
+    // THEN: Message should be processed
+    EXPECT_GE(GetCellB()->GetMessagesProcessedLastTick(), 1u);
+}
+
+TEST_F(GhostActorIntegrationTest, FearMessageAcrossCells)
+{
+    // Test: FEAR message from Cell A reaches creature in Cell B
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+    constexpr uint32_t FEAR_SPELL = 5782;
+
+    HarnessA().AddPlayer(CASTER_GUID);
+    HarnessB().AddCreature(TARGET_GUID, 100);
+
+    // WHEN: Fear message is sent with destination coordinates
+    ActorMessage fear{};
+    fear.type = MessageType::FEAR;
+    fear.sourceGuid = CASTER_GUID;
+    fear.targetGuid = TARGET_GUID;
+    fear.complexPayload = MakeFearPayload(CASTER_GUID, TARGET_GUID, FEAR_SPELL, 20000, 100.0f, 200.0f, 0.0f);
+    SendAtoB(std::move(fear));
+
+    GetCellB()->Update(0);
+
+    // THEN: Message should be processed
+    EXPECT_GE(GetCellB()->GetMessagesProcessedLastTick(), 1u);
+}
+
+TEST_F(GhostActorIntegrationTest, CharmMessageAcrossCells)
+{
+    // Test: CHARM message from Cell A reaches creature in Cell B
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+    constexpr uint32_t MIND_CONTROL = 605;
+
+    HarnessA().AddPlayer(CASTER_GUID);
+    HarnessB().AddCreature(TARGET_GUID, 100);
+
+    // WHEN: Charm message is sent
+    ActorMessage charm{};
+    charm.type = MessageType::CHARM;
+    charm.sourceGuid = CASTER_GUID;
+    charm.targetGuid = TARGET_GUID;
+    charm.complexPayload = MakeControlEffectPayload(CASTER_GUID, TARGET_GUID, MIND_CONTROL, 60000, 16);
+    SendAtoB(std::move(charm));
+
+    GetCellB()->Update(0);
+
+    // THEN: Message should be processed
+    EXPECT_GE(GetCellB()->GetMessagesProcessedLastTick(), 1u);
+}
+
+TEST_F(GhostActorIntegrationTest, KnockbackMessageAcrossCells)
+{
+    // Test: KNOCKBACK message from Cell A reaches creature in Cell B
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+    constexpr uint32_t THUNDERSTORM = 51490;
+
+    HarnessA().AddPlayer(CASTER_GUID);
+    HarnessB().AddCreature(TARGET_GUID, 100);
+
+    // WHEN: Knockback message is sent
+    ActorMessage knockback{};
+    knockback.type = MessageType::KNOCKBACK;
+    knockback.sourceGuid = CASTER_GUID;
+    knockback.targetGuid = TARGET_GUID;
+    knockback.complexPayload = MakeKnockbackPayload(CASTER_GUID, TARGET_GUID, THUNDERSTORM,
+        100.0f, 100.0f, 0.0f,   // origin
+        20.0f, 10.0f,           // velocity
+        120.0f, 120.0f, 0.0f);  // destination
+    SendAtoB(std::move(knockback));
+
+    GetCellB()->Update(0);
+
+    // THEN: Message should be processed
+    EXPECT_GE(GetCellB()->GetMessagesProcessedLastTick(), 1u);
+}
+
+TEST_F(GhostActorIntegrationTest, SilenceMessageAcrossCells)
+{
+    // Test: SILENCE message from Cell A reaches creature in Cell B
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+    constexpr uint32_t SILENCE_SPELL = 15487;
+
+    HarnessA().AddPlayer(CASTER_GUID);
+    HarnessB().AddCreature(TARGET_GUID, 100);
+
+    // WHEN: Silence message is sent
+    ActorMessage silence{};
+    silence.type = MessageType::SILENCE;
+    silence.sourceGuid = CASTER_GUID;
+    silence.targetGuid = TARGET_GUID;
+    silence.complexPayload = MakeControlEffectPayload(CASTER_GUID, TARGET_GUID, SILENCE_SPELL, 5000, 2048);
+    SendAtoB(std::move(silence));
+
+    GetCellB()->Update(0);
+
+    // THEN: Message should be processed
+    EXPECT_GE(GetCellB()->GetMessagesProcessedLastTick(), 1u);
+}
+
+TEST_F(GhostActorIntegrationTest, PolymorphMessageAcrossCells)
+{
+    // Test: POLYMORPH message from Cell A reaches creature in Cell B
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+    constexpr uint32_t POLYMORPH = 118;
+    constexpr uint32_t SHEEP_DISPLAY_ID = 856;
+
+    HarnessA().AddPlayer(CASTER_GUID);
+    HarnessB().AddCreature(TARGET_GUID, 100);
+
+    // WHEN: Polymorph message is sent with transform display ID
+    ActorMessage poly{};
+    poly.type = MessageType::POLYMORPH;
+    poly.sourceGuid = CASTER_GUID;
+    poly.targetGuid = TARGET_GUID;
+    poly.complexPayload = MakePolymorphPayload(CASTER_GUID, TARGET_GUID, POLYMORPH, 50000, SHEEP_DISPLAY_ID);
+    SendAtoB(std::move(poly));
+
+    GetCellB()->Update(0);
+
+    // THEN: Message should be processed
+    EXPECT_GE(GetCellB()->GetMessagesProcessedLastTick(), 1u);
+}
+
+TEST_F(GhostActorIntegrationTest, ControlStateChangedSyncsToGhost)
+{
+    // Test: CONTROL_STATE_CHANGED message updates ghost control state
+    constexpr uint64_t TARGET_GUID = 2001;
+    constexpr uint32_t UNIT_STATE_STUNNED = 5;
+
+    HarnessB().AddCreature(TARGET_GUID, 100);
+    HarnessA().AddGhost(TARGET_GUID, CELL_B_ID);
+
+    GhostEntity* ghost = GetCellA()->GetGhost(TARGET_GUID);
+    ASSERT_NE(ghost, nullptr);
+    EXPECT_FALSE(ghost->HasControlState(UNIT_STATE_STUNNED));
+
+    // WHEN: Control state changed message is sent
+    ActorMessage stateChange{};
+    stateChange.type = MessageType::CONTROL_STATE_CHANGED;
+    stateChange.sourceGuid = TARGET_GUID;
+    stateChange.sourceCellId = CELL_B_ID;
+    stateChange.intParam1 = UNIT_STATE_STUNNED;
+    stateChange.intParam2 = 1;  // apply = true
+    GetCellA()->SendMessage(std::move(stateChange));
+    GetCellA()->Update(0);
+
+    // THEN: Ghost has control state
+    EXPECT_TRUE(ghost->HasControlState(UNIT_STATE_STUNNED));
+}
+
+TEST_F(GhostActorIntegrationTest, ControlStateRemovedFromGhost)
+{
+    // Test: CONTROL_STATE_CHANGED with apply=false removes the state
+    constexpr uint64_t TARGET_GUID = 2001;
+    constexpr uint32_t UNIT_STATE_ROOT = 1024;
+
+    HarnessB().AddCreature(TARGET_GUID, 100);
+    HarnessA().AddGhost(TARGET_GUID, CELL_B_ID);
+
+    GhostEntity* ghost = GetCellA()->GetGhost(TARGET_GUID);
+    ASSERT_NE(ghost, nullptr);
+
+    // Apply the control state first
+    ActorMessage applyState{};
+    applyState.type = MessageType::CONTROL_STATE_CHANGED;
+    applyState.sourceGuid = TARGET_GUID;
+    applyState.sourceCellId = CELL_B_ID;
+    applyState.intParam1 = UNIT_STATE_ROOT;
+    applyState.intParam2 = 1;  // apply = true
+    GetCellA()->SendMessage(std::move(applyState));
+    GetCellA()->Update(0);
+
+    EXPECT_TRUE(ghost->HasControlState(UNIT_STATE_ROOT));
+
+    // WHEN: Remove the control state
+    ActorMessage removeState{};
+    removeState.type = MessageType::CONTROL_STATE_CHANGED;
+    removeState.sourceGuid = TARGET_GUID;
+    removeState.sourceCellId = CELL_B_ID;
+    removeState.intParam1 = UNIT_STATE_ROOT;
+    removeState.intParam2 = 0;  // apply = false
+    GetCellA()->SendMessage(std::move(removeState));
+    GetCellA()->Update(0);
+
+    // THEN: Ghost no longer has control state
+    EXPECT_FALSE(ghost->HasControlState(UNIT_STATE_ROOT));
+}
+
+TEST_F(GhostActorIntegrationTest, MultipleControlStatesOnGhost)
+{
+    // Test: Multiple control states can be applied and tracked independently
+    constexpr uint64_t TARGET_GUID = 2001;
+    constexpr uint32_t UNIT_STATE_STUNNED = 5;
+    constexpr uint32_t UNIT_STATE_ROOT = 1024;
+    constexpr uint32_t UNIT_STATE_SILENCED = 2048;
+
+    HarnessB().AddCreature(TARGET_GUID, 100);
+    HarnessA().AddGhost(TARGET_GUID, CELL_B_ID);
+
+    GhostEntity* ghost = GetCellA()->GetGhost(TARGET_GUID);
+    ASSERT_NE(ghost, nullptr);
+
+    // Apply stun
+    ActorMessage stunState{};
+    stunState.type = MessageType::CONTROL_STATE_CHANGED;
+    stunState.sourceGuid = TARGET_GUID;
+    stunState.sourceCellId = CELL_B_ID;
+    stunState.intParam1 = UNIT_STATE_STUNNED;
+    stunState.intParam2 = 1;
+    GetCellA()->SendMessage(std::move(stunState));
+
+    // Apply root
+    ActorMessage rootState{};
+    rootState.type = MessageType::CONTROL_STATE_CHANGED;
+    rootState.sourceGuid = TARGET_GUID;
+    rootState.sourceCellId = CELL_B_ID;
+    rootState.intParam1 = UNIT_STATE_ROOT;
+    rootState.intParam2 = 1;
+    GetCellA()->SendMessage(std::move(rootState));
+
+    // Apply silence
+    ActorMessage silenceState{};
+    silenceState.type = MessageType::CONTROL_STATE_CHANGED;
+    silenceState.sourceGuid = TARGET_GUID;
+    silenceState.sourceCellId = CELL_B_ID;
+    silenceState.intParam1 = UNIT_STATE_SILENCED;
+    silenceState.intParam2 = 1;
+    GetCellA()->SendMessage(std::move(silenceState));
+
+    GetCellA()->Update(0);
+
+    // THEN: Ghost has all three states
+    EXPECT_TRUE(ghost->HasControlState(UNIT_STATE_STUNNED));
+    EXPECT_TRUE(ghost->HasControlState(UNIT_STATE_ROOT));
+    EXPECT_TRUE(ghost->HasControlState(UNIT_STATE_SILENCED));
+
+    // Remove root but keep others
+    ActorMessage removeRoot{};
+    removeRoot.type = MessageType::CONTROL_STATE_CHANGED;
+    removeRoot.sourceGuid = TARGET_GUID;
+    removeRoot.sourceCellId = CELL_B_ID;
+    removeRoot.intParam1 = UNIT_STATE_ROOT;
+    removeRoot.intParam2 = 0;
+    GetCellA()->SendMessage(std::move(removeRoot));
+    GetCellA()->Update(0);
+
+    // Verify only root removed
+    EXPECT_TRUE(ghost->HasControlState(UNIT_STATE_STUNNED));
+    EXPECT_FALSE(ghost->HasControlState(UNIT_STATE_ROOT));
+    EXPECT_TRUE(ghost->HasControlState(UNIT_STATE_SILENCED));
+}
+
+TEST_F(GhostActorIntegrationTest, StunFollowedByGhostSync)
+{
+    // Test: Full chain - stun applied to creature, ghost receives control state update
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+    constexpr uint32_t HAMMER_OF_JUSTICE = 853;
+    constexpr uint32_t UNIT_STATE_STUNNED = 5;
+
+    HarnessA().AddPlayer(CASTER_GUID);
+    HarnessB().AddCreature(TARGET_GUID, 100);
+    HarnessA().AddGhost(TARGET_GUID, CELL_B_ID);
+
+    GhostEntity* ghost = GetCellA()->GetGhost(TARGET_GUID);
+    ASSERT_NE(ghost, nullptr);
+
+    // WHEN: Stun is applied
+    ActorMessage stun{};
+    stun.type = MessageType::STUN;
+    stun.sourceGuid = CASTER_GUID;
+    stun.targetGuid = TARGET_GUID;
+    stun.complexPayload = MakeControlEffectPayload(CASTER_GUID, TARGET_GUID, HAMMER_OF_JUSTICE, 6000, UNIT_STATE_STUNNED);
+    SendAtoB(std::move(stun));
+    GetCellB()->Update(0);
+
+    // Simulate the control state sync that would be broadcast
+    ActorMessage stateSync{};
+    stateSync.type = MessageType::CONTROL_STATE_CHANGED;
+    stateSync.sourceGuid = TARGET_GUID;
+    stateSync.sourceCellId = CELL_B_ID;
+    stateSync.intParam1 = UNIT_STATE_STUNNED;
+    stateSync.intParam2 = 1;
+    GetCellA()->SendMessage(std::move(stateSync));
+    GetCellA()->Update(0);
+
+    // THEN: Ghost has stunned state
+    EXPECT_TRUE(ghost->HasControlState(UNIT_STATE_STUNNED));
+}
+
+TEST_F(GhostActorIntegrationTest, ControlEffectOnMissingTarget)
+{
+    // Test: Control effect messages targeting non-existent entities are handled gracefully
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t MISSING_TARGET = 9999;
+    constexpr uint32_t FROST_NOVA = 122;
+
+    HarnessA().AddPlayer(CASTER_GUID);
+    // Note: No creature with MISSING_TARGET exists in Cell B
+
+    // WHEN: Root message sent to missing target
+    ActorMessage root{};
+    root.type = MessageType::ROOT;
+    root.sourceGuid = CASTER_GUID;
+    root.targetGuid = MISSING_TARGET;
+    root.complexPayload = MakeControlEffectPayload(CASTER_GUID, MISSING_TARGET, FROST_NOVA, 8000, 1024);
+    SendAtoB(std::move(root));
+
+    // THEN: Should not crash, message handled gracefully
+    EXPECT_NO_THROW(GetCellB()->Update(0));
+}
+
+TEST_F(GhostActorIntegrationTest, ControlStateChangedOnMissingGhost)
+{
+    // Test: Control state change for non-existent ghost is handled gracefully
+    constexpr uint64_t MISSING_GUID = 9999;
+    constexpr uint32_t UNIT_STATE_STUNNED = 5;
+
+    // No ghost exists with MISSING_GUID
+
+    // WHEN: Control state changed message sent for missing ghost
+    ActorMessage stateChange{};
+    stateChange.type = MessageType::CONTROL_STATE_CHANGED;
+    stateChange.sourceGuid = MISSING_GUID;
+    stateChange.sourceCellId = CELL_B_ID;
+    stateChange.intParam1 = UNIT_STATE_STUNNED;
+    stateChange.intParam2 = 1;
+    GetCellA()->SendMessage(std::move(stateChange));
+
+    // THEN: Should not crash, message handled gracefully
+    EXPECT_NO_THROW(GetCellA()->Update(0));
+}

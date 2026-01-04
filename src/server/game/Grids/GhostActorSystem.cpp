@@ -635,6 +635,20 @@ void CellActor::HandleMessage(ActorMessage& msg)
             break;
         }
 
+        case MessageType::CONTROL_STATE_CHANGED:
+        {
+            auto it = _ghosts.find(msg.sourceGuid);
+            if (it != _ghosts.end())
+            {
+                uint32_t state = static_cast<uint32_t>(msg.intParam1);
+                bool apply = msg.intParam2 != 0;
+                it->second->SyncControlState(state, apply);
+                LOG_DEBUG("ghostactor", "CellActor[{}]: CONTROL_STATE_CHANGED ghost={} state={} apply={}",
+                    _cellId, msg.sourceGuid, state, apply);
+            }
+            break;
+        }
+
         case MessageType::MIGRATION_REQUEST:
         case MessageType::MIGRATION_ACK:
         case MessageType::MIGRATION_COMPLETE:
@@ -956,83 +970,258 @@ void CellActor::HandleMessage(ActorMessage& msg)
         // =====================================================================
         case MessageType::STUN:
         {
-            // TODO: Implementation notes:
-            // - Extract ControlEffectPayload from msg.complexPayload
-            // - Find target Unit by msg.targetGuid
-            // - Call target->SetControlled(true, UNIT_STATE_STUNNED)
-            // - Apply aura for duration tracking
-            // - Broadcast state change to ghost projections
             auto* payload = static_cast<ControlEffectPayload*>(msg.complexPayload.get());
-            LOG_DEBUG("ghostactor", "STUN message received: caster {} -> target {}, spell {}, duration {}ms [NOT IMPLEMENTED]",
-                msg.sourceGuid, msg.targetGuid, payload ? payload->spellId : 0, payload ? payload->duration : 0);
+            if (!payload)
+            {
+                LOG_DEBUG("ghostactor", "STUN: missing payload");
+                break;
+            }
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: STUN caster={} target={} spell={} duration={}ms",
+                _cellId, payload->casterGuid, payload->targetGuid, payload->spellId, payload->duration);
+
+            WorldObject* targetObj = FindEntityByGuid(payload->targetGuid);
+            Unit* target = targetObj ? targetObj->ToUnit() : nullptr;
+
+            if (!target || !target->IsAlive() || !target->IsInWorld())
+            {
+                LOG_DEBUG("ghostactor", "CellActor[{}]: STUN - target {} not found or invalid",
+                    _cellId, payload->targetGuid);
+                break;
+            }
+
+            // Apply stun state - this handles movement stop, combat state, etc.
+            target->SetControlled(true, UNIT_STATE_STUNNED);
+
+            // Broadcast state change to ghost projections
+            BroadcastHealthChange(target);
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: STUN applied to {} for spell {}",
+                _cellId, payload->targetGuid, payload->spellId);
             break;
         }
 
         case MessageType::ROOT:
         {
-            // TODO: Like STUN but uses UNIT_STATE_ROOT
-            // Target can still cast spells while rooted
             auto* payload = static_cast<ControlEffectPayload*>(msg.complexPayload.get());
-            LOG_DEBUG("ghostactor", "ROOT message received: caster {} -> target {}, spell {} [NOT IMPLEMENTED]",
-                msg.sourceGuid, msg.targetGuid, payload ? payload->spellId : 0);
+            if (!payload)
+            {
+                LOG_DEBUG("ghostactor", "ROOT: missing payload");
+                break;
+            }
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: ROOT caster={} target={} spell={} duration={}ms",
+                _cellId, payload->casterGuid, payload->targetGuid, payload->spellId, payload->duration);
+
+            WorldObject* targetObj = FindEntityByGuid(payload->targetGuid);
+            Unit* target = targetObj ? targetObj->ToUnit() : nullptr;
+
+            if (!target || !target->IsAlive() || !target->IsInWorld())
+            {
+                LOG_DEBUG("ghostactor", "CellActor[{}]: ROOT - target {} not found or invalid",
+                    _cellId, payload->targetGuid);
+                break;
+            }
+
+            // Apply root state - target can still cast spells
+            target->SetControlled(true, UNIT_STATE_ROOT);
+
+            // Broadcast state change to ghost projections
+            BroadcastHealthChange(target);
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: ROOT applied to {} for spell {}",
+                _cellId, payload->targetGuid, payload->spellId);
             break;
         }
 
         case MessageType::FEAR:
         {
-            // TODO: Fear is complex - requires movement handling
-            // - Apply fear state
-            // - Use MovementGenerator for flee pathing
-            // - Continuously sync position to ghost projections
             auto* payload = static_cast<ControlEffectPayload*>(msg.complexPayload.get());
-            LOG_DEBUG("ghostactor", "FEAR message received: target {} fleeing to ({}, {}, {}) [NOT IMPLEMENTED]",
-                msg.targetGuid, payload ? payload->fearDestX : 0, payload ? payload->fearDestY : 0, payload ? payload->fearDestZ : 0);
+            if (!payload)
+            {
+                LOG_DEBUG("ghostactor", "FEAR: missing payload");
+                break;
+            }
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: FEAR caster={} target={} spell={} dest=({:.1f}, {:.1f}, {:.1f})",
+                _cellId, payload->casterGuid, payload->targetGuid, payload->spellId,
+                payload->fearDestX, payload->fearDestY, payload->fearDestZ);
+
+            WorldObject* targetObj = FindEntityByGuid(payload->targetGuid);
+            Unit* target = targetObj ? targetObj->ToUnit() : nullptr;
+
+            if (!target || !target->IsAlive() || !target->IsInWorld())
+            {
+                LOG_DEBUG("ghostactor", "CellActor[{}]: FEAR - target {} not found or invalid",
+                    _cellId, payload->targetGuid);
+                break;
+            }
+
+            // Find the caster for fear source tracking
+            Unit* caster = nullptr;
+            if (payload->casterGuid)
+                caster = ObjectAccessor::GetUnit(*target, ObjectGuid(payload->casterGuid));
+
+            // Apply fear state - this triggers the flee movement generator
+            // The isFear parameter distinguishes fear from other flee effects
+            target->SetControlled(true, UNIT_STATE_FLEEING, caster, true);
+
+            // Broadcast state change to ghost projections
+            BroadcastHealthChange(target);
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: FEAR applied to {} for spell {}",
+                _cellId, payload->targetGuid, payload->spellId);
             break;
         }
 
         case MessageType::CHARM:
         {
-            // TODO: Charm/Mind Control is very complex
-            // - Changes faction temporarily
-            // - May require pet bar for controller
-            // - Affects all threat tables
-            [[maybe_unused]] auto* payload = static_cast<ControlEffectPayload*>(msg.complexPayload.get());
-            LOG_DEBUG("ghostactor", "CHARM message received: {} charming {} [NOT IMPLEMENTED]",
-                msg.sourceGuid, msg.targetGuid);
+            auto* payload = static_cast<ControlEffectPayload*>(msg.complexPayload.get());
+            if (!payload)
+            {
+                LOG_DEBUG("ghostactor", "CHARM: missing payload");
+                break;
+            }
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: CHARM caster={} target={} spell={} duration={}ms",
+                _cellId, payload->casterGuid, payload->targetGuid, payload->spellId, payload->duration);
+
+            WorldObject* targetObj = FindEntityByGuid(payload->targetGuid);
+            Unit* target = targetObj ? targetObj->ToUnit() : nullptr;
+
+            if (!target || !target->IsAlive() || !target->IsInWorld())
+            {
+                LOG_DEBUG("ghostactor", "CellActor[{}]: CHARM - target {} not found or invalid",
+                    _cellId, payload->targetGuid);
+                break;
+            }
+
+            // Charm is complex - faction change, threat clear, pet bar setup
+            // The actual charm aura handles most of this via HandleModCharm/HandleModPossess
+            // Cross-cell charm notification is mainly for AI awareness and ghost sync
+            // Full implementation requires the charmer to call SetCharmedBy which
+            // is normally done by the aura system, not message passing
+
+            // Broadcast state change to ghost projections
+            BroadcastHealthChange(target);
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: CHARM notification processed for {} (actual charm via aura)",
+                _cellId, payload->targetGuid);
             break;
         }
 
         case MessageType::KNOCKBACK:
         {
-            // TODO: Knockback implementation
-            // - Calculate trajectory from origin with given velocity
-            // - Update target position
-            // - Sync new position to all ghost projections
             auto* payload = static_cast<KnockbackPayload*>(msg.complexPayload.get());
-            LOG_DEBUG("ghostactor", "KNOCKBACK message: target {} velocity ({}, {}) [NOT IMPLEMENTED]",
-                msg.targetGuid, payload ? payload->speedXY : 0, payload ? payload->speedZ : 0);
+            if (!payload)
+            {
+                LOG_DEBUG("ghostactor", "KNOCKBACK: missing payload");
+                break;
+            }
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: KNOCKBACK target={} velocity=({:.1f}, {:.1f}) dest=({:.1f}, {:.1f}, {:.1f})",
+                _cellId, payload->targetGuid, payload->speedXY, payload->speedZ,
+                payload->destX, payload->destY, payload->destZ);
+
+            WorldObject* targetObj = FindEntityByGuid(payload->targetGuid);
+            Unit* target = targetObj ? targetObj->ToUnit() : nullptr;
+
+            if (!target || !target->IsAlive() || !target->IsInWorld())
+            {
+                LOG_DEBUG("ghostactor", "CellActor[{}]: KNOCKBACK - target {} not found or invalid",
+                    _cellId, payload->targetGuid);
+                break;
+            }
+
+            // Apply knockback movement - this handles the trajectory
+            target->KnockbackFrom(payload->originX, payload->originY, payload->speedXY, payload->speedZ);
+
+            // Broadcast state change to ghost projections
+            BroadcastHealthChange(target);
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: KNOCKBACK applied to {}",
+                _cellId, payload->targetGuid);
             break;
         }
 
         case MessageType::SILENCE:
         {
-            // TODO: Apply silence state
-            // Prevents casting but not movement
             auto* payload = static_cast<ControlEffectPayload*>(msg.complexPayload.get());
-            LOG_DEBUG("ghostactor", "SILENCE message: target {} for {}ms [NOT IMPLEMENTED]",
-                msg.targetGuid, payload ? payload->duration : 0);
+            if (!payload)
+            {
+                LOG_DEBUG("ghostactor", "SILENCE: missing payload");
+                break;
+            }
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: SILENCE caster={} target={} spell={} duration={}ms",
+                _cellId, payload->casterGuid, payload->targetGuid, payload->spellId, payload->duration);
+
+            WorldObject* targetObj = FindEntityByGuid(payload->targetGuid);
+            Unit* target = targetObj ? targetObj->ToUnit() : nullptr;
+
+            if (!target || !target->IsAlive() || !target->IsInWorld())
+            {
+                LOG_DEBUG("ghostactor", "CellActor[{}]: SILENCE - target {} not found or invalid",
+                    _cellId, payload->targetGuid);
+                break;
+            }
+
+            // Apply silence flag - prevents casting with SPELL_PREVENTION_TYPE_SILENCE
+            target->SetUnitFlag(UNIT_FLAG_SILENCED);
+
+            // Interrupt any current cast that's affected by silence
+            for (uint32 i = CURRENT_MELEE_SPELL; i < CURRENT_MAX_SPELL; ++i)
+            {
+                if (Spell* spell = target->GetCurrentSpell(CurrentSpellTypes(i)))
+                {
+                    if (spell->m_spellInfo->PreventionType == SPELL_PREVENTION_TYPE_SILENCE)
+                        target->InterruptSpell(CurrentSpellTypes(i), false);
+                }
+            }
+
+            // Broadcast state change to ghost projections
+            BroadcastHealthChange(target);
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: SILENCE applied to {} for spell {}",
+                _cellId, payload->targetGuid, payload->spellId);
             break;
         }
 
         case MessageType::POLYMORPH:
         {
-            // TODO: Polymorph implementation
-            // - Apply incapacitate state
-            // - Change display ID to transform model
-            // - Sync display change to ghost projections
             auto* payload = static_cast<ControlEffectPayload*>(msg.complexPayload.get());
-            LOG_DEBUG("ghostactor", "POLYMORPH message: target {} displayId {} [NOT IMPLEMENTED]",
-                msg.targetGuid, payload ? payload->transformDisplayId : 0);
+            if (!payload)
+            {
+                LOG_DEBUG("ghostactor", "POLYMORPH: missing payload");
+                break;
+            }
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: POLYMORPH caster={} target={} spell={} displayId={}",
+                _cellId, payload->casterGuid, payload->targetGuid, payload->spellId, payload->transformDisplayId);
+
+            WorldObject* targetObj = FindEntityByGuid(payload->targetGuid);
+            Unit* target = targetObj ? targetObj->ToUnit() : nullptr;
+
+            if (!target || !target->IsAlive() || !target->IsInWorld())
+            {
+                LOG_DEBUG("ghostactor", "CellActor[{}]: POLYMORPH - target {} not found or invalid",
+                    _cellId, payload->targetGuid);
+                break;
+            }
+
+            // Polymorph combines stun/incapacitate with visual transform
+            // Apply stun state first (polymorph is an incapacitate)
+            target->SetControlled(true, UNIT_STATE_STUNNED);
+
+            // Apply transform display if specified
+            if (payload->transformDisplayId != 0)
+                target->SetDisplayId(payload->transformDisplayId);
+
+            // Broadcast state change to ghost projections
+            BroadcastHealthChange(target);
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: POLYMORPH applied to {} displayId={}",
+                _cellId, payload->targetGuid, payload->transformDisplayId);
             break;
         }
 
@@ -1601,33 +1790,32 @@ void GhostEntity::RecalculateAuraState()
 
 CellActorManager::CellActorManager(Map* map)
     : _map(map)
+    , _cellActors(new CellActor*[TOTAL_CELLS])
 {
     // Pre-allocate all cells for lock-free O(1) access
-    _cellActors.resize(TOTAL_CELLS);
+    // Using raw pointers eliminates unique_ptr::get() overhead on hot path
     for (uint32_t y = 0; y < CELLS_PER_DIMENSION; ++y)
     {
         for (uint32_t x = 0; x < CELLS_PER_DIMENSION; ++x)
         {
-            uint32_t index = CellIndex(x, y);
+            uint32_t index = (y << 9) + x;  // y * 512 + x using shift
             uint32_t cellId = MakeCellId(x, y);
-            _cellActors[index] = std::make_unique<CellActor>(cellId, map);
+            _cellActors[index] = new CellActor(cellId, map);
         }
     }
 }
 
-CellActor* CellActorManager::GetOrCreateCellActor(uint32_t gridX, uint32_t gridY)
+CellActorManager::~CellActorManager()
 {
-    // O(1) lock-free array access - cells are pre-allocated
-    uint32_t index = CellIndex(gridX, gridY);
-    return _cellActors[index].get();
+    // Clean up all allocated cells
+    for (uint32_t i = 0; i < TOTAL_CELLS; ++i)
+    {
+        delete _cellActors[i];
+    }
+    delete[] _cellActors;
 }
 
-CellActor* CellActorManager::GetCellActor(uint32_t gridX, uint32_t gridY)
-{
-    // O(1) lock-free array access - cells are pre-allocated
-    uint32_t index = CellIndex(gridX, gridY);
-    return _cellActors[index].get();
-}
+// GetOrCreateCellActor and GetCellActor are now inline in header for performance
 
 CellActor* CellActorManager::GetCellActorForPosition(float x, float y)
 {
@@ -1645,8 +1833,9 @@ void CellActorManager::Update(uint32_t diff)
     if (!_workPool)
     {
         // Single-threaded path: iterate all cells, skip inactive
-        for (const auto& cell : _cellActors)
+        for (uint32_t i = 0; i < TOTAL_CELLS; ++i)
         {
+            CellActor* cell = _cellActors[i];
             if (cell && cell->IsActive() && cell->HasWork())
                 cell->Update(diff);
         }
@@ -1654,15 +1843,15 @@ void CellActorManager::Update(uint32_t diff)
     }
 
     // Parallel path: submit active cells to work pool
-    for (const auto& cell : _cellActors)
+    for (uint32_t i = 0; i < TOTAL_CELLS; ++i)
     {
+        CellActor* cell = _cellActors[i];
         if (cell && cell->IsActive() && cell->HasWork())
         {
             _pendingCellUpdates.fetch_add(1, std::memory_order_release);
 
-            CellActor* rawCell = cell.get();
-            _workPool->Submit(TaskType::CELL, [this, rawCell, diff]() {
-                rawCell->Update(diff);
+            _workPool->Submit(TaskType::CELL, [this, cell, diff]() {
+                cell->Update(diff);
                 _pendingCellUpdates.fetch_sub(1, std::memory_order_release);
             });
         }
@@ -1680,7 +1869,7 @@ void CellActorManager::SendMessage(uint32_t targetCellId, ActorMessage msg)
     uint32_t cellX, cellY;
     ExtractCellCoords(targetCellId, cellX, cellY);
     uint32_t index = CellIndex(cellX, cellY);
-    if (index < _cellActors.size() && _cellActors[index])
+    if (index < TOTAL_CELLS && _cellActors[index])
     {
         _cellActors[index]->SendMessage(std::move(msg));
     }
@@ -2034,6 +2223,28 @@ void CellActorManager::OnEntityPhaseChanged(WorldObject* obj, uint32_t newPhaseM
     msg.intParam1 = static_cast<int32_t>(newPhaseMask);
 
     BroadcastToGhosts(guid, msg);
+}
+
+void CellActorManager::OnEntityControlStateChanged(WorldObject* obj, uint32_t state, bool apply)
+{
+    if (!obj)
+        return;
+
+    uint64_t guid = obj->GetGUID().GetRawValue();
+    auto it = _entityGhostInfo.find(guid);
+    if (it == _entityGhostInfo.end() || it->second.activeGhosts == NeighborFlags::NONE)
+        return;
+
+    ActorMessage msg{};
+    msg.type = MessageType::CONTROL_STATE_CHANGED;
+    msg.sourceGuid = guid;
+    msg.intParam1 = static_cast<int64_t>(state);
+    msg.intParam2 = apply ? 1 : 0;
+
+    BroadcastToGhosts(guid, msg);
+
+    LOG_DEBUG("ghostactor", "OnEntityControlStateChanged: guid={} state={} apply={}",
+        guid, state, apply);
 }
 
 bool CellActorManager::CanInteractCrossPhase(WorldObject* source, uint64_t targetGuid)
@@ -3171,108 +3382,302 @@ bool CellActorManager::IsCellManagedByGuid([[maybe_unused]] uint64_t guid) const
 }
 
 // =============================================================================
-// Cross-cell Control Effects - STUBS
+// Cross-cell Control Effects
 // =============================================================================
 
 void CellActorManager::SendStunMessage(Unit* caster, Unit* target, uint32_t spellId, int32_t duration)
 {
-    // TODO: Implement cross-cell stun
-    // 1. Check if target is in different cell
-    // 2. If same cell, apply directly
-    // 3. If different cell, construct ControlEffectPayload and send STUN message
-    // 4. Consider: should we update ghost projection immediately or wait for confirmation?
-
-    if (!caster || !target)
+    if (!target)
         return;
 
-    if (AreInSameCell(caster, target))
+    // Phase check
+    if (caster && !CanInteractCrossPhase(caster, target->GetGUID().GetRawValue()))
+        return;
+
+    uint32_t casterCellId = caster ? GetCellIdForEntity(caster) : 0;
+    uint32_t targetCellId = GetCellIdForEntity(target);
+
+    // If same cell, stun happens directly through normal code paths
+    if (caster && casterCellId == targetCellId)
     {
-        // Same cell - handle directly (not our concern here)
+        LOG_DEBUG("ghostactor", "SendStunMessage: same cell, handled directly caster={} target={}",
+            caster->GetGUID().GetRawValue(), target->GetGUID().GetRawValue());
         return;
     }
 
-    // TODO: Construct and send message
-    LOG_DEBUG("ghostactor", "SendStunMessage: {} stunning {} for {}ms - NOT IMPLEMENTED",
-        caster->GetGUID().GetRawValue(), target->GetGUID().GetRawValue(), duration);
-    (void)spellId;
+    auto payload = std::make_shared<ControlEffectPayload>();
+    payload->casterGuid = caster ? caster->GetGUID().GetRawValue() : 0;
+    payload->targetGuid = target->GetGUID().GetRawValue();
+    payload->spellId = spellId;
+    payload->duration = duration;
+    payload->controlType = UNIT_STATE_STUNNED;
+
+    ActorMessage msg{};
+    msg.type = MessageType::STUN;
+    msg.sourceGuid = payload->casterGuid;
+    msg.targetGuid = payload->targetGuid;
+    msg.sourceCellId = casterCellId;
+    msg.targetCellId = targetCellId;
+    msg.complexPayload = payload;
+
+    LOG_DEBUG("ghostactor", "SendStunMessage: caster={} target={} spell={} duration={}ms",
+        msg.sourceGuid, msg.targetGuid, spellId, duration);
+
+    SendMessage(targetCellId, std::move(msg));
 }
 
 void CellActorManager::SendRootMessage(Unit* caster, Unit* target, uint32_t spellId, int32_t duration)
 {
-    // TODO: Implement cross-cell root
-    // Similar to stun but uses UNIT_STATE_ROOT
-    if (!caster || !target)
+    if (!target)
         return;
-    LOG_DEBUG("ghostactor", "SendRootMessage: NOT IMPLEMENTED");
-    (void)spellId;
-    (void)duration;
+
+    // Phase check
+    if (caster && !CanInteractCrossPhase(caster, target->GetGUID().GetRawValue()))
+        return;
+
+    uint32_t casterCellId = caster ? GetCellIdForEntity(caster) : 0;
+    uint32_t targetCellId = GetCellIdForEntity(target);
+
+    // If same cell, root happens directly through normal code paths
+    if (caster && casterCellId == targetCellId)
+    {
+        LOG_DEBUG("ghostactor", "SendRootMessage: same cell, handled directly");
+        return;
+    }
+
+    auto payload = std::make_shared<ControlEffectPayload>();
+    payload->casterGuid = caster ? caster->GetGUID().GetRawValue() : 0;
+    payload->targetGuid = target->GetGUID().GetRawValue();
+    payload->spellId = spellId;
+    payload->duration = duration;
+    payload->controlType = UNIT_STATE_ROOT;
+
+    ActorMessage msg{};
+    msg.type = MessageType::ROOT;
+    msg.sourceGuid = payload->casterGuid;
+    msg.targetGuid = payload->targetGuid;
+    msg.sourceCellId = casterCellId;
+    msg.targetCellId = targetCellId;
+    msg.complexPayload = payload;
+
+    LOG_DEBUG("ghostactor", "SendRootMessage: caster={} target={} spell={} duration={}ms",
+        msg.sourceGuid, msg.targetGuid, spellId, duration);
+
+    SendMessage(targetCellId, std::move(msg));
 }
 
 void CellActorManager::SendFearMessage(Unit* caster, Unit* target, uint32_t spellId, int32_t duration,
                                        float destX, float destY, float destZ)
 {
-    // TODO: Implement cross-cell fear
-    // Fear is complex because it involves movement
-    // Pre-calculate fear destination to avoid cross-cell pathfinding
-    if (!caster || !target)
+    if (!target)
         return;
-    LOG_DEBUG("ghostactor", "SendFearMessage: NOT IMPLEMENTED");
-    (void)spellId;
-    (void)duration;
-    (void)destX;
-    (void)destY;
-    (void)destZ;
+
+    // Phase check
+    if (caster && !CanInteractCrossPhase(caster, target->GetGUID().GetRawValue()))
+        return;
+
+    uint32_t casterCellId = caster ? GetCellIdForEntity(caster) : 0;
+    uint32_t targetCellId = GetCellIdForEntity(target);
+
+    // If same cell, fear happens directly through normal code paths
+    if (caster && casterCellId == targetCellId)
+    {
+        LOG_DEBUG("ghostactor", "SendFearMessage: same cell, handled directly");
+        return;
+    }
+
+    auto payload = std::make_shared<ControlEffectPayload>();
+    payload->casterGuid = caster ? caster->GetGUID().GetRawValue() : 0;
+    payload->targetGuid = target->GetGUID().GetRawValue();
+    payload->spellId = spellId;
+    payload->duration = duration;
+    payload->controlType = UNIT_STATE_FLEEING;
+    payload->fearDestX = destX;
+    payload->fearDestY = destY;
+    payload->fearDestZ = destZ;
+
+    ActorMessage msg{};
+    msg.type = MessageType::FEAR;
+    msg.sourceGuid = payload->casterGuid;
+    msg.targetGuid = payload->targetGuid;
+    msg.sourceCellId = casterCellId;
+    msg.targetCellId = targetCellId;
+    msg.complexPayload = payload;
+
+    LOG_DEBUG("ghostactor", "SendFearMessage: caster={} target={} spell={} dest=({:.1f}, {:.1f}, {:.1f})",
+        msg.sourceGuid, msg.targetGuid, spellId, destX, destY, destZ);
+
+    SendMessage(targetCellId, std::move(msg));
 }
 
 void CellActorManager::SendCharmMessage(Unit* caster, Unit* target, uint32_t spellId, int32_t duration)
 {
-    // TODO: Implement cross-cell charm/mind control
-    // Very complex - affects faction, threat tables, control
     if (!caster || !target)
         return;
-    LOG_DEBUG("ghostactor", "SendCharmMessage: NOT IMPLEMENTED");
-    (void)spellId;
-    (void)duration;
+
+    // Phase check
+    if (!CanInteractCrossPhase(caster, target->GetGUID().GetRawValue()))
+        return;
+
+    uint32_t casterCellId = GetCellIdForEntity(caster);
+    uint32_t targetCellId = GetCellIdForEntity(target);
+
+    // If same cell, charm notification is handled directly
+    if (casterCellId == targetCellId)
+    {
+        LOG_DEBUG("ghostactor", "SendCharmMessage: same cell, handled directly");
+        return;
+    }
+
+    auto payload = std::make_shared<ControlEffectPayload>();
+    payload->casterGuid = caster->GetGUID().GetRawValue();
+    payload->targetGuid = target->GetGUID().GetRawValue();
+    payload->spellId = spellId;
+    payload->duration = duration;
+    payload->controlType = 0;  // Charm doesn't use a simple UnitState
+
+    ActorMessage msg{};
+    msg.type = MessageType::CHARM;
+    msg.sourceGuid = payload->casterGuid;
+    msg.targetGuid = payload->targetGuid;
+    msg.sourceCellId = casterCellId;
+    msg.targetCellId = targetCellId;
+    msg.complexPayload = payload;
+
+    LOG_DEBUG("ghostactor", "SendCharmMessage: caster={} target={} spell={} duration={}ms",
+        msg.sourceGuid, msg.targetGuid, spellId, duration);
+
+    SendMessage(targetCellId, std::move(msg));
 }
 
 void CellActorManager::SendKnockbackMessage(Unit* caster, Unit* target, uint32_t spellId,
                                             float speedXY, float speedZ,
                                             float destX, float destY, float destZ)
 {
-    // TODO: Implement cross-cell knockback
-    // Must update target position and all ghost projections
-    if (!caster || !target)
+    if (!target)
         return;
-    LOG_DEBUG("ghostactor", "SendKnockbackMessage: NOT IMPLEMENTED");
-    (void)spellId;
-    (void)speedXY;
-    (void)speedZ;
-    (void)destX;
-    (void)destY;
-    (void)destZ;
+
+    // Phase check
+    if (caster && !CanInteractCrossPhase(caster, target->GetGUID().GetRawValue()))
+        return;
+
+    uint32_t casterCellId = caster ? GetCellIdForEntity(caster) : 0;
+    uint32_t targetCellId = GetCellIdForEntity(target);
+
+    // If same cell, knockback happens directly through normal code paths
+    if (caster && casterCellId == targetCellId)
+    {
+        LOG_DEBUG("ghostactor", "SendKnockbackMessage: same cell, handled directly");
+        return;
+    }
+
+    auto payload = std::make_shared<KnockbackPayload>();
+    payload->casterGuid = caster ? caster->GetGUID().GetRawValue() : 0;
+    payload->targetGuid = target->GetGUID().GetRawValue();
+    payload->spellId = spellId;
+    payload->originX = caster ? caster->GetPositionX() : target->GetPositionX();
+    payload->originY = caster ? caster->GetPositionY() : target->GetPositionY();
+    payload->originZ = caster ? caster->GetPositionZ() : target->GetPositionZ();
+    payload->speedXY = speedXY;
+    payload->speedZ = speedZ;
+    payload->destX = destX;
+    payload->destY = destY;
+    payload->destZ = destZ;
+
+    ActorMessage msg{};
+    msg.type = MessageType::KNOCKBACK;
+    msg.sourceGuid = payload->casterGuid;
+    msg.targetGuid = payload->targetGuid;
+    msg.sourceCellId = casterCellId;
+    msg.targetCellId = targetCellId;
+    msg.complexPayload = payload;
+
+    LOG_DEBUG("ghostactor", "SendKnockbackMessage: caster={} target={} velocity=({:.1f}, {:.1f})",
+        msg.sourceGuid, msg.targetGuid, speedXY, speedZ);
+
+    SendMessage(targetCellId, std::move(msg));
 }
 
 void CellActorManager::SendSilenceMessage(Unit* caster, Unit* target, uint32_t spellId, int32_t duration)
 {
-    // TODO: Implement cross-cell silence
-    if (!caster || !target)
+    if (!target)
         return;
-    LOG_DEBUG("ghostactor", "SendSilenceMessage: NOT IMPLEMENTED");
-    (void)spellId;
-    (void)duration;
+
+    // Phase check
+    if (caster && !CanInteractCrossPhase(caster, target->GetGUID().GetRawValue()))
+        return;
+
+    uint32_t casterCellId = caster ? GetCellIdForEntity(caster) : 0;
+    uint32_t targetCellId = GetCellIdForEntity(target);
+
+    // If same cell, silence happens directly through normal code paths
+    if (caster && casterCellId == targetCellId)
+    {
+        LOG_DEBUG("ghostactor", "SendSilenceMessage: same cell, handled directly");
+        return;
+    }
+
+    auto payload = std::make_shared<ControlEffectPayload>();
+    payload->casterGuid = caster ? caster->GetGUID().GetRawValue() : 0;
+    payload->targetGuid = target->GetGUID().GetRawValue();
+    payload->spellId = spellId;
+    payload->duration = duration;
+    payload->controlType = 0;  // Silence uses flag, not UnitState
+
+    ActorMessage msg{};
+    msg.type = MessageType::SILENCE;
+    msg.sourceGuid = payload->casterGuid;
+    msg.targetGuid = payload->targetGuid;
+    msg.sourceCellId = casterCellId;
+    msg.targetCellId = targetCellId;
+    msg.complexPayload = payload;
+
+    LOG_DEBUG("ghostactor", "SendSilenceMessage: caster={} target={} spell={} duration={}ms",
+        msg.sourceGuid, msg.targetGuid, spellId, duration);
+
+    SendMessage(targetCellId, std::move(msg));
 }
 
 void CellActorManager::SendPolymorphMessage(Unit* caster, Unit* target, uint32_t spellId,
                                             int32_t duration, uint32_t transformDisplayId)
 {
-    // TODO: Implement cross-cell polymorph
-    // Must update display ID on ghost projections
-    if (!caster || !target)
+    if (!target)
         return;
-    LOG_DEBUG("ghostactor", "SendPolymorphMessage: NOT IMPLEMENTED");
-    (void)spellId;
-    (void)duration;
-    (void)transformDisplayId;
+
+    // Phase check
+    if (caster && !CanInteractCrossPhase(caster, target->GetGUID().GetRawValue()))
+        return;
+
+    uint32_t casterCellId = caster ? GetCellIdForEntity(caster) : 0;
+    uint32_t targetCellId = GetCellIdForEntity(target);
+
+    // If same cell, polymorph happens directly through normal code paths
+    if (caster && casterCellId == targetCellId)
+    {
+        LOG_DEBUG("ghostactor", "SendPolymorphMessage: same cell, handled directly");
+        return;
+    }
+
+    auto payload = std::make_shared<ControlEffectPayload>();
+    payload->casterGuid = caster ? caster->GetGUID().GetRawValue() : 0;
+    payload->targetGuid = target->GetGUID().GetRawValue();
+    payload->spellId = spellId;
+    payload->duration = duration;
+    payload->controlType = UNIT_STATE_STUNNED;  // Polymorph is an incapacitate
+    payload->transformDisplayId = transformDisplayId;
+
+    ActorMessage msg{};
+    msg.type = MessageType::POLYMORPH;
+    msg.sourceGuid = payload->casterGuid;
+    msg.targetGuid = payload->targetGuid;
+    msg.sourceCellId = casterCellId;
+    msg.targetCellId = targetCellId;
+    msg.complexPayload = payload;
+
+    LOG_DEBUG("ghostactor", "SendPolymorphMessage: caster={} target={} spell={} displayId={}",
+        msg.sourceGuid, msg.targetGuid, spellId, transformDisplayId);
+
+    SendMessage(targetCellId, std::move(msg));
 }
 
 // =============================================================================
