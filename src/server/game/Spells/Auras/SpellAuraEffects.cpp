@@ -3494,6 +3494,29 @@ void AuraEffect::HandleModTaunt(AuraApplication const* aurApp, uint8 mode, bool 
     if (!caster || !caster->IsAlive())
         return;
 
+    // Cross-cell taunt routing - if caster and target are in different cells,
+    // route the taunt/detaunt through the GhostActorSystem message queue
+    if (Map* map = target->GetMap())
+    {
+        if (auto* cellMgr = map->GetCellActorManager())
+        {
+            if (!cellMgr->AreInSameCell(caster, target))
+            {
+                if (apply)
+                {
+                    int32 duration = GetBase() ? GetBase()->GetDuration() : 0;
+                    cellMgr->SendTauntMessage(caster, target, GetId(), duration);
+                }
+                else
+                {
+                    // Detaunt with no threat reduction (pure taunt fadeout)
+                    cellMgr->SendDetauntMessage(caster, target, GetId(), 0.0f);
+                }
+                return;
+            }
+        }
+    }
+
     if (apply)
         target->TauntApply(caster);
     else

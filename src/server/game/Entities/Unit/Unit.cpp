@@ -14944,6 +14944,19 @@ void Unit::TauntApply(Unit* taunter)
     if (creature->HasReactState(REACT_PASSIVE))
         return;
 
+    // Cross-cell taunt routing - if taunter is in a different cell, route through GhostActor
+    if (Map* map = GetMap())
+    {
+        if (auto* cellMgr = map->GetCellActorManager())
+        {
+            if (!cellMgr->AreInSameCell(taunter, this))
+            {
+                cellMgr->SendTauntMessage(taunter, this, 0, 0);
+                return;
+            }
+        }
+    }
+
     Unit* target = GetVictim();
     if (target && target == taunter)
         return;
@@ -14973,6 +14986,20 @@ void Unit::TauntFadeOut(Unit* taunter)
 
     if (creature->HasReactState(REACT_PASSIVE))
         return;
+
+    // Cross-cell detaunt routing - if taunter is in a different cell, route through GhostActor
+    if (Map* map = GetMap())
+    {
+        if (auto* cellMgr = map->GetCellActorManager())
+        {
+            if (!cellMgr->AreInSameCell(taunter, this))
+            {
+                // Detaunt with removeTaunt=true (no threat reduction, just taunt fadeout)
+                cellMgr->SendDetauntMessage(taunter, this, 0, 0.0f);
+                return;
+            }
+        }
+    }
 
     Unit* target = GetVictim();
     if (!target || target != taunter)

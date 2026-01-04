@@ -2178,3 +2178,299 @@ TEST_F(GhostActorCornerTest, CornerHealAcrossBoundary)
 
     EXPECT_EQ(target->GetTestHealth(), 800u);
 }
+
+// ============================================================================
+// Aura Tracking Tests
+// ============================================================================
+
+TEST_F(GhostActorIntegrationTest, AuraApplyTrackedOnGhost)
+{
+    constexpr uint64_t CREATURE_GUID = 0x12345;
+    constexpr uint32_t SPELL_ID = 12345;
+
+    // Create a ghost in Cell A representing an entity in Cell B
+    HarnessA().AddGhost(CREATURE_GUID, CELL_B_ID);
+
+    // Verify ghost exists and has no auras initially
+    GhostEntity* ghost = GetCellA()->GetGhost(CREATURE_GUID);
+    ASSERT_NE(ghost, nullptr);
+    EXPECT_EQ(ghost->GetActiveAuraCount(), 0u);
+    EXPECT_FALSE(ghost->HasAura(SPELL_ID));
+
+    // Send AURA_APPLY message
+    ActorMessage msg{};
+    msg.type = MessageType::AURA_APPLY;
+    msg.sourceGuid = CREATURE_GUID;
+    msg.sourceCellId = CELL_B_ID;
+    msg.intParam1 = SPELL_ID;
+    msg.intParam2 = 1;  // effectMask
+    GetCellA()->SendMessage(std::move(msg));
+    GetCellA()->Update(0);
+
+    // Verify aura is now tracked
+    EXPECT_EQ(ghost->GetActiveAuraCount(), 1u);
+    EXPECT_TRUE(ghost->HasAura(SPELL_ID));
+}
+
+TEST_F(GhostActorIntegrationTest, AuraRemoveTrackedOnGhost)
+{
+    constexpr uint64_t CREATURE_GUID = 0x12345;
+    constexpr uint32_t SPELL_ID = 54321;
+
+    // Create ghost and apply an aura
+    HarnessA().AddGhost(CREATURE_GUID, CELL_B_ID);
+
+    ActorMessage applyMsg{};
+    applyMsg.type = MessageType::AURA_APPLY;
+    applyMsg.sourceGuid = CREATURE_GUID;
+    applyMsg.sourceCellId = CELL_B_ID;
+    applyMsg.intParam1 = SPELL_ID;
+    applyMsg.intParam2 = 1;
+    GetCellA()->SendMessage(std::move(applyMsg));
+    GetCellA()->Update(0);
+
+    GhostEntity* ghost = GetCellA()->GetGhost(CREATURE_GUID);
+    ASSERT_NE(ghost, nullptr);
+    EXPECT_TRUE(ghost->HasAura(SPELL_ID));
+
+    // Send AURA_REMOVE message
+    ActorMessage removeMsg{};
+    removeMsg.type = MessageType::AURA_REMOVE;
+    removeMsg.sourceGuid = CREATURE_GUID;
+    removeMsg.sourceCellId = CELL_B_ID;
+    removeMsg.intParam1 = SPELL_ID;
+    GetCellA()->SendMessage(std::move(removeMsg));
+    GetCellA()->Update(0);
+
+    // Verify aura is removed
+    EXPECT_EQ(ghost->GetActiveAuraCount(), 0u);
+    EXPECT_FALSE(ghost->HasAura(SPELL_ID));
+}
+
+TEST_F(GhostActorIntegrationTest, MultipleAurasTrackedOnGhost)
+{
+    constexpr uint64_t CREATURE_GUID = 0xABCDE;
+    constexpr uint32_t SPELL_1 = 100;
+    constexpr uint32_t SPELL_2 = 200;
+    constexpr uint32_t SPELL_3 = 300;
+
+    HarnessA().AddGhost(CREATURE_GUID, CELL_B_ID);
+
+    // Apply three auras
+    for (uint32_t spellId : {SPELL_1, SPELL_2, SPELL_3})
+    {
+        ActorMessage msg{};
+        msg.type = MessageType::AURA_APPLY;
+        msg.sourceGuid = CREATURE_GUID;
+        msg.sourceCellId = CELL_B_ID;
+        msg.intParam1 = spellId;
+        msg.intParam2 = 1;
+        GetCellA()->SendMessage(std::move(msg));
+    }
+    GetCellA()->Update(0);
+
+    GhostEntity* ghost = GetCellA()->GetGhost(CREATURE_GUID);
+    ASSERT_NE(ghost, nullptr);
+    EXPECT_EQ(ghost->GetActiveAuraCount(), 3u);
+    EXPECT_TRUE(ghost->HasAura(SPELL_1));
+    EXPECT_TRUE(ghost->HasAura(SPELL_2));
+    EXPECT_TRUE(ghost->HasAura(SPELL_3));
+
+    // Remove middle aura
+    ActorMessage removeMsg{};
+    removeMsg.type = MessageType::AURA_REMOVE;
+    removeMsg.sourceGuid = CREATURE_GUID;
+    removeMsg.sourceCellId = CELL_B_ID;
+    removeMsg.intParam1 = SPELL_2;
+    GetCellA()->SendMessage(std::move(removeMsg));
+    GetCellA()->Update(0);
+
+    EXPECT_EQ(ghost->GetActiveAuraCount(), 2u);
+    EXPECT_TRUE(ghost->HasAura(SPELL_1));
+    EXPECT_FALSE(ghost->HasAura(SPELL_2));
+    EXPECT_TRUE(ghost->HasAura(SPELL_3));
+}
+
+TEST_F(GhostActorIntegrationTest, AuraApplyIgnoredForNonExistentGhost)
+{
+    constexpr uint64_t NONEXISTENT_GUID = 0xDEADBEEF;
+
+    // Send AURA_APPLY for a ghost that doesn't exist
+    ActorMessage msg{};
+    msg.type = MessageType::AURA_APPLY;
+    msg.sourceGuid = NONEXISTENT_GUID;
+    msg.sourceCellId = CELL_B_ID;
+    msg.intParam1 = 12345;
+    msg.intParam2 = 1;
+    GetCellA()->SendMessage(std::move(msg));
+
+    // Should not crash, just silently ignore
+    EXPECT_NO_THROW(GetCellA()->Update(0));
+    EXPECT_EQ(GetCellA()->GetGhost(NONEXISTENT_GUID), nullptr);
+}
+
+TEST_F(GhostActorIntegrationTest, AuraRemoveIgnoredForNonExistentGhost)
+{
+    constexpr uint64_t NONEXISTENT_GUID = 0xDEADBEEF;
+
+    // Send AURA_REMOVE for a ghost that doesn't exist
+    ActorMessage msg{};
+    msg.type = MessageType::AURA_REMOVE;
+    msg.sourceGuid = NONEXISTENT_GUID;
+    msg.sourceCellId = CELL_B_ID;
+    msg.intParam1 = 12345;
+    GetCellA()->SendMessage(std::move(msg));
+
+    // Should not crash
+    EXPECT_NO_THROW(GetCellA()->Update(0));
+}
+
+TEST_F(GhostActorIntegrationTest, DuplicateAuraApplyIsIdempotent)
+{
+    constexpr uint64_t CREATURE_GUID = 0x99999;
+    constexpr uint32_t SPELL_ID = 55555;
+
+    HarnessA().AddGhost(CREATURE_GUID, CELL_B_ID);
+
+    // Apply same aura twice
+    for (int i = 0; i < 2; ++i)
+    {
+        ActorMessage msg{};
+        msg.type = MessageType::AURA_APPLY;
+        msg.sourceGuid = CREATURE_GUID;
+        msg.sourceCellId = CELL_B_ID;
+        msg.intParam1 = SPELL_ID;
+        msg.intParam2 = 1;
+        GetCellA()->SendMessage(std::move(msg));
+    }
+    GetCellA()->Update(0);
+
+    GhostEntity* ghost = GetCellA()->GetGhost(CREATURE_GUID);
+    ASSERT_NE(ghost, nullptr);
+    // std::set automatically handles duplicates
+    EXPECT_EQ(ghost->GetActiveAuraCount(), 1u);
+    EXPECT_TRUE(ghost->HasAura(SPELL_ID));
+}
+
+TEST_F(GhostActorIntegrationTest, AuraRemoveForNonExistentAuraIsIdempotent)
+{
+    constexpr uint64_t CREATURE_GUID = 0x88888;
+    constexpr uint32_t SPELL_ID = 44444;
+
+    HarnessA().AddGhost(CREATURE_GUID, CELL_B_ID);
+
+    GhostEntity* ghost = GetCellA()->GetGhost(CREATURE_GUID);
+    ASSERT_NE(ghost, nullptr);
+    EXPECT_EQ(ghost->GetActiveAuraCount(), 0u);
+
+    // Remove an aura that was never applied
+    ActorMessage msg{};
+    msg.type = MessageType::AURA_REMOVE;
+    msg.sourceGuid = CREATURE_GUID;
+    msg.sourceCellId = CELL_B_ID;
+    msg.intParam1 = SPELL_ID;
+    GetCellA()->SendMessage(std::move(msg));
+
+    // Should not crash, count stays at 0
+    EXPECT_NO_THROW(GetCellA()->Update(0));
+    EXPECT_EQ(ghost->GetActiveAuraCount(), 0u);
+}
+
+// ============================================================================
+// Aura State Tracking Tests
+// ============================================================================
+
+TEST_F(GhostActorIntegrationTest, GhostAuraStateDirectSync)
+{
+    constexpr uint64_t CREATURE_GUID = 0x77777;
+
+    HarnessA().AddGhost(CREATURE_GUID, CELL_B_ID);
+
+    GhostEntity* ghost = GetCellA()->GetGhost(CREATURE_GUID);
+    ASSERT_NE(ghost, nullptr);
+
+    // Initially no aura state
+    EXPECT_EQ(ghost->GetAuraState(), 0u);
+
+    // Direct sync sets aura state
+    ghost->SyncAuraState(1 << (AURA_STATE_FROZEN - 1));
+    EXPECT_EQ(ghost->GetAuraState(), 1u << (AURA_STATE_FROZEN - 1));
+
+    // Multiple states can be set
+    uint32_t combinedState = (1 << (AURA_STATE_FROZEN - 1)) | (1 << (AURA_STATE_BLEEDING - 1));
+    ghost->SyncAuraState(combinedState);
+    EXPECT_EQ(ghost->GetAuraState(), combinedState);
+
+    // Clear state
+    ghost->SyncAuraState(0);
+    EXPECT_EQ(ghost->GetAuraState(), 0u);
+}
+
+TEST_F(GhostActorIntegrationTest, AuraStateSyncMessageUpdatesGhost)
+{
+    constexpr uint64_t CREATURE_GUID = 0x88888;
+
+    HarnessA().AddGhost(CREATURE_GUID, CELL_B_ID);
+
+    GhostEntity* ghost = GetCellA()->GetGhost(CREATURE_GUID);
+    ASSERT_NE(ghost, nullptr);
+    EXPECT_EQ(ghost->GetAuraState(), 0u);
+
+    // Send AURA_STATE_SYNC message
+    uint32_t frozenState = 1 << (AURA_STATE_FROZEN - 1);
+    ActorMessage msg{};
+    msg.type = MessageType::AURA_STATE_SYNC;
+    msg.sourceGuid = CREATURE_GUID;
+    msg.sourceCellId = CELL_B_ID;
+    msg.intParam1 = frozenState;
+    GetCellA()->SendMessage(std::move(msg));
+    GetCellA()->Update(0);
+
+    EXPECT_EQ(ghost->GetAuraState(), frozenState);
+}
+
+TEST_F(GhostActorIntegrationTest, AuraTrackingAndStateIndependent)
+{
+    constexpr uint64_t CREATURE_GUID = 0x99999;
+    constexpr uint32_t SPELL_ID = 12345;
+
+    HarnessA().AddGhost(CREATURE_GUID, CELL_B_ID);
+
+    GhostEntity* ghost = GetCellA()->GetGhost(CREATURE_GUID);
+    ASSERT_NE(ghost, nullptr);
+
+    // Apply an aura (without SpellMgr, aura state won't auto-update)
+    ActorMessage applyMsg{};
+    applyMsg.type = MessageType::AURA_APPLY;
+    applyMsg.sourceGuid = CREATURE_GUID;
+    applyMsg.sourceCellId = CELL_B_ID;
+    applyMsg.intParam1 = SPELL_ID;
+    applyMsg.intParam2 = 1;
+    GetCellA()->SendMessage(std::move(applyMsg));
+    GetCellA()->Update(0);
+
+    // Aura is tracked
+    EXPECT_TRUE(ghost->HasAura(SPELL_ID));
+    // But aura state is not auto-set (no SpellMgr in unit tests)
+    // It remains 0 unless explicitly synced
+    EXPECT_EQ(ghost->GetAuraState(), 0u);
+
+    // Manual sync of aura state works independently
+    uint32_t bleedState = 1 << (AURA_STATE_BLEEDING - 1);
+    ghost->SyncAuraState(bleedState);
+    EXPECT_EQ(ghost->GetAuraState(), bleedState);
+    EXPECT_TRUE(ghost->HasAura(SPELL_ID));  // Aura list unaffected
+
+    // Removing aura recalculates state (but without SpellMgr, stays at 0)
+    ActorMessage removeMsg{};
+    removeMsg.type = MessageType::AURA_REMOVE;
+    removeMsg.sourceGuid = CREATURE_GUID;
+    removeMsg.sourceCellId = CELL_B_ID;
+    removeMsg.intParam1 = SPELL_ID;
+    GetCellA()->SendMessage(std::move(removeMsg));
+    GetCellA()->Update(0);
+
+    EXPECT_FALSE(ghost->HasAura(SPELL_ID));
+    // After recalculation with no spells, aura state is 0
+    EXPECT_EQ(ghost->GetAuraState(), 0u);
+}

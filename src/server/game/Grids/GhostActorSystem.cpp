@@ -360,16 +360,30 @@ void CellActor::HandleMessage(ActorMessage& msg)
 
         case MessageType::AURA_APPLY:
         {
-            // Aura visual sync - spellId in intParam1, effectMask in intParam2
-            LOG_DEBUG("server.ghost", "CellActor[{}]: AURA_APPLY entity={} spell={}",
-                _cellId, msg.sourceGuid, msg.intParam1);
+            uint32_t spellId = static_cast<uint32_t>(msg.intParam1);
+            uint8_t effectMask = static_cast<uint8_t>(msg.intParam2);
+
+            auto it = _ghosts.find(msg.sourceGuid);
+            if (it != _ghosts.end())
+            {
+                it->second->SyncAuraApplied(spellId, effectMask);
+                LOG_DEBUG("server.ghost", "CellActor[{}]: AURA_APPLY entity={} spell={} effectMask={}",
+                    _cellId, msg.sourceGuid, spellId, effectMask);
+            }
             break;
         }
 
         case MessageType::AURA_REMOVE:
         {
-            LOG_DEBUG("server.ghost", "CellActor[{}]: AURA_REMOVE entity={} spell={}",
-                _cellId, msg.sourceGuid, msg.intParam1);
+            uint32_t spellId = static_cast<uint32_t>(msg.intParam1);
+
+            auto it = _ghosts.find(msg.sourceGuid);
+            if (it != _ghosts.end())
+            {
+                it->second->SyncAuraRemoved(spellId);
+                LOG_DEBUG("server.ghost", "CellActor[{}]: AURA_REMOVE entity={} spell={}",
+                    _cellId, msg.sourceGuid, spellId);
+            }
             break;
         }
 
@@ -932,6 +946,450 @@ void CellActor::HandleMessage(ActorMessage& msg)
             break;
         }
 
+        // =====================================================================
+        // Control Effects
+        // TODO: Implement proper control effect application
+        // These should:
+        // 1. Find the target entity in this cell
+        // 2. Apply the control state via Unit::SetControlled() or appropriate method
+        // 3. Update all ghost projections to reflect the new state
+        // =====================================================================
+        case MessageType::STUN:
+        {
+            // TODO: Implementation notes:
+            // - Extract ControlEffectPayload from msg.complexPayload
+            // - Find target Unit by msg.targetGuid
+            // - Call target->SetControlled(true, UNIT_STATE_STUNNED)
+            // - Apply aura for duration tracking
+            // - Broadcast state change to ghost projections
+            auto* payload = static_cast<ControlEffectPayload*>(msg.complexPayload.get());
+            LOG_DEBUG("ghostactor", "STUN message received: caster {} -> target {}, spell {}, duration {}ms [NOT IMPLEMENTED]",
+                msg.sourceGuid, msg.targetGuid, payload ? payload->spellId : 0, payload ? payload->duration : 0);
+            break;
+        }
+
+        case MessageType::ROOT:
+        {
+            // TODO: Like STUN but uses UNIT_STATE_ROOT
+            // Target can still cast spells while rooted
+            auto* payload = static_cast<ControlEffectPayload*>(msg.complexPayload.get());
+            LOG_DEBUG("ghostactor", "ROOT message received: caster {} -> target {}, spell {} [NOT IMPLEMENTED]",
+                msg.sourceGuid, msg.targetGuid, payload ? payload->spellId : 0);
+            break;
+        }
+
+        case MessageType::FEAR:
+        {
+            // TODO: Fear is complex - requires movement handling
+            // - Apply fear state
+            // - Use MovementGenerator for flee pathing
+            // - Continuously sync position to ghost projections
+            auto* payload = static_cast<ControlEffectPayload*>(msg.complexPayload.get());
+            LOG_DEBUG("ghostactor", "FEAR message received: target {} fleeing to ({}, {}, {}) [NOT IMPLEMENTED]",
+                msg.targetGuid, payload ? payload->fearDestX : 0, payload ? payload->fearDestY : 0, payload ? payload->fearDestZ : 0);
+            break;
+        }
+
+        case MessageType::CHARM:
+        {
+            // TODO: Charm/Mind Control is very complex
+            // - Changes faction temporarily
+            // - May require pet bar for controller
+            // - Affects all threat tables
+            [[maybe_unused]] auto* payload = static_cast<ControlEffectPayload*>(msg.complexPayload.get());
+            LOG_DEBUG("ghostactor", "CHARM message received: {} charming {} [NOT IMPLEMENTED]",
+                msg.sourceGuid, msg.targetGuid);
+            break;
+        }
+
+        case MessageType::KNOCKBACK:
+        {
+            // TODO: Knockback implementation
+            // - Calculate trajectory from origin with given velocity
+            // - Update target position
+            // - Sync new position to all ghost projections
+            auto* payload = static_cast<KnockbackPayload*>(msg.complexPayload.get());
+            LOG_DEBUG("ghostactor", "KNOCKBACK message: target {} velocity ({}, {}) [NOT IMPLEMENTED]",
+                msg.targetGuid, payload ? payload->speedXY : 0, payload ? payload->speedZ : 0);
+            break;
+        }
+
+        case MessageType::SILENCE:
+        {
+            // TODO: Apply silence state
+            // Prevents casting but not movement
+            auto* payload = static_cast<ControlEffectPayload*>(msg.complexPayload.get());
+            LOG_DEBUG("ghostactor", "SILENCE message: target {} for {}ms [NOT IMPLEMENTED]",
+                msg.targetGuid, payload ? payload->duration : 0);
+            break;
+        }
+
+        case MessageType::POLYMORPH:
+        {
+            // TODO: Polymorph implementation
+            // - Apply incapacitate state
+            // - Change display ID to transform model
+            // - Sync display change to ghost projections
+            auto* payload = static_cast<ControlEffectPayload*>(msg.complexPayload.get());
+            LOG_DEBUG("ghostactor", "POLYMORPH message: target {} displayId {} [NOT IMPLEMENTED]",
+                msg.targetGuid, payload ? payload->transformDisplayId : 0);
+            break;
+        }
+
+        // =====================================================================
+        // Combat Feedback
+        // TODO: Implement for proc triggers and AI reactions
+        // =====================================================================
+        case MessageType::DODGE:
+        {
+            // TODO: Handle dodge notification
+            // - Trigger PROC_FLAG_DODGE for victim
+            // - Trigger procs like Overpower for attacker
+            // - AI may react to dodges
+            [[maybe_unused]] auto* payload = static_cast<CombatResultPayload*>(msg.complexPayload.get());
+            LOG_DEBUG("ghostactor", "DODGE: {} dodged attack from {} [NOT IMPLEMENTED]",
+                msg.targetGuid, msg.sourceGuid);
+            break;
+        }
+
+        case MessageType::PARRY:
+        {
+            // TODO: Handle parry notification
+            // - Trigger PROC_FLAG_PARRY for victim
+            // - May trigger parry-haste on creatures
+            [[maybe_unused]] auto* payload = static_cast<CombatResultPayload*>(msg.complexPayload.get());
+            LOG_DEBUG("ghostactor", "PARRY: {} parried attack from {} [NOT IMPLEMENTED]",
+                msg.targetGuid, msg.sourceGuid);
+            break;
+        }
+
+        case MessageType::BLOCK:
+        {
+            // TODO: Handle block notification
+            // - Trigger PROC_FLAG_BLOCK for victim
+            // - Include blocked amount for partial blocks
+            auto* payload = static_cast<CombatResultPayload*>(msg.complexPayload.get());
+            LOG_DEBUG("ghostactor", "BLOCK: {} blocked {} damage [NOT IMPLEMENTED]",
+                msg.targetGuid, payload ? payload->blockedAmount : 0);
+            break;
+        }
+
+        case MessageType::MISS:
+        {
+            // TODO: Handle miss notification
+            // Mostly for combat log, minimal proc implications
+            LOG_DEBUG("ghostactor", "MISS: {} missed {} [NOT IMPLEMENTED]",
+                msg.sourceGuid, msg.targetGuid);
+            break;
+        }
+
+        case MessageType::IMMUNE:
+        {
+            // TODO: Handle immune notification
+            // Target was completely immune to the effect
+            auto* payload = static_cast<CombatResultPayload*>(msg.complexPayload.get());
+            LOG_DEBUG("ghostactor", "IMMUNE: {} immune to spell {} [NOT IMPLEMENTED]",
+                msg.targetGuid, payload ? payload->spellId : 0);
+            break;
+        }
+
+        case MessageType::ABSORB_NOTIFICATION:
+        {
+            // TODO: Handle absorb notification
+            // Damage was absorbed by a shield (Power Word: Shield, etc.)
+            auto* payload = static_cast<CombatResultPayload*>(msg.complexPayload.get());
+            LOG_DEBUG("ghostactor", "ABSORB: {} absorbed {} damage [NOT IMPLEMENTED]",
+                msg.targetGuid, payload ? payload->absorbedAmount : 0);
+            break;
+        }
+
+        // =====================================================================
+        // Spell Cast Notifications
+        // TODO: Implement for AI interrupt logic and procs
+        // =====================================================================
+        case MessageType::SPELL_CAST_START:
+        {
+            // TODO: Notify neighbors of cast start
+            // AI creatures may decide to interrupt based on:
+            // - Spell school (prioritize heals?)
+            // - Cast time (long casts more interruptible)
+            // - Spell danger level
+            auto* payload = static_cast<SpellCastPayload*>(msg.complexPayload.get());
+            LOG_DEBUG("ghostactor", "SPELL_CAST_START: {} casting spell {} ({}ms) [NOT IMPLEMENTED]",
+                msg.sourceGuid, payload ? payload->spellId : 0, payload ? payload->castTime : 0);
+            break;
+        }
+
+        case MessageType::SPELL_CAST_FAILED:
+        {
+            // TODO: Notify that cast was interrupted/failed
+            auto* payload = static_cast<SpellCastPayload*>(msg.complexPayload.get());
+            LOG_DEBUG("ghostactor", "SPELL_CAST_FAILED: {} spell {} reason {} [NOT IMPLEMENTED]",
+                msg.sourceGuid, payload ? payload->spellId : 0, payload ? payload->failReason : 0);
+            break;
+        }
+
+        case MessageType::SPELL_CAST_SUCCESS:
+        {
+            // TODO: Notify that cast completed
+            // Trigger on-cast procs for observers
+            auto* payload = static_cast<SpellCastPayload*>(msg.complexPayload.get());
+            LOG_DEBUG("ghostactor", "SPELL_CAST_SUCCESS: {} completed spell {} [NOT IMPLEMENTED]",
+                msg.sourceGuid, payload ? payload->spellId : 0);
+            break;
+        }
+
+        // =====================================================================
+        // Taunt Messages - Cross-cell taunt/detaunt for tank gameplay
+        // =====================================================================
+        case MessageType::TAUNT:
+        {
+            auto* payload = static_cast<TauntPayload*>(msg.complexPayload.get());
+            if (!payload)
+            {
+                LOG_DEBUG("ghostactor", "TAUNT: missing payload");
+                break;
+            }
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: TAUNT taunter={} creature={} spell={} duration={}ms",
+                _cellId, payload->taunterGuid, payload->targetGuid, payload->spellId, payload->duration);
+
+            // Find the creature being taunted in this cell
+            WorldObject* creatureObj = FindEntityByGuid(payload->targetGuid);
+            if (!creatureObj)
+            {
+                LOG_DEBUG("ghostactor", "CellActor[{}]: TAUNT - creature {} not found in cell",
+                    _cellId, payload->targetGuid);
+                break;
+            }
+
+            Creature* creature = creatureObj->ToCreature();
+            if (!creature || !creature->IsAlive() || !creature->CanHaveThreatList())
+            {
+                LOG_DEBUG("ghostactor", "CellActor[{}]: TAUNT - creature {} invalid or cannot have threat",
+                    _cellId, payload->targetGuid);
+                break;
+            }
+
+            // Find the taunter - may be in another cell, use ObjectAccessor
+            Unit* taunter = ObjectAccessor::GetUnit(*creature, ObjectGuid(payload->taunterGuid));
+            if (!taunter || !taunter->IsAlive())
+            {
+                LOG_DEBUG("ghostactor", "CellActor[{}]: TAUNT - taunter {} not found or dead",
+                    _cellId, payload->taunterGuid);
+                break;
+            }
+
+            // Skip if taunter is GM
+            if (taunter->IsPlayer() && taunter->ToPlayer()->IsGameMaster())
+                break;
+
+            // Skip if creature is passive
+            if (creature->HasReactState(REACT_PASSIVE))
+                break;
+
+            // Apply taunt logic: raise threat to top and force target switch
+            ThreatMgr& threatMgr = creature->GetThreatMgr();
+            if (!threatMgr.GetOnlineContainer().empty())
+            {
+                // Raise taunter's threat to match top threat (like EffectTaunt)
+                float myThreat = threatMgr.GetThreat(taunter);
+                float topThreat = threatMgr.GetOnlineContainer().getMostHated()->GetThreat();
+                if (topThreat > myThreat)
+                {
+                    threatMgr.DoAddThreat(taunter, topThreat - myThreat);
+                }
+
+                // Force victim switch to taunter
+                if (HostileReference* forcedVictim = threatMgr.GetOnlineContainer().getReferenceByTarget(taunter))
+                {
+                    threatMgr.setCurrentVictim(forcedVictim);
+                }
+            }
+            else
+            {
+                // No threat list - add taunter with 110% threat (TauntApply logic)
+                threatMgr.AddThreat(taunter, 1.0f);
+                if (HostileReference* forcedVictim = threatMgr.GetOnlineContainer().getReferenceByTarget(taunter))
+                {
+                    forcedVictim->SetThreat(1.1f);
+                    threatMgr.setCurrentVictim(forcedVictim);
+                }
+            }
+
+            // Update target field and start attack
+            creature->SetGuidValue(UNIT_FIELD_TARGET, taunter->GetGUID());
+            if (creature->IsAIEnabled)
+            {
+                creature->AI()->AttackStart(taunter);
+            }
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: TAUNT applied - creature {} now targeting taunter {}",
+                _cellId, payload->targetGuid, payload->taunterGuid);
+            break;
+        }
+
+        case MessageType::DETAUNT:
+        {
+            auto* payload = static_cast<DetauntPayload*>(msg.complexPayload.get());
+            if (!payload)
+            {
+                LOG_DEBUG("ghostactor", "DETAUNT: missing payload");
+                break;
+            }
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: DETAUNT source={} creature={} threatPct={:.1f}% removeTaunt={}",
+                _cellId, payload->sourceGuid, payload->targetGuid,
+                payload->threatReductionPct, payload->removeTaunt);
+
+            // Find the creature in this cell
+            WorldObject* creatureObj = FindEntityByGuid(payload->targetGuid);
+            if (!creatureObj)
+            {
+                LOG_DEBUG("ghostactor", "CellActor[{}]: DETAUNT - creature {} not found in cell",
+                    _cellId, payload->targetGuid);
+                break;
+            }
+
+            Creature* creature = creatureObj->ToCreature();
+            if (!creature || !creature->IsAlive() || !creature->CanHaveThreatList())
+            {
+                LOG_DEBUG("ghostactor", "CellActor[{}]: DETAUNT - creature {} invalid or cannot have threat",
+                    _cellId, payload->targetGuid);
+                break;
+            }
+
+            // Find the source unit - may be in another cell
+            Unit* source = ObjectAccessor::GetUnit(*creature, ObjectGuid(payload->sourceGuid));
+            if (!source)
+            {
+                LOG_DEBUG("ghostactor", "CellActor[{}]: DETAUNT - source {} not found",
+                    _cellId, payload->sourceGuid);
+                break;
+            }
+
+            ThreatMgr& threatMgr = creature->GetThreatMgr();
+
+            // Apply threat reduction if specified
+            if (payload->threatReductionPct > 0.0f)
+            {
+                float currentThreat = threatMgr.GetThreat(source);
+                if (currentThreat > 0.0f)
+                {
+                    float reduction = currentThreat * (payload->threatReductionPct / 100.0f);
+                    threatMgr.ModifyThreatByPercent(source, static_cast<int32_t>(-payload->threatReductionPct));
+                    LOG_DEBUG("ghostactor", "CellActor[{}]: DETAUNT - reduced threat by {:.1f}% ({:.1f} -> {:.1f})",
+                        _cellId, payload->threatReductionPct, currentThreat, threatMgr.GetThreat(source));
+                }
+            }
+
+            // Handle taunt fadeout - similar to TauntFadeOut logic
+            if (payload->removeTaunt)
+            {
+                Unit* currentVictim = creature->GetVictim();
+                if (currentVictim && currentVictim == source)
+                {
+                    // Current victim was the detaunter - select new victim
+                    if (threatMgr.isThreatListEmpty())
+                    {
+                        if (creature->IsAIEnabled)
+                            creature->AI()->EnterEvadeMode(CreatureAI::EVADE_REASON_NO_HOSTILES);
+                    }
+                    else
+                    {
+                        Unit* newVictim = creature->SelectVictim();
+                        if (newVictim && newVictim != source)
+                        {
+                            creature->SetGuidValue(UNIT_FIELD_TARGET, newVictim->GetGUID());
+                            creature->SetInFront(newVictim);
+                            if (creature->IsAIEnabled)
+                                creature->AI()->AttackStart(newVictim);
+
+                            LOG_DEBUG("ghostactor", "CellActor[{}]: DETAUNT - creature {} switched target to {}",
+                                _cellId, payload->targetGuid, newVictim->GetGUID().GetRawValue());
+                        }
+                    }
+                }
+            }
+            break;
+        }
+
+        // =====================================================================
+        // Resurrection Messages
+        // TODO: Implement for cross-cell resurrection
+        // =====================================================================
+        case MessageType::RESURRECT_REQUEST:
+        {
+            // TODO: Handle resurrection request
+            // - Find dead player by targetGuid
+            // - Store resurrection offer (health%, mana%, location)
+            // - Show accept/decline dialog to player
+            [[maybe_unused]] auto* payload = static_cast<ResurrectPayload*>(msg.complexPayload.get());
+            LOG_DEBUG("ghostactor", "RESURRECT_REQUEST: {} offering to resurrect {} [NOT IMPLEMENTED]",
+                msg.sourceGuid, msg.targetGuid);
+            break;
+        }
+
+        case MessageType::RESURRECT_ACCEPT:
+        {
+            // TODO: Handle resurrection acceptance
+            // - Find the original caster
+            // - Complete the resurrection spell
+            // - Player respawns at designated location
+            LOG_DEBUG("ghostactor", "RESURRECT_ACCEPT: {} accepting resurrection from {} [NOT IMPLEMENTED]",
+                msg.sourceGuid, msg.targetGuid);
+            break;
+        }
+
+        // =====================================================================
+        // Player Social Messages
+        // TODO: Implement for cross-cell duels and trades
+        // =====================================================================
+        case MessageType::DUEL_REQUEST:
+        {
+            // TODO: Handle duel challenge
+            // - Find target player
+            // - Send duel request packet
+            // - Spawn duel flag gameobject
+            [[maybe_unused]] auto* payload = static_cast<DuelPayload*>(msg.complexPayload.get());
+            LOG_DEBUG("ghostactor", "DUEL_REQUEST: {} challenging {} [NOT IMPLEMENTED]",
+                msg.sourceGuid, msg.targetGuid);
+            break;
+        }
+
+        case MessageType::DUEL_STARTED:
+        {
+            // TODO: Handle duel start
+            // - Both players enter duel combat state
+            // - Timer and boundaries active
+            LOG_DEBUG("ghostactor", "DUEL_STARTED: {} vs {} [NOT IMPLEMENTED]",
+                msg.sourceGuid, msg.targetGuid);
+            break;
+        }
+
+        case MessageType::DUEL_ENDED:
+        {
+            // TODO: Handle duel end
+            // - Determine winner/loser/fled
+            // - Clean up duel state
+            // - Remove duel flag
+            auto* payload = static_cast<DuelPayload*>(msg.complexPayload.get());
+            LOG_DEBUG("ghostactor", "DUEL_ENDED: result {} [NOT IMPLEMENTED]",
+                payload ? payload->result : 0);
+            break;
+        }
+
+        case MessageType::TRADE_REQUEST:
+        {
+            // TODO: Handle trade request
+            // - Find target player
+            // - Send trade request packet
+            [[maybe_unused]] auto* payload = static_cast<TradePayload*>(msg.complexPayload.get());
+            LOG_DEBUG("ghostactor", "TRADE_REQUEST: {} requesting trade with {} [NOT IMPLEMENTED]",
+                msg.sourceGuid, msg.targetGuid);
+            break;
+        }
+
         default:
             break;
     }
@@ -980,6 +1438,7 @@ void CellActor::AddEntity(WorldObject* obj)
         return;
 
     _entities.push_back(obj);
+    _isActive.store(true, std::memory_order_release);  // Mark cell as active
 }
 
 void CellActor::RemoveEntity(WorldObject* obj)
@@ -993,6 +1452,10 @@ void CellActor::RemoveEntity(WorldObject* obj)
         // Swap with last and pop for O(1) removal
         std::swap(*it, _entities.back());
         _entities.pop_back();
+
+        // Clear active flag when no entities remain
+        if (_entities.empty())
+            _isActive.store(false, std::memory_order_release);
     }
 }
 
@@ -1090,6 +1553,48 @@ uint32_t GhostEntity::GetPower(uint8_t power) const
     return 0;
 }
 
+void GhostEntity::SyncAuraApplied(uint32_t spellId, uint8_t /*effectMask*/)
+{
+    _activeAuras.insert(spellId);
+
+    // Update aura state flags based on spell's aura state type
+    if (SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spellId))
+    {
+        AuraStateType auraState = spellInfo->GetAuraState();
+        if (auraState != AURA_STATE_NONE)
+        {
+            _auraState |= (1 << (auraState - 1));
+        }
+    }
+}
+
+void GhostEntity::SyncAuraRemoved(uint32_t spellId)
+{
+    _activeAuras.erase(spellId);
+
+    // Recalculate aura state from remaining auras
+    RecalculateAuraState();
+}
+
+void GhostEntity::RecalculateAuraState()
+{
+    uint32_t newState = 0;
+
+    for (uint32_t activeSpellId : _activeAuras)
+    {
+        if (SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(activeSpellId))
+        {
+            AuraStateType auraState = spellInfo->GetAuraState();
+            if (auraState != AURA_STATE_NONE)
+            {
+                newState |= (1 << (auraState - 1));
+            }
+        }
+    }
+
+    _auraState = newState;
+}
+
 // ============================================================================
 // CellActorManager Implementation
 // ============================================================================
@@ -1097,30 +1602,31 @@ uint32_t GhostEntity::GetPower(uint8_t power) const
 CellActorManager::CellActorManager(Map* map)
     : _map(map)
 {
+    // Pre-allocate all cells for lock-free O(1) access
+    _cellActors.resize(TOTAL_CELLS);
+    for (uint32_t y = 0; y < CELLS_PER_DIMENSION; ++y)
+    {
+        for (uint32_t x = 0; x < CELLS_PER_DIMENSION; ++x)
+        {
+            uint32_t index = CellIndex(x, y);
+            uint32_t cellId = MakeCellId(x, y);
+            _cellActors[index] = std::make_unique<CellActor>(cellId, map);
+        }
+    }
 }
 
 CellActor* CellActorManager::GetOrCreateCellActor(uint32_t gridX, uint32_t gridY)
 {
-    uint32_t cellId = MakeCellId(gridX, gridY);
-
-    auto it = _cellActors.find(cellId);
-    if (it != _cellActors.end())
-        return it->second.get();
-
-    // Create new cell actor
-    auto actor = std::make_unique<CellActor>(cellId, _map);
-    CellActor* ptr = actor.get();
-    _cellActors[cellId] = std::move(actor);
-    _activeCells.push_back(ptr);
-
-    return ptr;
+    // O(1) lock-free array access - cells are pre-allocated
+    uint32_t index = CellIndex(gridX, gridY);
+    return _cellActors[index].get();
 }
 
 CellActor* CellActorManager::GetCellActor(uint32_t gridX, uint32_t gridY)
 {
-    uint32_t cellId = MakeCellId(gridX, gridY);
-    auto it = _cellActors.find(cellId);
-    return (it != _cellActors.end()) ? it->second.get() : nullptr;
+    // O(1) lock-free array access - cells are pre-allocated
+    uint32_t index = CellIndex(gridX, gridY);
+    return _cellActors[index].get();
 }
 
 CellActor* CellActorManager::GetCellActorForPosition(float x, float y)
@@ -1136,24 +1642,27 @@ CellActor* CellActorManager::GetCellActorForPosition(float x, float y)
 
 void CellActorManager::Update(uint32_t diff)
 {
-    if (!_workPool || _activeCells.empty())
+    if (!_workPool)
     {
-        for (CellActor* cell : _activeCells)
+        // Single-threaded path: iterate all cells, skip inactive
+        for (const auto& cell : _cellActors)
         {
-            if (cell->HasWork())
+            if (cell && cell->IsActive() && cell->HasWork())
                 cell->Update(diff);
         }
         return;
     }
 
-    for (CellActor* cell : _activeCells)
+    // Parallel path: submit active cells to work pool
+    for (const auto& cell : _cellActors)
     {
-        if (cell->HasWork())
+        if (cell && cell->IsActive() && cell->HasWork())
         {
             _pendingCellUpdates.fetch_add(1, std::memory_order_release);
 
-            _workPool->Submit(TaskType::CELL, [this, cell, diff]() {
-                cell->Update(diff);
+            CellActor* rawCell = cell.get();
+            _workPool->Submit(TaskType::CELL, [this, rawCell, diff]() {
+                rawCell->Update(diff);
                 _pendingCellUpdates.fetch_sub(1, std::memory_order_release);
             });
         }
@@ -1168,10 +1677,12 @@ void CellActorManager::Update(uint32_t diff)
 
 void CellActorManager::SendMessage(uint32_t targetCellId, ActorMessage msg)
 {
-    auto it = _cellActors.find(targetCellId);
-    if (it != _cellActors.end())
+    uint32_t cellX, cellY;
+    ExtractCellCoords(targetCellId, cellX, cellY);
+    uint32_t index = CellIndex(cellX, cellY);
+    if (index < _cellActors.size() && _cellActors[index])
     {
-        it->second->SendMessage(std::move(msg));
+        _cellActors[index]->SendMessage(std::move(msg));
     }
 }
 
@@ -2657,6 +3168,363 @@ bool CellActorManager::IsCellManagedByGuid([[maybe_unused]] uint64_t guid) const
     // Cannot check by GUID alone - need the object pointer for the flag
     // This method is deprecated in favor of IsCellManaged(WorldObject*)
     return false;
+}
+
+// =============================================================================
+// Cross-cell Control Effects - STUBS
+// =============================================================================
+
+void CellActorManager::SendStunMessage(Unit* caster, Unit* target, uint32_t spellId, int32_t duration)
+{
+    // TODO: Implement cross-cell stun
+    // 1. Check if target is in different cell
+    // 2. If same cell, apply directly
+    // 3. If different cell, construct ControlEffectPayload and send STUN message
+    // 4. Consider: should we update ghost projection immediately or wait for confirmation?
+
+    if (!caster || !target)
+        return;
+
+    if (AreInSameCell(caster, target))
+    {
+        // Same cell - handle directly (not our concern here)
+        return;
+    }
+
+    // TODO: Construct and send message
+    LOG_DEBUG("ghostactor", "SendStunMessage: {} stunning {} for {}ms - NOT IMPLEMENTED",
+        caster->GetGUID().GetRawValue(), target->GetGUID().GetRawValue(), duration);
+    (void)spellId;
+}
+
+void CellActorManager::SendRootMessage(Unit* caster, Unit* target, uint32_t spellId, int32_t duration)
+{
+    // TODO: Implement cross-cell root
+    // Similar to stun but uses UNIT_STATE_ROOT
+    if (!caster || !target)
+        return;
+    LOG_DEBUG("ghostactor", "SendRootMessage: NOT IMPLEMENTED");
+    (void)spellId;
+    (void)duration;
+}
+
+void CellActorManager::SendFearMessage(Unit* caster, Unit* target, uint32_t spellId, int32_t duration,
+                                       float destX, float destY, float destZ)
+{
+    // TODO: Implement cross-cell fear
+    // Fear is complex because it involves movement
+    // Pre-calculate fear destination to avoid cross-cell pathfinding
+    if (!caster || !target)
+        return;
+    LOG_DEBUG("ghostactor", "SendFearMessage: NOT IMPLEMENTED");
+    (void)spellId;
+    (void)duration;
+    (void)destX;
+    (void)destY;
+    (void)destZ;
+}
+
+void CellActorManager::SendCharmMessage(Unit* caster, Unit* target, uint32_t spellId, int32_t duration)
+{
+    // TODO: Implement cross-cell charm/mind control
+    // Very complex - affects faction, threat tables, control
+    if (!caster || !target)
+        return;
+    LOG_DEBUG("ghostactor", "SendCharmMessage: NOT IMPLEMENTED");
+    (void)spellId;
+    (void)duration;
+}
+
+void CellActorManager::SendKnockbackMessage(Unit* caster, Unit* target, uint32_t spellId,
+                                            float speedXY, float speedZ,
+                                            float destX, float destY, float destZ)
+{
+    // TODO: Implement cross-cell knockback
+    // Must update target position and all ghost projections
+    if (!caster || !target)
+        return;
+    LOG_DEBUG("ghostactor", "SendKnockbackMessage: NOT IMPLEMENTED");
+    (void)spellId;
+    (void)speedXY;
+    (void)speedZ;
+    (void)destX;
+    (void)destY;
+    (void)destZ;
+}
+
+void CellActorManager::SendSilenceMessage(Unit* caster, Unit* target, uint32_t spellId, int32_t duration)
+{
+    // TODO: Implement cross-cell silence
+    if (!caster || !target)
+        return;
+    LOG_DEBUG("ghostactor", "SendSilenceMessage: NOT IMPLEMENTED");
+    (void)spellId;
+    (void)duration;
+}
+
+void CellActorManager::SendPolymorphMessage(Unit* caster, Unit* target, uint32_t spellId,
+                                            int32_t duration, uint32_t transformDisplayId)
+{
+    // TODO: Implement cross-cell polymorph
+    // Must update display ID on ghost projections
+    if (!caster || !target)
+        return;
+    LOG_DEBUG("ghostactor", "SendPolymorphMessage: NOT IMPLEMENTED");
+    (void)spellId;
+    (void)duration;
+    (void)transformDisplayId;
+}
+
+// =============================================================================
+// Combat Feedback - STUBS
+// =============================================================================
+
+void CellActorManager::SendDodgeMessage(Unit* attacker, Unit* victim, uint32_t spellId)
+{
+    // TODO: Notify that attack was dodged
+    // Triggers PROC_FLAG_DODGE, may enable Overpower
+    if (!attacker || !victim)
+        return;
+    LOG_DEBUG("ghostactor", "SendDodgeMessage: NOT IMPLEMENTED");
+    (void)spellId;
+}
+
+void CellActorManager::SendParryMessage(Unit* attacker, Unit* victim, uint32_t spellId)
+{
+    // TODO: Notify that attack was parried
+    // Triggers PROC_FLAG_PARRY, may trigger parry-haste on creatures
+    if (!attacker || !victim)
+        return;
+    LOG_DEBUG("ghostactor", "SendParryMessage: NOT IMPLEMENTED");
+    (void)spellId;
+}
+
+void CellActorManager::SendBlockMessage(Unit* attacker, Unit* victim, uint32_t spellId, int32_t blockedAmount)
+{
+    // TODO: Notify that attack was blocked
+    // Include blocked amount for partial blocks
+    if (!attacker || !victim)
+        return;
+    LOG_DEBUG("ghostactor", "SendBlockMessage: NOT IMPLEMENTED");
+    (void)spellId;
+    (void)blockedAmount;
+}
+
+void CellActorManager::SendMissMessage(Unit* attacker, Unit* victim, uint32_t spellId)
+{
+    // TODO: Notify that attack missed
+    if (!attacker || !victim)
+        return;
+    LOG_DEBUG("ghostactor", "SendMissMessage: NOT IMPLEMENTED");
+    (void)spellId;
+}
+
+void CellActorManager::SendImmuneMessage(Unit* caster, Unit* target, uint32_t spellId)
+{
+    // TODO: Notify that target was immune
+    if (!caster || !target)
+        return;
+    LOG_DEBUG("ghostactor", "SendImmuneMessage: NOT IMPLEMENTED");
+    (void)spellId;
+}
+
+void CellActorManager::SendAbsorbMessage(Unit* attacker, Unit* victim, uint32_t spellId, int32_t absorbedAmount)
+{
+    // TODO: Notify that damage was absorbed
+    if (!attacker || !victim)
+        return;
+    LOG_DEBUG("ghostactor", "SendAbsorbMessage: NOT IMPLEMENTED");
+    (void)spellId;
+    (void)absorbedAmount;
+}
+
+// =============================================================================
+// Spell Cast Notifications - STUBS
+// =============================================================================
+
+void CellActorManager::SendSpellCastStartMessage(Unit* caster, Unit* target, uint32_t spellId, int32_t castTime)
+{
+    // TODO: Broadcast cast start to neighboring cells
+    // AI creatures may use this to decide on interrupts
+    if (!caster)
+        return;
+    LOG_DEBUG("ghostactor", "SendSpellCastStartMessage: NOT IMPLEMENTED");
+    (void)target;
+    (void)spellId;
+    (void)castTime;
+}
+
+void CellActorManager::SendSpellCastFailedMessage(Unit* caster, uint32_t spellId, uint8_t failReason)
+{
+    // TODO: Broadcast cast failure
+    if (!caster)
+        return;
+    LOG_DEBUG("ghostactor", "SendSpellCastFailedMessage: NOT IMPLEMENTED");
+    (void)spellId;
+    (void)failReason;
+}
+
+void CellActorManager::SendSpellCastSuccessMessage(Unit* caster, Unit* target, uint32_t spellId)
+{
+    // TODO: Broadcast cast success for proc triggers
+    if (!caster)
+        return;
+    LOG_DEBUG("ghostactor", "SendSpellCastSuccessMessage: NOT IMPLEMENTED");
+    (void)target;
+    (void)spellId;
+}
+
+// =============================================================================
+// Taunt - Cross-cell taunt/detaunt for tank gameplay
+// =============================================================================
+
+void CellActorManager::SendTauntMessage(Unit* taunter, Unit* target, uint32_t spellId, int32_t duration)
+{
+    if (!taunter || !target)
+        return;
+
+    // Taunt only makes sense against creatures with threat lists
+    if (!target->IsCreature() || !target->CanHaveThreatList())
+        return;
+
+    // Phase check
+    if (!CanInteractCrossPhase(taunter, target->GetGUID().GetRawValue()))
+        return;
+
+    uint32_t taunterCellId = GetCellIdForEntity(taunter);
+    uint32_t targetCellId = GetCellIdForEntity(target);
+
+    // If same cell, taunt happens directly through normal code paths
+    if (taunterCellId == targetCellId)
+    {
+        LOG_DEBUG("ghostactor", "SendTauntMessage: same cell, handled directly taunter={} target={}",
+            taunter->GetGUID().GetRawValue(), target->GetGUID().GetRawValue());
+        return;
+    }
+
+    auto payload = std::make_shared<TauntPayload>();
+    payload->taunterGuid = taunter->GetGUID().GetRawValue();
+    payload->targetGuid = target->GetGUID().GetRawValue();
+    payload->spellId = spellId;
+    payload->duration = duration;
+    payload->isSingleTarget = true;
+    payload->threatAmount = 0.0f;  // Threat is calculated on receive
+
+    ActorMessage msg{};
+    msg.type = MessageType::TAUNT;
+    msg.sourceGuid = taunter->GetGUID().GetRawValue();
+    msg.targetGuid = target->GetGUID().GetRawValue();
+    msg.sourceCellId = taunterCellId;
+    msg.targetCellId = targetCellId;
+    msg.complexPayload = payload;
+
+    LOG_DEBUG("ghostactor", "SendTauntMessage: taunter={} cell={} -> creature={} cell={} spell={}",
+        taunter->GetGUID().GetRawValue(), taunterCellId,
+        target->GetGUID().GetRawValue(), targetCellId, spellId);
+
+    SendMessage(targetCellId, std::move(msg));
+}
+
+void CellActorManager::SendDetauntMessage(Unit* source, Unit* target, uint32_t spellId, float threatReductionPct)
+{
+    if (!source || !target)
+        return;
+
+    // Detaunt only makes sense against creatures with threat lists
+    if (!target->IsCreature() || !target->CanHaveThreatList())
+        return;
+
+    // Phase check
+    if (!CanInteractCrossPhase(source, target->GetGUID().GetRawValue()))
+        return;
+
+    uint32_t sourceCellId = GetCellIdForEntity(source);
+    uint32_t targetCellId = GetCellIdForEntity(target);
+
+    // If same cell, detaunt happens directly through normal code paths
+    if (sourceCellId == targetCellId)
+    {
+        LOG_DEBUG("ghostactor", "SendDetauntMessage: same cell, handled directly source={} target={}",
+            source->GetGUID().GetRawValue(), target->GetGUID().GetRawValue());
+        return;
+    }
+
+    auto payload = std::make_shared<DetauntPayload>();
+    payload->sourceGuid = source->GetGUID().GetRawValue();
+    payload->targetGuid = target->GetGUID().GetRawValue();
+    payload->spellId = spellId;
+    payload->threatReductionPct = threatReductionPct;
+    payload->removeTaunt = (threatReductionPct <= 0.0f);  // If no threat reduction, it's a taunt fadeout
+
+    ActorMessage msg{};
+    msg.type = MessageType::DETAUNT;
+    msg.sourceGuid = source->GetGUID().GetRawValue();
+    msg.targetGuid = target->GetGUID().GetRawValue();
+    msg.sourceCellId = sourceCellId;
+    msg.targetCellId = targetCellId;
+    msg.complexPayload = payload;
+
+    LOG_DEBUG("ghostactor", "SendDetauntMessage: source={} cell={} -> creature={} cell={} threatPct={:.1f}%",
+        source->GetGUID().GetRawValue(), sourceCellId,
+        target->GetGUID().GetRawValue(), targetCellId, threatReductionPct);
+
+    SendMessage(targetCellId, std::move(msg));
+}
+
+// =============================================================================
+// Resurrection - STUBS
+// =============================================================================
+
+void CellActorManager::SendResurrectRequestMessage(Unit* caster, Unit* target, uint32_t spellId,
+                                                   uint32_t healthPct, uint32_t manaPct)
+{
+    // TODO: Implement cross-cell resurrection request
+    // Dead player receives accept/decline dialog
+    if (!caster || !target)
+        return;
+    LOG_DEBUG("ghostactor", "SendResurrectRequestMessage: NOT IMPLEMENTED");
+    (void)spellId;
+    (void)healthPct;
+    (void)manaPct;
+}
+
+void CellActorManager::SendResurrectAcceptMessage(Unit* target, uint64_t casterGuid)
+{
+    // TODO: Route acceptance back to caster's cell
+    if (!target)
+        return;
+    LOG_DEBUG("ghostactor", "SendResurrectAcceptMessage: NOT IMPLEMENTED");
+    (void)casterGuid;
+}
+
+// =============================================================================
+// Player Social - STUBS
+// =============================================================================
+
+void CellActorManager::SendDuelRequestMessage(Player* challenger, Player* challenged)
+{
+    // TODO: Route duel challenge to target's cell
+    if (!challenger || !challenged)
+        return;
+    LOG_DEBUG("ghostactor", "SendDuelRequestMessage: NOT IMPLEMENTED");
+}
+
+void CellActorManager::SendDuelStateMessage(Player* player1, Player* player2, uint8_t state, uint8_t result)
+{
+    // TODO: Sync duel state between cells
+    if (!player1 || !player2)
+        return;
+    LOG_DEBUG("ghostactor", "SendDuelStateMessage: NOT IMPLEMENTED");
+    (void)state;
+    (void)result;
+}
+
+void CellActorManager::SendTradeRequestMessage(Player* initiator, Player* target)
+{
+    // TODO: Route trade request to target's cell
+    if (!initiator || !target)
+        return;
+    LOG_DEBUG("ghostactor", "SendTradeRequestMessage: NOT IMPLEMENTED");
 }
 
 } // namespace GhostActor

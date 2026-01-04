@@ -23,6 +23,7 @@
 #include <random>
 #include "GhostActorSystem.h"
 #include "CellActorTestHarness.h"
+#include "TestMap.h"
 #include "WorldMock.h"
 
 using namespace GhostActor;
@@ -730,4 +731,137 @@ TEST_F(GhostActorRaceTest, GhostDestroyDuringUpdate)
 
     // Should complete without crash - ghost may or may not exist at end
     SUCCEED();
+}
+
+// =============================================================================
+// CellActorManager Concurrent Cell Creation
+// =============================================================================
+
+TEST_F(GhostActorRaceTest, ConcurrentCellCreation)
+{
+    // Test: Multiple threads calling GetOrCreateCellActor for overlapping cells
+    // This tests the specific race condition in CellActorManager where:
+    // - Thread A checks if cell exists (no)
+    // - Thread B checks if cell exists (no)
+    // - Both threads try to create the same cell
+    // - _cellActors map gets corrupted due to concurrent modification
+    //
+    // Run with ThreadSanitizer to detect the data race.
+
+    auto map = std::make_unique<TestMap>(0, 0);
+    auto* mgr = map->GetCellActorManager();
+    ASSERT_NE(mgr, nullptr);
+
+    constexpr size_t NUM_THREADS = 8;
+    constexpr size_t OPS_PER_THREAD = 200;
+    constexpr uint32_t CELL_RANGE = 10;  // 10x10 = 100 possible cells, high contention
+
+    std::atomic<bool> start{false};
+    std::atomic<size_t> completedOps{0};
+    std::vector<std::thread> threads;
+
+    for (size_t t = 0; t < NUM_THREADS; ++t)
+    {
+        threads.emplace_back([&, t]()
+        {
+            // Wait for synchronized start
+            while (!start.load(std::memory_order_acquire))
+                std::this_thread::yield();
+
+            std::mt19937 rng(static_cast<unsigned>(t * 12345));
+
+            for (size_t i = 0; i < OPS_PER_THREAD; ++i)
+            {
+                // Generate overlapping cell coordinates to maximize contention
+                uint32_t x = rng() % CELL_RANGE;
+                uint32_t y = rng() % CELL_RANGE;
+
+                // This is the potential race point
+                CellActor* cell = mgr->GetOrCreateCellActor(x, y);
+
+                // Cell should always be valid
+                EXPECT_NE(cell, nullptr) << "GetOrCreateCellActor returned null for (" << x << "," << y << ")";
+
+                completedOps.fetch_add(1, std::memory_order_relaxed);
+            }
+        });
+    }
+
+    // Start all threads simultaneously
+    start.store(true, std::memory_order_release);
+
+    // Wait for all threads
+    for (auto& t : threads)
+        t.join();
+
+    // Verify all operations completed
+    EXPECT_EQ(completedOps.load(), NUM_THREADS * OPS_PER_THREAD);
+
+    // Verify cells are accessible and consistent
+    size_t cellCount = 0;
+    for (uint32_t x = 0; x < CELL_RANGE; ++x)
+    {
+        for (uint32_t y = 0; y < CELL_RANGE; ++y)
+        {
+            CellActor* cell = mgr->GetCellActor(x, y);
+            if (cell)
+                ++cellCount;
+        }
+    }
+
+    // At least some cells should have been created
+    EXPECT_GT(cellCount, 0u) << "No cells were created";
+}
+
+/**
+ * Benchmark test for GetOrCreateCellActor performance
+ * Measures ns/op for O(1) pre-allocated cell access
+ */
+TEST_F(GhostActorRaceTest, BenchmarkCellAccess)
+{
+    auto map = std::make_unique<TestMap>(0, 0);
+    auto* mgr = map->GetCellActorManager();
+    ASSERT_NE(mgr, nullptr);
+
+    constexpr size_t NUM_THREADS = 8;
+    constexpr size_t OPS_PER_THREAD = 100000;  // 100K ops per thread
+
+    std::atomic<bool> start{false};
+    std::vector<std::thread> threads;
+
+    for (size_t t = 0; t < NUM_THREADS; ++t)
+    {
+        threads.emplace_back([&, t]()
+        {
+            while (!start.load(std::memory_order_acquire))
+                std::this_thread::yield();
+
+            std::mt19937 rng(static_cast<unsigned>(t * 12345));
+            for (size_t i = 0; i < OPS_PER_THREAD; ++i)
+            {
+                uint32_t x = rng() % 512;
+                uint32_t y = rng() % 512;
+                volatile CellActor* cell = mgr->GetOrCreateCellActor(x, y);
+                (void)cell;
+            }
+        });
+    }
+
+    auto startTime = std::chrono::high_resolution_clock::now();
+    start.store(true, std::memory_order_release);
+    for (auto& t : threads)
+        t.join();
+    auto endTime = std::chrono::high_resolution_clock::now();
+
+    auto durationNs = std::chrono::duration_cast<std::chrono::nanoseconds>(endTime - startTime).count();
+    double nsPerOp = static_cast<double>(durationNs) / (NUM_THREADS * OPS_PER_THREAD);
+
+    std::cout << "\n=== BenchmarkCellAccess Results ===\n";
+    std::cout << "Total operations: " << (NUM_THREADS * OPS_PER_THREAD) << "\n";
+    std::cout << "Total time: " << (durationNs / 1000000.0) << " ms\n";
+    std::cout << "GetOrCreateCellActor: " << nsPerOp << " ns/op\n";
+    std::cout << "===================================\n";
+
+    // Pre-allocated O(1) access should be under 100ns per op
+    EXPECT_LT(nsPerOp, 100.0) << "Cell access slower than expected";
 }
