@@ -288,6 +288,34 @@ inline std::shared_ptr<KnockbackPayload> MakeKnockbackPayload(uint64_t caster, u
     return payload;
 }
 
+inline std::shared_ptr<CombatResultPayload> MakeCombatResultPayload(uint64_t attacker, uint64_t victim,
+    uint32_t spellId, uint8_t resultType, int32_t blockedAmount = 0, int32_t absorbedAmount = 0,
+    uint32_t procEx = 0)
+{
+    auto payload = std::make_shared<CombatResultPayload>();
+    payload->attackerGuid = attacker;
+    payload->victimGuid = victim;
+    payload->spellId = spellId;
+    payload->resultType = resultType;
+    payload->blockedAmount = blockedAmount;
+    payload->absorbedAmount = absorbedAmount;
+    payload->procEx = procEx;
+    return payload;
+}
+
+inline std::shared_ptr<SpellCastPayload> MakeSpellCastPayload(uint64_t caster, uint64_t target,
+    uint32_t spellId, int32_t castTime = 0, uint8_t failReason = 0, uint32_t schoolMask = 0)
+{
+    auto payload = std::make_shared<SpellCastPayload>();
+    payload->casterGuid = caster;
+    payload->targetGuid = target;
+    payload->spellId = spellId;
+    payload->castTime = castTime;
+    payload->failReason = failReason;
+    payload->schoolMask = schoolMask;
+    return payload;
+}
+
 // Initialize script registries required for object construction and map destruction
 inline void EnsureCellActorTestScriptsInitialized()
 {

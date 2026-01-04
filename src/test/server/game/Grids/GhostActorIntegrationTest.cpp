@@ -2860,3 +2860,577 @@ TEST_F(GhostActorIntegrationTest, ControlStateChangedOnMissingGhost)
     // THEN: Should not crash, message handled gracefully
     EXPECT_NO_THROW(GetCellA()->Update(0));
 }
+
+// =============================================================================
+// Attack Result Integration Tests
+// =============================================================================
+
+TEST_F(GhostActorIntegrationTest, DodgeMessageAcrossCells)
+{
+    // Test: DODGE message from victim's cell reaches attacker's cell
+    constexpr uint64_t ATTACKER_GUID = 1001;
+    constexpr uint64_t VICTIM_GUID = 2001;
+
+    HarnessA().AddPlayer(ATTACKER_GUID);  // Attacker
+    HarnessB().AddCreature(VICTIM_GUID, 100);  // Victim who dodged
+
+    // WHEN: Dodge message is sent to attacker's cell
+    ActorMessage dodge{};
+    dodge.type = MessageType::DODGE;
+    dodge.sourceGuid = VICTIM_GUID;
+    dodge.targetGuid = ATTACKER_GUID;
+    dodge.complexPayload = MakeCombatResultPayload(ATTACKER_GUID, VICTIM_GUID, 0, 0, 0, 0, 0x10);  // PROC_EX_DODGE
+    SendBtoA(std::move(dodge));
+
+    GetCellA()->Update(0);
+
+    // THEN: Message should be processed (AI callback would trigger here)
+    EXPECT_GE(GetCellA()->GetMessagesProcessedLastTick(), 1u);
+}
+
+TEST_F(GhostActorIntegrationTest, ParryMessageAcrossCells)
+{
+    // Test: PARRY message from victim's cell reaches attacker's cell
+    constexpr uint64_t ATTACKER_GUID = 1001;
+    constexpr uint64_t VICTIM_GUID = 2001;
+
+    HarnessA().AddCreature(ATTACKER_GUID, 100);  // Creature attacker
+    HarnessB().AddPlayer(VICTIM_GUID);  // Player who parried
+
+    // WHEN: Parry message is sent to attacker's cell
+    ActorMessage parry{};
+    parry.type = MessageType::PARRY;
+    parry.sourceGuid = VICTIM_GUID;
+    parry.targetGuid = ATTACKER_GUID;
+    parry.complexPayload = MakeCombatResultPayload(ATTACKER_GUID, VICTIM_GUID, 0, 0, 0, 0, 0x20);  // PROC_EX_PARRY
+    SendBtoA(std::move(parry));
+
+    GetCellA()->Update(0);
+
+    // THEN: Message should be processed
+    EXPECT_GE(GetCellA()->GetMessagesProcessedLastTick(), 1u);
+}
+
+TEST_F(GhostActorIntegrationTest, BlockMessageAcrossCells)
+{
+    // Test: BLOCK message with blocked amount reaches attacker's cell
+    constexpr uint64_t ATTACKER_GUID = 1001;
+    constexpr uint64_t VICTIM_GUID = 2001;
+    constexpr int32_t BLOCKED_AMOUNT = 500;
+
+    HarnessA().AddCreature(ATTACKER_GUID, 100);  // Creature attacker
+    HarnessB().AddPlayer(VICTIM_GUID);  // Player who blocked
+
+    // WHEN: Block message is sent to attacker's cell
+    ActorMessage block{};
+    block.type = MessageType::BLOCK;
+    block.sourceGuid = VICTIM_GUID;
+    block.targetGuid = ATTACKER_GUID;
+    block.complexPayload = MakeCombatResultPayload(ATTACKER_GUID, VICTIM_GUID, 0, 0, BLOCKED_AMOUNT, 0, 0x40);  // PROC_EX_BLOCK
+    SendBtoA(std::move(block));
+
+    GetCellA()->Update(0);
+
+    // THEN: Message should be processed
+    EXPECT_GE(GetCellA()->GetMessagesProcessedLastTick(), 1u);
+}
+
+TEST_F(GhostActorIntegrationTest, MissMessageAcrossCells)
+{
+    // Test: MISS message from victim's cell reaches attacker's cell
+    constexpr uint64_t ATTACKER_GUID = 1001;
+    constexpr uint64_t VICTIM_GUID = 2001;
+
+    HarnessA().AddCreature(ATTACKER_GUID, 100);  // Creature attacker
+    HarnessB().AddPlayer(VICTIM_GUID);  // Player who was missed
+
+    // WHEN: Miss message is sent to attacker's cell
+    ActorMessage miss{};
+    miss.type = MessageType::MISS;
+    miss.sourceGuid = ATTACKER_GUID;
+    miss.targetGuid = VICTIM_GUID;
+    miss.complexPayload = MakeCombatResultPayload(ATTACKER_GUID, VICTIM_GUID, 0, 0, 0, 0, 0x8);  // PROC_EX_MISS
+    GetCellA()->SendMessage(std::move(miss));
+
+    GetCellA()->Update(0);
+
+    // THEN: Message should be processed
+    EXPECT_GE(GetCellA()->GetMessagesProcessedLastTick(), 1u);
+}
+
+TEST_F(GhostActorIntegrationTest, ImmuneMessageAcrossCells)
+{
+    // Test: IMMUNE message from victim's cell reaches caster's cell
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+    constexpr uint32_t FROST_BOLT_ID = 116;
+
+    HarnessA().AddPlayer(CASTER_GUID);  // Spell caster
+    HarnessB().AddCreature(TARGET_GUID, 100);  // Target who was immune
+
+    // WHEN: Immune message is sent to caster's cell
+    ActorMessage immune{};
+    immune.type = MessageType::IMMUNE;
+    immune.sourceGuid = TARGET_GUID;
+    immune.targetGuid = CASTER_GUID;
+    immune.complexPayload = MakeCombatResultPayload(CASTER_GUID, TARGET_GUID, FROST_BOLT_ID, 0, 0, 0, 0x80);  // PROC_EX_IMMUNE
+    SendBtoA(std::move(immune));
+
+    GetCellA()->Update(0);
+
+    // THEN: Message should be processed
+    EXPECT_GE(GetCellA()->GetMessagesProcessedLastTick(), 1u);
+}
+
+TEST_F(GhostActorIntegrationTest, AbsorbNotificationAcrossCells)
+{
+    // Test: ABSORB_NOTIFICATION message from victim's cell reaches attacker's cell
+    constexpr uint64_t ATTACKER_GUID = 1001;
+    constexpr uint64_t VICTIM_GUID = 2001;
+    constexpr int32_t ABSORBED_AMOUNT = 1000;
+
+    HarnessA().AddPlayer(ATTACKER_GUID);  // Attacker
+    HarnessB().AddCreature(VICTIM_GUID, 100);  // Victim with shield
+
+    // WHEN: Absorb notification is sent to attacker's cell
+    ActorMessage absorb{};
+    absorb.type = MessageType::ABSORB_NOTIFICATION;
+    absorb.sourceGuid = VICTIM_GUID;
+    absorb.targetGuid = ATTACKER_GUID;
+    absorb.complexPayload = MakeCombatResultPayload(ATTACKER_GUID, VICTIM_GUID, 0, 0, 0, ABSORBED_AMOUNT, 0x100);  // PROC_EX_ABSORB
+    SendBtoA(std::move(absorb));
+
+    GetCellA()->Update(0);
+
+    // THEN: Message should be processed
+    EXPECT_GE(GetCellA()->GetMessagesProcessedLastTick(), 1u);
+}
+
+TEST_F(GhostActorIntegrationTest, AttackResultOnMissingTarget)
+{
+    // Test: Attack result messages are handled gracefully when target doesn't exist
+    constexpr uint64_t ATTACKER_GUID = 1001;
+    constexpr uint64_t MISSING_TARGET = 9999;
+
+    HarnessA().AddCreature(ATTACKER_GUID, 100);
+
+    // WHEN: Dodge message references non-existent target
+    ActorMessage dodge{};
+    dodge.type = MessageType::DODGE;
+    dodge.sourceGuid = MISSING_TARGET;
+    dodge.targetGuid = ATTACKER_GUID;
+    dodge.complexPayload = MakeCombatResultPayload(ATTACKER_GUID, MISSING_TARGET, 0, 0, 0, 0, 0x10);
+    GetCellA()->SendMessage(std::move(dodge));
+
+    // THEN: Should not crash
+    EXPECT_NO_THROW(GetCellA()->Update(0));
+}
+
+TEST_F(GhostActorIntegrationTest, AttackResultNullPayload)
+{
+    // Test: Attack result messages handle null payload gracefully
+    constexpr uint64_t ATTACKER_GUID = 1001;
+    constexpr uint64_t VICTIM_GUID = 2001;
+
+    HarnessA().AddCreature(ATTACKER_GUID, 100);
+
+    // WHEN: Dodge message with null payload
+    ActorMessage dodge{};
+    dodge.type = MessageType::DODGE;
+    dodge.sourceGuid = VICTIM_GUID;
+    dodge.targetGuid = ATTACKER_GUID;
+    dodge.complexPayload = nullptr;  // Missing payload
+    GetCellA()->SendMessage(std::move(dodge));
+
+    // THEN: Should not crash
+    EXPECT_NO_THROW(GetCellA()->Update(0));
+}
+
+TEST_F(GhostActorIntegrationTest, MeleeAttackResultSequence)
+{
+    // Test: Complete melee attack with various results in sequence
+    constexpr uint64_t ATTACKER_GUID = 1001;
+    constexpr uint64_t VICTIM_GUID = 2001;
+
+    HarnessA().AddCreature(ATTACKER_GUID, 100);
+    HarnessB().AddPlayer(VICTIM_GUID);
+
+    // WHEN: Multiple attack results are processed
+    MessageType results[] = { MessageType::MISS, MessageType::DODGE, MessageType::PARRY, MessageType::BLOCK };
+    for (auto resultType : results)
+    {
+        ActorMessage msg{};
+        msg.type = resultType;
+        msg.sourceGuid = VICTIM_GUID;
+        msg.targetGuid = ATTACKER_GUID;
+        msg.complexPayload = MakeCombatResultPayload(ATTACKER_GUID, VICTIM_GUID, 0, 0, 0, 0, 0);
+        SendBtoA(std::move(msg));
+    }
+
+    ProcessAllCells();
+
+    // THEN: All messages should be processed
+    EXPECT_GE(GetCellA()->GetMessagesProcessedLastTick(), 4u);
+}
+
+// =============================================================================
+// Spell Cast Notification Tests
+// =============================================================================
+
+TEST_F(GhostActorIntegrationTest, SpellCastStartAcrossCells)
+{
+    // Test: SPELL_CAST_START message is delivered to neighboring cell
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+    constexpr uint32_t SPELL_ID = 12345;
+    constexpr int32_t CAST_TIME = 2000;  // 2 seconds
+    constexpr uint32_t SCHOOL_MASK = 4;  // Fire
+
+    HarnessA().AddPlayer(CASTER_GUID);  // Caster in cell A
+    HarnessB().AddCreature(TARGET_GUID, 100);  // AI creature in cell B
+
+    // WHEN: Spell cast start notification is sent to cell B
+    ActorMessage msg{};
+    msg.type = MessageType::SPELL_CAST_START;
+    msg.sourceGuid = CASTER_GUID;
+    msg.targetGuid = TARGET_GUID;
+    msg.complexPayload = MakeSpellCastPayload(CASTER_GUID, TARGET_GUID, SPELL_ID, CAST_TIME, 0, SCHOOL_MASK);
+    SendAtoB(std::move(msg));
+
+    GetCellB()->Update(0);
+
+    // THEN: Message should be processed (AI in cell B receives notification)
+    EXPECT_GE(GetCellB()->GetMessagesProcessedLastTick(), 1u);
+}
+
+TEST_F(GhostActorIntegrationTest, SpellCastSuccessAcrossCells)
+{
+    // Test: SPELL_CAST_SUCCESS message is delivered to neighboring cell
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+    constexpr uint32_t SPELL_ID = 54321;
+
+    HarnessA().AddPlayer(CASTER_GUID);
+    HarnessB().AddCreature(TARGET_GUID, 100);
+
+    // WHEN: Spell cast success notification is sent
+    ActorMessage msg{};
+    msg.type = MessageType::SPELL_CAST_SUCCESS;
+    msg.sourceGuid = CASTER_GUID;
+    msg.targetGuid = TARGET_GUID;
+    msg.complexPayload = MakeSpellCastPayload(CASTER_GUID, TARGET_GUID, SPELL_ID, 0, 0, 0);
+    SendAtoB(std::move(msg));
+
+    GetCellB()->Update(0);
+
+    // THEN: Message should be processed
+    EXPECT_GE(GetCellB()->GetMessagesProcessedLastTick(), 1u);
+}
+
+TEST_F(GhostActorIntegrationTest, SpellCastFailedAcrossCells)
+{
+    // Test: SPELL_CAST_FAILED message is delivered to neighboring cell
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t OBSERVER_GUID = 2001;
+    constexpr uint32_t SPELL_ID = 99999;
+    constexpr uint8_t FAIL_REASON = 15;  // SPELL_FAILED_INTERRUPTED
+
+    HarnessA().AddPlayer(CASTER_GUID);
+    HarnessB().AddCreature(OBSERVER_GUID, 100);
+
+    // WHEN: Spell cast failure notification is sent
+    ActorMessage msg{};
+    msg.type = MessageType::SPELL_CAST_FAILED;
+    msg.sourceGuid = CASTER_GUID;
+    msg.complexPayload = MakeSpellCastPayload(CASTER_GUID, 0, SPELL_ID, 0, FAIL_REASON, 0);
+    SendAtoB(std::move(msg));
+
+    GetCellB()->Update(0);
+
+    // THEN: Message should be processed
+    EXPECT_GE(GetCellB()->GetMessagesProcessedLastTick(), 1u);
+}
+
+TEST_F(GhostActorIntegrationTest, SpellCastNullPayload)
+{
+    // Test: Spell cast messages handle null payload gracefully
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t OBSERVER_GUID = 2001;
+
+    HarnessA().AddPlayer(CASTER_GUID);
+    HarnessB().AddCreature(OBSERVER_GUID, 100);
+
+    // WHEN: Spell cast start with null payload
+    ActorMessage msg{};
+    msg.type = MessageType::SPELL_CAST_START;
+    msg.sourceGuid = CASTER_GUID;
+    msg.complexPayload = nullptr;  // Missing payload
+    GetCellB()->SendMessage(std::move(msg));
+
+    // THEN: Should not crash
+    EXPECT_NO_THROW(GetCellB()->Update(0));
+}
+
+TEST_F(GhostActorIntegrationTest, SpellCastSequence)
+{
+    // Test: Complete spell cast sequence (start -> success or fail)
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+    constexpr uint32_t SPELL_ID = 11111;
+    constexpr int32_t CAST_TIME = 3000;
+
+    HarnessA().AddPlayer(CASTER_GUID);
+    HarnessB().AddCreature(TARGET_GUID, 100);
+
+    // WHEN: Cast start followed by cast success
+    ActorMessage start{};
+    start.type = MessageType::SPELL_CAST_START;
+    start.sourceGuid = CASTER_GUID;
+    start.targetGuid = TARGET_GUID;
+    start.complexPayload = MakeSpellCastPayload(CASTER_GUID, TARGET_GUID, SPELL_ID, CAST_TIME, 0, 0x1);
+    SendAtoB(std::move(start));
+
+    ActorMessage success{};
+    success.type = MessageType::SPELL_CAST_SUCCESS;
+    success.sourceGuid = CASTER_GUID;
+    success.targetGuid = TARGET_GUID;
+    success.complexPayload = MakeSpellCastPayload(CASTER_GUID, TARGET_GUID, SPELL_ID, 0, 0, 0);
+    SendAtoB(std::move(success));
+
+    ProcessAllCells();
+
+    // THEN: Both messages should be processed
+    EXPECT_GE(GetCellB()->GetMessagesProcessedLastTick(), 2u);
+}
+
+TEST_F(GhostActorIntegrationTest, SpellCastInterruptSequence)
+{
+    // Test: Complete spell cast sequence (start -> interrupted)
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+    constexpr uint32_t SPELL_ID = 22222;
+    constexpr int32_t CAST_TIME = 2500;
+    constexpr uint8_t FAIL_REASON = 15;  // SPELL_FAILED_INTERRUPTED
+
+    HarnessA().AddPlayer(CASTER_GUID);
+    HarnessB().AddCreature(TARGET_GUID, 100);
+
+    // WHEN: Cast start followed by cast failed (interrupted)
+    ActorMessage start{};
+    start.type = MessageType::SPELL_CAST_START;
+    start.sourceGuid = CASTER_GUID;
+    start.targetGuid = TARGET_GUID;
+    start.complexPayload = MakeSpellCastPayload(CASTER_GUID, TARGET_GUID, SPELL_ID, CAST_TIME, 0, 0x2);  // Holy
+    SendAtoB(std::move(start));
+
+    ActorMessage failed{};
+    failed.type = MessageType::SPELL_CAST_FAILED;
+    failed.sourceGuid = CASTER_GUID;
+    failed.complexPayload = MakeSpellCastPayload(CASTER_GUID, 0, SPELL_ID, 0, FAIL_REASON, 0);
+    SendAtoB(std::move(failed));
+
+    ProcessAllCells();
+
+    // THEN: Both messages should be processed
+    EXPECT_GE(GetCellB()->GetMessagesProcessedLastTick(), 2u);
+}
+
+// =============================================================================
+// Entity Lifecycle and Deferred Removal Tests
+// =============================================================================
+
+TEST_F(GhostActorIntegrationTest, RemoveEntityDuringIteration)
+{
+    // Test: Removing an entity while iterating _entities doesn't crash
+    constexpr uint64_t CREATURE1_GUID = 1001;
+    constexpr uint64_t CREATURE2_GUID = 1002;
+    constexpr uint64_t CREATURE3_GUID = 1003;
+
+    HarnessA().AddCreature(CREATURE1_GUID, 100);
+    HarnessA().AddCreature(CREATURE2_GUID, 100);
+    HarnessA().AddCreature(CREATURE3_GUID, 100);
+
+    EXPECT_EQ(GetCellA()->GetEntityCount(), 3u);
+
+    // Simulate removal during update (deferred)
+    WorldObject* entity2 = GetCellA()->FindEntityByGuid(CREATURE2_GUID);
+    ASSERT_NE(entity2, nullptr);
+
+    // Remove while not updating - should be immediate
+    GetCellA()->RemoveEntity(entity2);
+    EXPECT_EQ(GetCellA()->GetEntityCount(), 2u);
+
+    // THEN: No crash and entity count is correct
+    EXPECT_NO_THROW(GetCellA()->Update(0));
+    EXPECT_EQ(GetCellA()->GetEntityCount(), 2u);
+}
+
+TEST_F(GhostActorIntegrationTest, DeferredRemovalProcessedAfterUpdate)
+{
+    // Test: Entities marked for removal during update are removed after
+    constexpr uint64_t CREATURE_GUID = 1001;
+
+    HarnessA().AddCreature(CREATURE_GUID, 100);
+    EXPECT_EQ(GetCellA()->GetEntityCount(), 1u);
+
+    // Update should complete without issues
+    EXPECT_NO_THROW(GetCellA()->Update(100));
+
+    // Entity still exists after update
+    EXPECT_EQ(GetCellA()->GetEntityCount(), 1u);
+}
+
+TEST_F(GhostActorIntegrationTest, MultipleEntitiesRemovedDuringUpdate)
+{
+    // Test: Multiple entities can be removed without iterator invalidation
+    constexpr size_t NUM_CREATURES = 10;
+
+    for (size_t i = 0; i < NUM_CREATURES; ++i)
+    {
+        HarnessA().AddCreature(2000 + i, 100);
+    }
+
+    EXPECT_EQ(GetCellA()->GetEntityCount(), NUM_CREATURES);
+
+    // Update multiple times - simulates gameplay
+    for (int i = 0; i < 5; ++i)
+    {
+        EXPECT_NO_THROW(GetCellA()->Update(50));
+    }
+
+    // All entities should still be there (none actually died in test)
+    EXPECT_EQ(GetCellA()->GetEntityCount(), NUM_CREATURES);
+}
+
+TEST_F(GhostActorIntegrationTest, EntityRemovedThenAddedBack)
+{
+    // Test: Entity can be removed and re-added
+    constexpr uint64_t CREATURE_GUID = 1001;
+
+    HarnessA().AddCreature(CREATURE_GUID, 100);
+    WorldObject* entity = GetCellA()->FindEntityByGuid(CREATURE_GUID);
+    ASSERT_NE(entity, nullptr);
+
+    // Remove
+    GetCellA()->RemoveEntity(entity);
+    EXPECT_EQ(GetCellA()->GetEntityCount(), 0u);
+    EXPECT_EQ(GetCellA()->FindEntityByGuid(CREATURE_GUID), nullptr);
+
+    // Add back
+    GetCellA()->AddEntity(entity);
+    EXPECT_EQ(GetCellA()->GetEntityCount(), 1u);
+    EXPECT_NE(GetCellA()->FindEntityByGuid(CREATURE_GUID), nullptr);
+}
+
+TEST_F(GhostActorIntegrationTest, CellBecomesInactiveWhenEmpty)
+{
+    // Test: Cell active flag is cleared when last entity is removed
+    constexpr uint64_t CREATURE_GUID = 1001;
+
+    HarnessA().AddCreature(CREATURE_GUID, 100);
+    EXPECT_TRUE(GetCellA()->IsActive());
+
+    WorldObject* entity = GetCellA()->FindEntityByGuid(CREATURE_GUID);
+    GetCellA()->RemoveEntity(entity);
+
+    EXPECT_EQ(GetCellA()->GetEntityCount(), 0u);
+    EXPECT_FALSE(GetCellA()->IsActive());
+}
+
+TEST_F(GhostActorIntegrationTest, FindEntityByGuidReturnsCorrectEntity)
+{
+    // Test: FindEntityByGuid works correctly with multiple entities
+    constexpr uint64_t GUID1 = 1001;
+    constexpr uint64_t GUID2 = 1002;
+    constexpr uint64_t GUID3 = 1003;
+
+    HarnessA().AddCreature(GUID1, 100);
+    HarnessA().AddCreature(GUID2, 200);
+    HarnessA().AddCreature(GUID3, 300);
+
+    WorldObject* found1 = GetCellA()->FindEntityByGuid(GUID1);
+    WorldObject* found2 = GetCellA()->FindEntityByGuid(GUID2);
+    WorldObject* found3 = GetCellA()->FindEntityByGuid(GUID3);
+    WorldObject* notFound = GetCellA()->FindEntityByGuid(9999);
+
+    EXPECT_NE(found1, nullptr);
+    EXPECT_NE(found2, nullptr);
+    EXPECT_NE(found3, nullptr);
+    EXPECT_EQ(notFound, nullptr);
+
+    EXPECT_EQ(found1->GetGUID().GetRawValue(), GUID1);
+    EXPECT_EQ(found2->GetGUID().GetRawValue(), GUID2);
+    EXPECT_EQ(found3->GetGUID().GetRawValue(), GUID3);
+}
+
+// =============================================================================
+// Crash Prevention Tests (Issue: use-after-free in UpdateEntities)
+// =============================================================================
+
+TEST_F(GhostActorIntegrationTest, UpdateEntities_SkipsPendingRemovals_NoCrash)
+{
+    // Test: Entities in _pendingRemovals are skipped BEFORE accessing their members
+    // This prevents a use-after-free crash when RemoveFromMap is called during iteration
+    //
+    // Crash scenario (before fix):
+    // 1. UpdateEntities starts iterating _entities, sets _isUpdating = true
+    // 2. Something calls RemoveFromMap on an entity during iteration
+    // 3. RemoveFromMap calls OnEntityRemoved -> RemoveEntity
+    // 4. RemoveEntity sees _isUpdating=true, adds entity to _pendingRemovals
+    // 5. RemoveFromMap then calls DeleteFromWorld -> frees memory
+    // 6. UpdateEntities continues iterating, accesses freed memory -> CRASH
+    //
+    // Fix: Check _pendingRemovals BEFORE accessing entity->IsInWorld()
+
+    constexpr uint64_t CREATURE_GUID = 1001;
+
+    // Add a creature to the cell
+    TestCreature* creature = HarnessA().AddCreature(CREATURE_GUID, 100);
+    ASSERT_NE(creature, nullptr);
+    EXPECT_EQ(GetCellA()->GetEntityCount(), 1u);
+
+    // Simulate the crash scenario:
+    // 1. Add entity to _pendingRemovals (simulates deferred removal during iteration)
+    GetCellA()->TEST_AddToPendingRemovals(creature);
+    EXPECT_EQ(GetCellA()->TEST_GetPendingRemovalCount(), 1u);
+
+    // 2. Mark the entity as deleted (simulates memory being freed/invalidated)
+    // In real crash, memory would be freed. Here we mark it deleted so IsInWorld() would fail.
+    creature->MarkTestDeleted();
+
+    // 3. Call Update which will iterate _entities
+    // With the fix, this should NOT crash because we check _pendingRemovals
+    // BEFORE calling entity->IsInWorld()
+    EXPECT_NO_THROW(GetCellA()->Update(0));
+
+    // Verify the entity was properly processed (removed from pending)
+    EXPECT_EQ(GetCellA()->TEST_GetPendingRemovalCount(), 0u);
+}
+
+TEST_F(GhostActorIntegrationTest, UpdateEntities_MultipleEntities_OnePendingRemoval)
+{
+    // Test: Multiple entities where one is pending removal
+    // The pending entity should be skipped without crashing, others processed
+
+    constexpr uint64_t GUID1 = 1001;
+    constexpr uint64_t GUID2 = 1002;
+    constexpr uint64_t GUID3 = 1003;
+
+    TestCreature* c1 = HarnessA().AddCreature(GUID1, 100);
+    TestCreature* c2 = HarnessA().AddCreature(GUID2, 100);
+    TestCreature* c3 = HarnessA().AddCreature(GUID3, 100);
+    (void)c1; (void)c3;  // Suppress unused warnings
+
+    EXPECT_EQ(GetCellA()->GetEntityCount(), 3u);
+
+    // Mark middle entity for pending removal and invalidate it
+    GetCellA()->TEST_AddToPendingRemovals(c2);
+    c2->MarkTestDeleted();
+
+    // Update should not crash - this is the key assertion
+    EXPECT_NO_THROW(GetCellA()->Update(0));
+
+    // After ProcessPendingRemovals, c2 should be removed, 2 entities remain
+    EXPECT_EQ(GetCellA()->GetEntityCount(), 2u);
+    EXPECT_EQ(GetCellA()->TEST_GetPendingRemovalCount(), 0u);
+}

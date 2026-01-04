@@ -1237,68 +1237,203 @@ void CellActor::HandleMessage(ActorMessage& msg)
 
         // =====================================================================
         // Combat Feedback
-        // TODO: Implement for proc triggers and AI reactions
+        // These messages notify about attack results for procs and AI reactions
         // =====================================================================
         case MessageType::DODGE:
         {
-            // TODO: Handle dodge notification
-            // - Trigger PROC_FLAG_DODGE for victim
-            // - Trigger procs like Overpower for attacker
-            // - AI may react to dodges
-            [[maybe_unused]] auto* payload = static_cast<CombatResultPayload*>(msg.complexPayload.get());
-            LOG_DEBUG("ghostactor", "DODGE: {} dodged attack from {} [NOT IMPLEMENTED]",
-                msg.targetGuid, msg.sourceGuid);
+            auto* payload = static_cast<CombatResultPayload*>(msg.complexPayload.get());
+            if (!payload)
+            {
+                LOG_DEBUG("ghostactor", "DODGE: missing payload");
+                break;
+            }
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: DODGE attacker={} victim={} spell={}",
+                _cellId, payload->attackerGuid, payload->victimGuid, payload->spellId);
+
+            // Find the attacker - they need to know for procs like Overpower
+            WorldObject* attackerObj = FindEntityByGuid(payload->attackerGuid);
+            Unit* attacker = attackerObj ? attackerObj->ToUnit() : nullptr;
+
+            if (attacker && attacker->IsAlive() && attacker->IsInWorld())
+            {
+                // Notify creature AI that their attack was dodged
+                if (Creature* creature = attacker->ToCreature())
+                {
+                    if (creature->IsAIEnabled && creature->AI())
+                        creature->AI()->AttackDodged(ObjectGuid(payload->victimGuid));
+                }
+
+                LOG_DEBUG("ghostactor", "CellActor[{}]: DODGE notified attacker {}",
+                    _cellId, payload->attackerGuid);
+            }
             break;
         }
 
         case MessageType::PARRY:
         {
-            // TODO: Handle parry notification
-            // - Trigger PROC_FLAG_PARRY for victim
-            // - May trigger parry-haste on creatures
-            [[maybe_unused]] auto* payload = static_cast<CombatResultPayload*>(msg.complexPayload.get());
-            LOG_DEBUG("ghostactor", "PARRY: {} parried attack from {} [NOT IMPLEMENTED]",
-                msg.targetGuid, msg.sourceGuid);
+            auto* payload = static_cast<CombatResultPayload*>(msg.complexPayload.get());
+            if (!payload)
+            {
+                LOG_DEBUG("ghostactor", "PARRY: missing payload");
+                break;
+            }
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: PARRY attacker={} victim={} spell={}",
+                _cellId, payload->attackerGuid, payload->victimGuid, payload->spellId);
+
+            // Find attacker for parry notification
+            WorldObject* attackerObj = FindEntityByGuid(payload->attackerGuid);
+            Unit* attacker = attackerObj ? attackerObj->ToUnit() : nullptr;
+
+            if (attacker && attacker->IsAlive() && attacker->IsInWorld())
+            {
+                // Notify creature AI that their attack was parried
+                if (Creature* creature = attacker->ToCreature())
+                {
+                    if (creature->IsAIEnabled && creature->AI())
+                        creature->AI()->AttackParried(ObjectGuid(payload->victimGuid));
+                }
+
+                LOG_DEBUG("ghostactor", "CellActor[{}]: PARRY notified attacker {}",
+                    _cellId, payload->attackerGuid);
+            }
+
+            // Find victim for parry-haste (creatures attack faster after parrying)
+            WorldObject* victimObj = FindEntityByGuid(payload->victimGuid);
+            Unit* victim = victimObj ? victimObj->ToUnit() : nullptr;
+
+            if (victim && victim->IsAlive() && victim->IsInWorld())
+            {
+                // Parry haste is handled in DealMeleeDamage normally
+                // For cross-cell, we just notify - the actual haste was applied locally
+                LOG_DEBUG("ghostactor", "CellActor[{}]: PARRY victim {} notified",
+                    _cellId, payload->victimGuid);
+            }
             break;
         }
 
         case MessageType::BLOCK:
         {
-            // TODO: Handle block notification
-            // - Trigger PROC_FLAG_BLOCK for victim
-            // - Include blocked amount for partial blocks
             auto* payload = static_cast<CombatResultPayload*>(msg.complexPayload.get());
-            LOG_DEBUG("ghostactor", "BLOCK: {} blocked {} damage [NOT IMPLEMENTED]",
-                msg.targetGuid, payload ? payload->blockedAmount : 0);
+            if (!payload)
+            {
+                LOG_DEBUG("ghostactor", "BLOCK: missing payload");
+                break;
+            }
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: BLOCK attacker={} victim={} blocked={}",
+                _cellId, payload->attackerGuid, payload->victimGuid, payload->blockedAmount);
+
+            // Find attacker for block notification
+            WorldObject* attackerObj = FindEntityByGuid(payload->attackerGuid);
+            Unit* attacker = attackerObj ? attackerObj->ToUnit() : nullptr;
+
+            if (attacker && attacker->IsAlive() && attacker->IsInWorld())
+            {
+                // Notify creature AI that their attack was blocked
+                if (Creature* creature = attacker->ToCreature())
+                {
+                    if (creature->IsAIEnabled && creature->AI())
+                        creature->AI()->AttackBlocked(ObjectGuid(payload->victimGuid), payload->blockedAmount);
+                }
+
+                LOG_DEBUG("ghostactor", "CellActor[{}]: BLOCK notified attacker {} (blocked {})",
+                    _cellId, payload->attackerGuid, payload->blockedAmount);
+            }
             break;
         }
 
         case MessageType::MISS:
         {
-            // TODO: Handle miss notification
-            // Mostly for combat log, minimal proc implications
-            LOG_DEBUG("ghostactor", "MISS: {} missed {} [NOT IMPLEMENTED]",
-                msg.sourceGuid, msg.targetGuid);
+            auto* payload = static_cast<CombatResultPayload*>(msg.complexPayload.get());
+            if (!payload)
+            {
+                LOG_DEBUG("ghostactor", "MISS: missing payload");
+                break;
+            }
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: MISS attacker={} victim={} spell={}",
+                _cellId, payload->attackerGuid, payload->victimGuid, payload->spellId);
+
+            // Find attacker for miss notification
+            WorldObject* attackerObj = FindEntityByGuid(payload->attackerGuid);
+            Unit* attacker = attackerObj ? attackerObj->ToUnit() : nullptr;
+
+            if (attacker && attacker->IsAlive() && attacker->IsInWorld())
+            {
+                // Notify creature AI that their attack missed
+                if (Creature* creature = attacker->ToCreature())
+                {
+                    if (creature->IsAIEnabled && creature->AI())
+                        creature->AI()->AttackMissed(ObjectGuid(payload->victimGuid));
+                }
+
+                LOG_DEBUG("ghostactor", "CellActor[{}]: MISS notified attacker {}",
+                    _cellId, payload->attackerGuid);
+            }
             break;
         }
 
         case MessageType::IMMUNE:
         {
-            // TODO: Handle immune notification
-            // Target was completely immune to the effect
             auto* payload = static_cast<CombatResultPayload*>(msg.complexPayload.get());
-            LOG_DEBUG("ghostactor", "IMMUNE: {} immune to spell {} [NOT IMPLEMENTED]",
-                msg.targetGuid, payload ? payload->spellId : 0);
+            if (!payload)
+            {
+                LOG_DEBUG("ghostactor", "IMMUNE: missing payload");
+                break;
+            }
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: IMMUNE attacker={} victim={} spell={}",
+                _cellId, payload->attackerGuid, payload->victimGuid, payload->spellId);
+
+            // Notify attacker that target was immune
+            WorldObject* attackerObj = FindEntityByGuid(payload->attackerGuid);
+            Unit* attacker = attackerObj ? attackerObj->ToUnit() : nullptr;
+
+            if (attacker && attacker->IsAlive() && attacker->IsInWorld())
+            {
+                // Notify creature AI about immunity
+                if (Creature* creature = attacker->ToCreature())
+                {
+                    if (creature->IsAIEnabled && creature->AI())
+                        creature->AI()->SpellImmune(ObjectGuid(payload->victimGuid), payload->spellId);
+                }
+
+                LOG_DEBUG("ghostactor", "CellActor[{}]: IMMUNE notified attacker {} for spell {}",
+                    _cellId, payload->attackerGuid, payload->spellId);
+            }
             break;
         }
 
         case MessageType::ABSORB_NOTIFICATION:
         {
-            // TODO: Handle absorb notification
-            // Damage was absorbed by a shield (Power Word: Shield, etc.)
             auto* payload = static_cast<CombatResultPayload*>(msg.complexPayload.get());
-            LOG_DEBUG("ghostactor", "ABSORB: {} absorbed {} damage [NOT IMPLEMENTED]",
-                msg.targetGuid, payload ? payload->absorbedAmount : 0);
+            if (!payload)
+            {
+                LOG_DEBUG("ghostactor", "ABSORB: missing payload");
+                break;
+            }
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: ABSORB attacker={} victim={} absorbed={}",
+                _cellId, payload->attackerGuid, payload->victimGuid, payload->absorbedAmount);
+
+            // Notify attacker that damage was absorbed
+            WorldObject* attackerObj = FindEntityByGuid(payload->attackerGuid);
+            Unit* attacker = attackerObj ? attackerObj->ToUnit() : nullptr;
+
+            if (attacker && attacker->IsAlive() && attacker->IsInWorld())
+            {
+                // Notify creature AI about absorbed damage
+                if (Creature* creature = attacker->ToCreature())
+                {
+                    if (creature->IsAIEnabled && creature->AI())
+                        creature->AI()->DamageAbsorbed(ObjectGuid(payload->victimGuid), payload->absorbedAmount);
+                }
+
+                LOG_DEBUG("ghostactor", "CellActor[{}]: ABSORB notified attacker {} (absorbed {})",
+                    _cellId, payload->attackerGuid, payload->absorbedAmount);
+            }
             break;
         }
 
@@ -1308,33 +1443,98 @@ void CellActor::HandleMessage(ActorMessage& msg)
         // =====================================================================
         case MessageType::SPELL_CAST_START:
         {
-            // TODO: Notify neighbors of cast start
-            // AI creatures may decide to interrupt based on:
-            // - Spell school (prioritize heals?)
-            // - Cast time (long casts more interruptible)
-            // - Spell danger level
             auto* payload = static_cast<SpellCastPayload*>(msg.complexPayload.get());
-            LOG_DEBUG("ghostactor", "SPELL_CAST_START: {} casting spell {} ({}ms) [NOT IMPLEMENTED]",
-                msg.sourceGuid, payload ? payload->spellId : 0, payload ? payload->castTime : 0);
+            if (!payload)
+            {
+                LOG_DEBUG("ghostactor", "SPELL_CAST_START: missing payload");
+                break;
+            }
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: SPELL_CAST_START caster={} spell={} castTime={}ms school={}",
+                _cellId, payload->casterGuid, payload->spellId, payload->castTime, payload->schoolMask);
+
+            // Notify all creature AIs in this cell about the nearby cast
+            // AI creatures may decide to interrupt based on spell school, cast time, danger level
+            ObjectGuid casterObjGuid(payload->casterGuid);
+            for (WorldObject* obj : _entities)
+            {
+                if (!obj || !obj->IsCreature())
+                    continue;
+
+                Creature* creature = obj->ToCreature();
+                if (!creature->IsAIEnabled || !creature->AI())
+                    continue;
+
+                // Don't notify the caster about their own cast
+                if (creature->GetGUID() == casterObjGuid)
+                    continue;
+
+                creature->AI()->OnNearbyCastStarted(casterObjGuid, payload->spellId,
+                    payload->castTime, payload->schoolMask);
+            }
             break;
         }
 
         case MessageType::SPELL_CAST_FAILED:
         {
-            // TODO: Notify that cast was interrupted/failed
             auto* payload = static_cast<SpellCastPayload*>(msg.complexPayload.get());
-            LOG_DEBUG("ghostactor", "SPELL_CAST_FAILED: {} spell {} reason {} [NOT IMPLEMENTED]",
-                msg.sourceGuid, payload ? payload->spellId : 0, payload ? payload->failReason : 0);
+            if (!payload)
+            {
+                LOG_DEBUG("ghostactor", "SPELL_CAST_FAILED: missing payload");
+                break;
+            }
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: SPELL_CAST_FAILED caster={} spell={} reason={}",
+                _cellId, payload->casterGuid, payload->spellId, payload->failReason);
+
+            // Notify creature AIs that a nearby cast was interrupted/failed
+            ObjectGuid casterObjGuid(payload->casterGuid);
+            for (WorldObject* obj : _entities)
+            {
+                if (!obj || !obj->IsCreature())
+                    continue;
+
+                Creature* creature = obj->ToCreature();
+                if (!creature->IsAIEnabled || !creature->AI())
+                    continue;
+
+                if (creature->GetGUID() == casterObjGuid)
+                    continue;
+
+                creature->AI()->OnNearbyCastFailed(casterObjGuid, payload->spellId, payload->failReason);
+            }
             break;
         }
 
         case MessageType::SPELL_CAST_SUCCESS:
         {
-            // TODO: Notify that cast completed
-            // Trigger on-cast procs for observers
             auto* payload = static_cast<SpellCastPayload*>(msg.complexPayload.get());
-            LOG_DEBUG("ghostactor", "SPELL_CAST_SUCCESS: {} completed spell {} [NOT IMPLEMENTED]",
-                msg.sourceGuid, payload ? payload->spellId : 0);
+            if (!payload)
+            {
+                LOG_DEBUG("ghostactor", "SPELL_CAST_SUCCESS: missing payload");
+                break;
+            }
+
+            LOG_DEBUG("ghostactor", "CellActor[{}]: SPELL_CAST_SUCCESS caster={} spell={}",
+                _cellId, payload->casterGuid, payload->spellId);
+
+            // Notify creature AIs that a nearby cast completed
+            // Can be used for reactive AI behaviors or on-cast procs
+            ObjectGuid casterObjGuid(payload->casterGuid);
+            for (WorldObject* obj : _entities)
+            {
+                if (!obj || !obj->IsCreature())
+                    continue;
+
+                Creature* creature = obj->ToCreature();
+                if (!creature->IsAIEnabled || !creature->AI())
+                    continue;
+
+                if (creature->GetGUID() == casterObjGuid)
+                    continue;
+
+                creature->AI()->OnNearbyCastSuccess(casterObjGuid, payload->spellId);
+            }
             break;
         }
 
@@ -1598,9 +1798,16 @@ void CellActor::UpdateEntities(uint32_t diff)
 {
     bool parallelUpdatesEnabled = sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED);
 
+    _isUpdating = true;
+
     for (WorldObject* entity : _entities)
     {
-        if (!entity || !entity->IsInWorld())
+        // Check pending removals FIRST - the memory may already be freed!
+        // Must do this before accessing any entity members.
+        if (!entity || std::find(_pendingRemovals.begin(), _pendingRemovals.end(), entity) != _pendingRemovals.end())
+            continue;
+
+        if (!entity->IsInWorld())
             continue;
 
         if (GameObject* go = entity->ToGameObject())
@@ -1629,6 +1836,9 @@ void CellActor::UpdateEntities(uint32_t diff)
                 player->UpdateParallel(diff);
         }
     }
+
+    _isUpdating = false;
+    ProcessPendingRemovals();
 }
 
 void CellActor::AddEntity(WorldObject* obj)
@@ -1645,6 +1855,13 @@ void CellActor::RemoveEntity(WorldObject* obj)
     if (!obj)
         return;
 
+    // Defer removal if we're currently iterating
+    if (_isUpdating)
+    {
+        _pendingRemovals.push_back(obj);
+        return;
+    }
+
     auto it = std::find(_entities.begin(), _entities.end(), obj);
     if (it != _entities.end())
     {
@@ -1656,6 +1873,23 @@ void CellActor::RemoveEntity(WorldObject* obj)
         if (_entities.empty())
             _isActive.store(false, std::memory_order_release);
     }
+}
+
+void CellActor::ProcessPendingRemovals()
+{
+    for (WorldObject* obj : _pendingRemovals)
+    {
+        auto it = std::find(_entities.begin(), _entities.end(), obj);
+        if (it != _entities.end())
+        {
+            std::swap(*it, _entities.back());
+            _entities.pop_back();
+        }
+    }
+    _pendingRemovals.clear();
+
+    if (_entities.empty())
+        _isActive.store(false, std::memory_order_release);
 }
 
 WorldObject* CellActor::FindEntityByGuid(uint64_t guid) const
@@ -2077,7 +2311,7 @@ void CellActorManager::UpdateEntityGhosts(WorldObject* obj)
             }
 
             uint32_t neighborCellId = GhostBoundary::GetNeighborCellId(homeCellId, dir);
-            CreateGhostInCell(neighborCellId, snapshot);
+            CreateGhostInCell(neighborCellId, snapshot, homeCellId);
             info.activeGhosts = info.activeGhosts | dir;
         }
         else if (!needsGhost && hasGhost)
@@ -2311,7 +2545,7 @@ void CellActorManager::BroadcastToGhosts(uint64_t guid, const ActorMessage& msg)
     }
 }
 
-void CellActorManager::CreateGhostInCell(uint32_t cellId, const GhostSnapshot& snapshot)
+void CellActorManager::CreateGhostInCell(uint32_t cellId, const GhostSnapshot& snapshot, uint32_t ownerCellId)
 {
     // Ensure target cell exists (ghosts need somewhere to live)
     uint32_t cellX, cellY;
@@ -2321,6 +2555,8 @@ void CellActorManager::CreateGhostInCell(uint32_t cellId, const GhostSnapshot& s
     ActorMessage msg;
     msg.type = MessageType::GHOST_CREATE;
     msg.sourceGuid = snapshot.guid;
+    msg.sourceCellId = ownerCellId;  // Where the real entity lives
+    msg.targetCellId = cellId;       // Where the ghost is being created
     msg.floatParam1 = snapshot.posX;
     msg.floatParam2 = snapshot.posY;
     msg.floatParam3 = snapshot.posZ;
@@ -3702,102 +3938,353 @@ void CellActorManager::SendPolymorphMessage(Unit* caster, Unit* target, uint32_t
 }
 
 // =============================================================================
-// Combat Feedback - STUBS
+// Combat Feedback
 // =============================================================================
 
 void CellActorManager::SendDodgeMessage(Unit* attacker, Unit* victim, uint32_t spellId)
 {
-    // TODO: Notify that attack was dodged
-    // Triggers PROC_FLAG_DODGE, may enable Overpower
     if (!attacker || !victim)
         return;
-    LOG_DEBUG("ghostactor", "SendDodgeMessage: NOT IMPLEMENTED");
-    (void)spellId;
+
+    // Phase check
+    if (!CanInteractCrossPhase(attacker, victim->GetGUID().GetRawValue()))
+        return;
+
+    uint32_t attackerCellId = GetCellIdForEntity(attacker);
+    uint32_t victimCellId = GetCellIdForEntity(victim);
+
+    // Same cell - handled directly through normal code paths
+    if (attackerCellId == victimCellId)
+    {
+        LOG_DEBUG("ghostactor", "SendDodgeMessage: same cell, handled directly");
+        return;
+    }
+
+    auto payload = std::make_shared<CombatResultPayload>();
+    payload->attackerGuid = attacker->GetGUID().GetRawValue();
+    payload->victimGuid = victim->GetGUID().GetRawValue();
+    payload->spellId = spellId;
+    payload->resultType = MELEE_HIT_DODGE;
+    payload->procEx = PROC_EX_DODGE;
+
+    ActorMessage msg{};
+    msg.type = MessageType::DODGE;
+    msg.sourceGuid = payload->victimGuid;  // Victim dodged
+    msg.targetGuid = payload->attackerGuid;  // Attacker needs to know
+    msg.sourceCellId = victimCellId;
+    msg.targetCellId = attackerCellId;
+    msg.complexPayload = payload;
+
+    LOG_DEBUG("ghostactor", "SendDodgeMessage: attacker={} victim={} spell={}",
+        payload->attackerGuid, payload->victimGuid, spellId);
+
+    // Send to attacker's cell so they can trigger procs like Overpower
+    SendMessage(attackerCellId, std::move(msg));
 }
 
 void CellActorManager::SendParryMessage(Unit* attacker, Unit* victim, uint32_t spellId)
 {
-    // TODO: Notify that attack was parried
-    // Triggers PROC_FLAG_PARRY, may trigger parry-haste on creatures
     if (!attacker || !victim)
         return;
-    LOG_DEBUG("ghostactor", "SendParryMessage: NOT IMPLEMENTED");
-    (void)spellId;
+
+    // Phase check
+    if (!CanInteractCrossPhase(attacker, victim->GetGUID().GetRawValue()))
+        return;
+
+    uint32_t attackerCellId = GetCellIdForEntity(attacker);
+    uint32_t victimCellId = GetCellIdForEntity(victim);
+
+    // Same cell - handled directly
+    if (attackerCellId == victimCellId)
+    {
+        LOG_DEBUG("ghostactor", "SendParryMessage: same cell, handled directly");
+        return;
+    }
+
+    auto payload = std::make_shared<CombatResultPayload>();
+    payload->attackerGuid = attacker->GetGUID().GetRawValue();
+    payload->victimGuid = victim->GetGUID().GetRawValue();
+    payload->spellId = spellId;
+    payload->resultType = MELEE_HIT_PARRY;
+    payload->procEx = PROC_EX_PARRY;
+
+    ActorMessage msg{};
+    msg.type = MessageType::PARRY;
+    msg.sourceGuid = payload->victimGuid;
+    msg.targetGuid = payload->attackerGuid;
+    msg.sourceCellId = victimCellId;
+    msg.targetCellId = attackerCellId;
+    msg.complexPayload = payload;
+
+    LOG_DEBUG("ghostactor", "SendParryMessage: attacker={} victim={} spell={}",
+        payload->attackerGuid, payload->victimGuid, spellId);
+
+    // Send to attacker's cell for notification
+    SendMessage(attackerCellId, std::move(msg));
 }
 
 void CellActorManager::SendBlockMessage(Unit* attacker, Unit* victim, uint32_t spellId, int32_t blockedAmount)
 {
-    // TODO: Notify that attack was blocked
-    // Include blocked amount for partial blocks
     if (!attacker || !victim)
         return;
-    LOG_DEBUG("ghostactor", "SendBlockMessage: NOT IMPLEMENTED");
-    (void)spellId;
-    (void)blockedAmount;
+
+    // Phase check
+    if (!CanInteractCrossPhase(attacker, victim->GetGUID().GetRawValue()))
+        return;
+
+    uint32_t attackerCellId = GetCellIdForEntity(attacker);
+    uint32_t victimCellId = GetCellIdForEntity(victim);
+
+    // Same cell - handled directly
+    if (attackerCellId == victimCellId)
+    {
+        LOG_DEBUG("ghostactor", "SendBlockMessage: same cell, handled directly");
+        return;
+    }
+
+    auto payload = std::make_shared<CombatResultPayload>();
+    payload->attackerGuid = attacker->GetGUID().GetRawValue();
+    payload->victimGuid = victim->GetGUID().GetRawValue();
+    payload->spellId = spellId;
+    payload->resultType = MELEE_HIT_BLOCK;
+    payload->blockedAmount = blockedAmount;
+    payload->procEx = PROC_EX_BLOCK;
+
+    ActorMessage msg{};
+    msg.type = MessageType::BLOCK;
+    msg.sourceGuid = payload->victimGuid;
+    msg.targetGuid = payload->attackerGuid;
+    msg.sourceCellId = victimCellId;
+    msg.targetCellId = attackerCellId;
+    msg.complexPayload = payload;
+
+    LOG_DEBUG("ghostactor", "SendBlockMessage: attacker={} victim={} blocked={}",
+        payload->attackerGuid, payload->victimGuid, blockedAmount);
+
+    SendMessage(attackerCellId, std::move(msg));
 }
 
 void CellActorManager::SendMissMessage(Unit* attacker, Unit* victim, uint32_t spellId)
 {
-    // TODO: Notify that attack missed
     if (!attacker || !victim)
         return;
-    LOG_DEBUG("ghostactor", "SendMissMessage: NOT IMPLEMENTED");
-    (void)spellId;
+
+    // Phase check
+    if (!CanInteractCrossPhase(attacker, victim->GetGUID().GetRawValue()))
+        return;
+
+    uint32_t attackerCellId = GetCellIdForEntity(attacker);
+    uint32_t victimCellId = GetCellIdForEntity(victim);
+
+    // Same cell - handled directly
+    if (attackerCellId == victimCellId)
+    {
+        LOG_DEBUG("ghostactor", "SendMissMessage: same cell, handled directly");
+        return;
+    }
+
+    auto payload = std::make_shared<CombatResultPayload>();
+    payload->attackerGuid = attacker->GetGUID().GetRawValue();
+    payload->victimGuid = victim->GetGUID().GetRawValue();
+    payload->spellId = spellId;
+    payload->resultType = MELEE_HIT_MISS;
+    payload->procEx = PROC_EX_MISS;
+
+    ActorMessage msg{};
+    msg.type = MessageType::MISS;
+    msg.sourceGuid = payload->attackerGuid;
+    msg.targetGuid = payload->victimGuid;
+    msg.sourceCellId = attackerCellId;
+    msg.targetCellId = victimCellId;
+    msg.complexPayload = payload;
+
+    LOG_DEBUG("ghostactor", "SendMissMessage: attacker={} victim={} spell={}",
+        payload->attackerGuid, payload->victimGuid, spellId);
+
+    // Attacker missed - notify attacker's cell
+    SendMessage(attackerCellId, std::move(msg));
 }
 
 void CellActorManager::SendImmuneMessage(Unit* caster, Unit* target, uint32_t spellId)
 {
-    // TODO: Notify that target was immune
     if (!caster || !target)
         return;
-    LOG_DEBUG("ghostactor", "SendImmuneMessage: NOT IMPLEMENTED");
-    (void)spellId;
+
+    // Phase check
+    if (!CanInteractCrossPhase(caster, target->GetGUID().GetRawValue()))
+        return;
+
+    uint32_t casterCellId = GetCellIdForEntity(caster);
+    uint32_t targetCellId = GetCellIdForEntity(target);
+
+    // Same cell - handled directly
+    if (casterCellId == targetCellId)
+    {
+        LOG_DEBUG("ghostactor", "SendImmuneMessage: same cell, handled directly");
+        return;
+    }
+
+    auto payload = std::make_shared<CombatResultPayload>();
+    payload->attackerGuid = caster->GetGUID().GetRawValue();
+    payload->victimGuid = target->GetGUID().GetRawValue();
+    payload->spellId = spellId;
+    payload->procEx = PROC_EX_IMMUNE;
+
+    ActorMessage msg{};
+    msg.type = MessageType::IMMUNE;
+    msg.sourceGuid = payload->victimGuid;
+    msg.targetGuid = payload->attackerGuid;
+    msg.sourceCellId = targetCellId;
+    msg.targetCellId = casterCellId;
+    msg.complexPayload = payload;
+
+    LOG_DEBUG("ghostactor", "SendImmuneMessage: caster={} target={} spell={}",
+        payload->attackerGuid, payload->victimGuid, spellId);
+
+    // Notify caster's cell that target was immune
+    SendMessage(casterCellId, std::move(msg));
 }
 
 void CellActorManager::SendAbsorbMessage(Unit* attacker, Unit* victim, uint32_t spellId, int32_t absorbedAmount)
 {
-    // TODO: Notify that damage was absorbed
     if (!attacker || !victim)
         return;
-    LOG_DEBUG("ghostactor", "SendAbsorbMessage: NOT IMPLEMENTED");
-    (void)spellId;
-    (void)absorbedAmount;
+
+    // Phase check
+    if (!CanInteractCrossPhase(attacker, victim->GetGUID().GetRawValue()))
+        return;
+
+    uint32_t attackerCellId = GetCellIdForEntity(attacker);
+    uint32_t victimCellId = GetCellIdForEntity(victim);
+
+    // Same cell - handled directly
+    if (attackerCellId == victimCellId)
+    {
+        LOG_DEBUG("ghostactor", "SendAbsorbMessage: same cell, handled directly");
+        return;
+    }
+
+    auto payload = std::make_shared<CombatResultPayload>();
+    payload->attackerGuid = attacker->GetGUID().GetRawValue();
+    payload->victimGuid = victim->GetGUID().GetRawValue();
+    payload->spellId = spellId;
+    payload->absorbedAmount = absorbedAmount;
+    payload->procEx = PROC_EX_ABSORB;
+
+    ActorMessage msg{};
+    msg.type = MessageType::ABSORB_NOTIFICATION;
+    msg.sourceGuid = payload->victimGuid;
+    msg.targetGuid = payload->attackerGuid;
+    msg.sourceCellId = victimCellId;
+    msg.targetCellId = attackerCellId;
+    msg.complexPayload = payload;
+
+    LOG_DEBUG("ghostactor", "SendAbsorbMessage: attacker={} victim={} absorbed={}",
+        payload->attackerGuid, payload->victimGuid, absorbedAmount);
+
+    // Notify attacker's cell about the absorbed damage
+    SendMessage(attackerCellId, std::move(msg));
 }
 
 // =============================================================================
-// Spell Cast Notifications - STUBS
+// Spell Cast Notifications - Broadcast to neighboring cells for AI reactions
 // =============================================================================
 
 void CellActorManager::SendSpellCastStartMessage(Unit* caster, Unit* target, uint32_t spellId, int32_t castTime)
 {
-    // TODO: Broadcast cast start to neighboring cells
-    // AI creatures may use this to decide on interrupts
     if (!caster)
         return;
-    LOG_DEBUG("ghostactor", "SendSpellCastStartMessage: NOT IMPLEMENTED");
-    (void)target;
-    (void)spellId;
-    (void)castTime;
+
+    uint32_t casterCellId = GetCellIdForEntity(caster);
+
+    auto payload = std::make_shared<SpellCastPayload>();
+    payload->casterGuid = caster->GetGUID().GetRawValue();
+    payload->targetGuid = target ? target->GetGUID().GetRawValue() : 0;
+    payload->spellId = spellId;
+    payload->castTime = castTime;
+
+    // Get spell school mask for AI interrupt priority
+    if (SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spellId))
+        payload->schoolMask = spellInfo->GetSchoolMask();
+
+    LOG_DEBUG("ghostactor", "SendSpellCastStartMessage: caster={} target={} spell={} castTime={}ms school={}",
+        payload->casterGuid, payload->targetGuid, spellId, castTime, payload->schoolMask);
+
+    // Broadcast to all neighboring cells so nearby AI can react
+    std::vector<uint32_t> neighborCells = GetNeighborCellIds(casterCellId);
+    for (uint32_t neighborCellId : neighborCells)
+    {
+        ActorMessage msg{};
+        msg.type = MessageType::SPELL_CAST_START;
+        msg.sourceGuid = payload->casterGuid;
+        msg.targetGuid = payload->targetGuid;
+        msg.sourceCellId = casterCellId;
+        msg.targetCellId = neighborCellId;
+        msg.complexPayload = payload;
+
+        SendMessage(neighborCellId, std::move(msg));
+    }
 }
 
 void CellActorManager::SendSpellCastFailedMessage(Unit* caster, uint32_t spellId, uint8_t failReason)
 {
-    // TODO: Broadcast cast failure
     if (!caster)
         return;
-    LOG_DEBUG("ghostactor", "SendSpellCastFailedMessage: NOT IMPLEMENTED");
-    (void)spellId;
-    (void)failReason;
+
+    uint32_t casterCellId = GetCellIdForEntity(caster);
+
+    auto payload = std::make_shared<SpellCastPayload>();
+    payload->casterGuid = caster->GetGUID().GetRawValue();
+    payload->spellId = spellId;
+    payload->failReason = failReason;
+
+    LOG_DEBUG("ghostactor", "SendSpellCastFailedMessage: caster={} spell={} reason={}",
+        payload->casterGuid, spellId, failReason);
+
+    // Broadcast to neighbors so AI knows the cast was interrupted
+    std::vector<uint32_t> neighborCells = GetNeighborCellIds(casterCellId);
+    for (uint32_t neighborCellId : neighborCells)
+    {
+        ActorMessage msg{};
+        msg.type = MessageType::SPELL_CAST_FAILED;
+        msg.sourceGuid = payload->casterGuid;
+        msg.sourceCellId = casterCellId;
+        msg.targetCellId = neighborCellId;
+        msg.complexPayload = payload;
+
+        SendMessage(neighborCellId, std::move(msg));
+    }
 }
 
 void CellActorManager::SendSpellCastSuccessMessage(Unit* caster, Unit* target, uint32_t spellId)
 {
-    // TODO: Broadcast cast success for proc triggers
     if (!caster)
         return;
-    LOG_DEBUG("ghostactor", "SendSpellCastSuccessMessage: NOT IMPLEMENTED");
-    (void)target;
-    (void)spellId;
+
+    uint32_t casterCellId = GetCellIdForEntity(caster);
+
+    auto payload = std::make_shared<SpellCastPayload>();
+    payload->casterGuid = caster->GetGUID().GetRawValue();
+    payload->targetGuid = target ? target->GetGUID().GetRawValue() : 0;
+    payload->spellId = spellId;
+
+    LOG_DEBUG("ghostactor", "SendSpellCastSuccessMessage: caster={} target={} spell={}",
+        payload->casterGuid, payload->targetGuid, spellId);
+
+    // Broadcast to neighbors for reactive AI behaviors
+    std::vector<uint32_t> neighborCells = GetNeighborCellIds(casterCellId);
+    for (uint32_t neighborCellId : neighborCells)
+    {
+        ActorMessage msg{};
+        msg.type = MessageType::SPELL_CAST_SUCCESS;
+        msg.sourceGuid = payload->casterGuid;
+        msg.targetGuid = payload->targetGuid;
+        msg.sourceCellId = casterCellId;
+        msg.targetCellId = neighborCellId;
+        msg.complexPayload = payload;
+
+        SendMessage(neighborCellId, std::move(msg));
+    }
 }
 
 // =============================================================================

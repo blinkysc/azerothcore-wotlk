@@ -256,13 +256,18 @@ class CellActor
 {
 public:
     CellActor(uint32_t cellId, Map* map)
-        : _cellId(cellId), _map(map), _lastUpdateTime(0) {}
+        : _cellId(cellId), _map(map), _lastUpdateTime(0), _isUpdating(false) {}
 
     void Update(uint32_t diff);
-    void SendMessage(ActorMessage msg) { _inbox.Push(std::move(msg)); }
+    void SendMessage(ActorMessage msg)
+    {
+        _inbox.Push(std::move(msg));
+        _isActive.store(true, std::memory_order_release);  // Activate cell when message received
+    }
 
     void AddEntity(WorldObject* obj);
     void RemoveEntity(WorldObject* obj);
+    void ProcessPendingRemovals();  // Call after update to flush deferred removals
     WorldObject* FindEntityByGuid(uint64_t guid) const;
 
     const std::vector<WorldObject*>& GetEntities() const { return _entities; }
@@ -293,6 +298,12 @@ public:
     // Per-cell update timing for performance monitoring
     [[nodiscard]] uint64_t GetLastUpdateUs() const { return _lastUpdateUs.load(std::memory_order_relaxed); }
 
+    // Test helpers - simulate deferred removal during iteration (crash scenario)
+    void TEST_AddToPendingRemovals(WorldObject* obj) { _pendingRemovals.push_back(obj); }
+    void TEST_SetIsUpdating(bool updating) { _isUpdating = updating; }
+    [[nodiscard]] size_t TEST_GetPendingRemovalCount() const { return _pendingRemovals.size(); }
+    [[nodiscard]] bool TEST_IsUpdating() const { return _isUpdating; }
+
 private:
     void ProcessMessages();
     void UpdateEntities(uint32_t diff);
@@ -305,10 +316,12 @@ private:
 
     MPSCQueue<ActorMessage> _inbox;
     std::vector<WorldObject*> _entities;
+    std::vector<WorldObject*> _pendingRemovals;  // Deferred removals during update
     std::unordered_map<uint64_t, std::unique_ptr<GhostEntity>> _ghosts;
     std::atomic<uint32_t> _messagesProcessedLastTick{0};
     std::atomic<uint64_t> _lastUpdateUs{0};  // Last update duration in microseconds
     std::atomic<bool> _isActive{false};  // Lock-free activity flag
+    bool _isUpdating{false};  // True while UpdateEntities is running
 };
 
 // ---------------------------------------------------------------------------
@@ -1386,7 +1399,7 @@ private:
         cellY = cellId >> 16;
     }
 
-    void CreateGhostInCell(uint32_t cellId, const GhostSnapshot& snapshot);
+    void CreateGhostInCell(uint32_t cellId, const GhostSnapshot& snapshot, uint32_t ownerCellId);
     void UpdateGhostInCell(uint32_t cellId, uint64_t guid, const ActorMessage& msg);
     void DestroyGhostInCell(uint32_t cellId, uint64_t guid);
     GhostSnapshot CreateSnapshotFromEntity(WorldObject* obj);
