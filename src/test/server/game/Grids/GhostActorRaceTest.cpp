@@ -865,3 +865,169 @@ TEST_F(GhostActorRaceTest, BenchmarkCellAccess)
     // Pre-allocated O(1) access should be under 100ns per op
     EXPECT_LT(nsPerOp, 100.0) << "Cell access slower than expected";
 }
+
+/**
+ * Test that PerformanceStats counters are updated during Update()
+ */
+TEST_F(GhostActorRaceTest, PerfStatsUpdateTimingRecorded)
+{
+    auto map = std::make_unique<TestMap>(0, 0);
+    auto* mgr = map->GetCellActorManager();
+    ASSERT_NE(mgr, nullptr);
+
+    auto& stats = mgr->GetPerfStats();
+
+    // Initial state - no updates recorded yet
+    EXPECT_EQ(stats.lastUpdateUs.load(), 0u);
+
+    // Run a few updates
+    for (int i = 0; i < 10; ++i)
+    {
+        mgr->Update(50);
+    }
+
+    // After updates, timing should be recorded
+    EXPECT_GT(stats.lastUpdateUs.load(), 0u);
+
+    std::cout << "\n=== PerfStats Update Timing ===\n";
+    std::cout << "Last update: " << stats.lastUpdateUs.load() << " us\n";
+    std::cout << "===============================\n";
+}
+
+/**
+ * Test that message counters increment when messages are processed
+ */
+TEST_F(GhostActorRaceTest, PerfStatsMessageCounters)
+{
+    CellActorTestHarness harness(100);
+
+    auto* perfStats = harness.GetPerfStats();
+    ASSERT_NE(perfStats, nullptr);
+
+    // Reset counters
+    perfStats->ResetTickCounters();
+
+    // Add a ghost to receive messages
+    harness.AddGhost(1001, 99);
+
+    // Send multiple message types
+    for (int i = 0; i < 10; ++i)
+    {
+        ActorMessage msg{};
+        msg.sourceGuid = 1001;
+        msg.type = MessageType::HEALTH_CHANGED;
+        msg.intParam1 = 5000;
+        msg.intParam2 = 10000;
+        harness.InjectMessage(std::move(msg));
+    }
+
+    for (int i = 0; i < 5; ++i)
+    {
+        ActorMessage msg{};
+        msg.sourceGuid = 1001;
+        msg.type = MessageType::POSITION_UPDATE;
+        harness.InjectMessage(std::move(msg));
+    }
+
+    harness.ProcessAllMessages();
+
+    // Verify counters incremented
+    size_t healthIdx = static_cast<size_t>(MessageType::HEALTH_CHANGED);
+    size_t posIdx = static_cast<size_t>(MessageType::POSITION_UPDATE);
+
+    EXPECT_GE(perfStats->messageCountsByType[healthIdx].load(), 10u);
+    EXPECT_GE(perfStats->messageCountsByType[posIdx].load(), 5u);
+    EXPECT_GE(perfStats->totalMessagesThisTick.load(), 15u);
+
+    std::cout << "\n=== PerfStats Message Counters ===\n";
+    std::cout << "HEALTH_CHANGED: " << perfStats->messageCountsByType[healthIdx].load() << "\n";
+    std::cout << "POSITION_UPDATE: " << perfStats->messageCountsByType[posIdx].load() << "\n";
+    std::cout << "Total this tick: " << perfStats->totalMessagesThisTick.load() << "\n";
+    std::cout << "==================================\n";
+}
+
+/**
+ * Test rolling window average calculation with realistic Update() calls
+ */
+TEST_F(GhostActorRaceTest, PerfStatsRollingAverage)
+{
+    auto map = std::make_unique<TestMap>(0, 0);
+    auto* mgr = map->GetCellActorManager();
+    ASSERT_NE(mgr, nullptr);
+
+    auto& stats = mgr->GetPerfStats();
+
+    // Fill the rolling window (100 ticks)
+    for (int i = 0; i < 100; ++i)
+    {
+        mgr->Update(50);
+    }
+
+    // After 100 updates, average should be calculated
+    EXPECT_GT(stats.avgUpdateUs, 0u);
+    EXPECT_GT(stats.maxUpdateUs, 0u);
+
+    std::cout << "\n=== PerfStats Rolling Average ===\n";
+    std::cout << "Avg update: " << stats.avgUpdateUs << " us\n";
+    std::cout << "Max update: " << stats.maxUpdateUs << " us\n";
+    std::cout << "Last update: " << stats.lastUpdateUs.load() << " us\n";
+    std::cout << "=================================\n";
+
+    // Average update should be reasonable (under 10ms in test environment)
+    EXPECT_LT(stats.avgUpdateUs, 10000u) << "Average update time exceeded 10ms threshold";
+}
+
+/**
+ * Identify message type hotspots from a simulated combat scenario
+ */
+TEST_F(GhostActorRaceTest, IdentifyMessageTypeHotspots)
+{
+    CellActorTestHarness harness(100);
+
+    auto* perfStats = harness.GetPerfStats();
+    ASSERT_NE(perfStats, nullptr);
+
+    // Add ghosts to simulate entities
+    for (int i = 0; i < 20; ++i)
+    {
+        harness.AddGhost(1000 + i, 99);
+    }
+
+    // Simulate combat message distribution:
+    // 40% HEALTH_CHANGED, 30% SPELL_HIT, 20% POSITION_UPDATE, 10% other
+    for (int i = 0; i < 1000; ++i)
+    {
+        ActorMessage msg{};
+        msg.sourceGuid = 1000 + (i % 20);
+
+        if (i % 10 < 4)
+            msg.type = MessageType::HEALTH_CHANGED;
+        else if (i % 10 < 7)
+            msg.type = MessageType::SPELL_HIT;
+        else if (i % 10 < 9)
+            msg.type = MessageType::POSITION_UPDATE;
+        else
+            msg.type = MessageType::COMBAT_STATE_CHANGED;
+
+        harness.InjectMessage(std::move(msg));
+    }
+
+    harness.ProcessAllMessages();
+
+    // Report message distribution
+    size_t healthCount = perfStats->messageCountsByType[static_cast<size_t>(MessageType::HEALTH_CHANGED)].load();
+    size_t spellCount = perfStats->messageCountsByType[static_cast<size_t>(MessageType::SPELL_HIT)].load();
+    size_t posCount = perfStats->messageCountsByType[static_cast<size_t>(MessageType::POSITION_UPDATE)].load();
+    size_t combatCount = perfStats->messageCountsByType[static_cast<size_t>(MessageType::COMBAT_STATE_CHANGED)].load();
+
+    std::cout << "\n=== Message Type Hotspots ===\n";
+    std::cout << "HEALTH_CHANGED: " << healthCount << " (" << (healthCount * 100 / 1000) << "%)\n";
+    std::cout << "SPELL_HIT: " << spellCount << " (" << (spellCount * 100 / 1000) << "%)\n";
+    std::cout << "POSITION_UPDATE: " << posCount << " (" << (posCount * 100 / 1000) << "%)\n";
+    std::cout << "COMBAT_STATE_CHANGED: " << combatCount << " (" << (combatCount * 100 / 1000) << "%)\n";
+    std::cout << "=============================\n";
+
+    // Verify expected ratios (approximate)
+    EXPECT_GT(healthCount, spellCount * 0.8) << "HEALTH_CHANGED should be most frequent";
+    EXPECT_GT(spellCount, posCount * 0.8) << "SPELL_HIT should be more than POSITION_UPDATE";
+}

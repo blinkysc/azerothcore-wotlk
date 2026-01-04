@@ -192,19 +192,19 @@ TEST_F(PerformanceStatsTest, ConcurrentRecordUpdateTime)
 TEST_F(PerformanceStatsTest, AllMessageTypesRecordable)
 {
     // Record each message type once
-    for (size_t i = 0; i < MAX_MESSAGE_TYPES; ++i)
+    for (size_t i = 0; i < PerformanceStats::MAX_MESSAGE_TYPES; ++i)
     {
         stats.RecordMessage(static_cast<MessageType>(i));
     }
 
     // Verify each type was recorded
-    for (size_t i = 0; i < MAX_MESSAGE_TYPES; ++i)
+    for (size_t i = 0; i < PerformanceStats::MAX_MESSAGE_TYPES; ++i)
     {
         EXPECT_EQ(stats.messageCountsByType[i].load(), 1u)
             << "Message type " << i << " not recorded correctly";
     }
 
-    EXPECT_EQ(stats.totalMessagesThisTick.load(), MAX_MESSAGE_TYPES);
+    EXPECT_EQ(stats.totalMessagesThisTick.load(), PerformanceStats::MAX_MESSAGE_TYPES);
 }
 
 // Test message counts persist across ResetTickCounters
