@@ -46,9 +46,15 @@ namespace GhostActor
 
 void CellActor::Update(uint32_t diff)
 {
+    auto startTime = std::chrono::high_resolution_clock::now();
+
     _lastUpdateTime += diff;
     ProcessMessages();
     UpdateEntities(diff);
+
+    auto endTime = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime);
+    _lastUpdateUs.store(static_cast<uint64_t>(duration.count()), std::memory_order_relaxed);
 }
 
 void CellActor::ProcessMessages()
@@ -63,6 +69,10 @@ void CellActor::ProcessMessages()
 void CellActor::HandleMessage(ActorMessage& msg)
 {
     IncrementMessageCount();
+
+    // Record message type for performance monitoring
+    if (_map && _map->GetCellActorManager())
+        _map->GetCellActorManager()->GetPerfStats().RecordMessage(msg.type);
 
     switch (msg.type)
     {
@@ -1830,6 +1840,11 @@ CellActor* CellActorManager::GetCellActorForPosition(float x, float y)
 
 void CellActorManager::Update(uint32_t diff)
 {
+    auto startTime = std::chrono::high_resolution_clock::now();
+
+    // Reset per-tick counters at start of update
+    _perfStats.ResetTickCounters();
+
     if (!_workPool)
     {
         // Single-threaded path: iterate all cells, skip inactive
@@ -1839,29 +1854,35 @@ void CellActorManager::Update(uint32_t diff)
             if (cell && cell->IsActive() && cell->HasWork())
                 cell->Update(diff);
         }
-        return;
     }
-
-    // Parallel path: submit active cells to work pool
-    for (uint32_t i = 0; i < TOTAL_CELLS; ++i)
+    else
     {
-        CellActor* cell = _cellActors[i];
-        if (cell && cell->IsActive() && cell->HasWork())
+        // Parallel path: submit active cells to work pool
+        for (uint32_t i = 0; i < TOTAL_CELLS; ++i)
         {
-            _pendingCellUpdates.fetch_add(1, std::memory_order_release);
+            CellActor* cell = _cellActors[i];
+            if (cell && cell->IsActive() && cell->HasWork())
+            {
+                _pendingCellUpdates.fetch_add(1, std::memory_order_release);
 
-            _workPool->Submit(TaskType::CELL, [this, cell, diff]() {
-                cell->Update(diff);
-                _pendingCellUpdates.fetch_sub(1, std::memory_order_release);
-            });
+                _workPool->Submit(TaskType::CELL, [this, cell, diff]() {
+                    cell->Update(diff);
+                    _pendingCellUpdates.fetch_sub(1, std::memory_order_release);
+                });
+            }
+        }
+
+        while (_pendingCellUpdates.load(std::memory_order_acquire) > 0)
+        {
+            if (!_workPool->TryExecuteOne(TaskType::CELL))
+                std::this_thread::yield();
         }
     }
 
-    while (_pendingCellUpdates.load(std::memory_order_acquire) > 0)
-    {
-        if (!_workPool->TryExecuteOne(TaskType::CELL))
-            std::this_thread::yield();
-    }
+    // Record update timing
+    auto endTime = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime);
+    _perfStats.RecordUpdateTime(static_cast<uint64_t>(duration.count()));
 }
 
 void CellActorManager::SendMessage(uint32_t targetCellId, ActorMessage msg)

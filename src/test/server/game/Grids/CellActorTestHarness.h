@@ -470,6 +470,14 @@ public:
     // Get the test map
     TestMap* GetMap() { return _map.get(); }
 
+    // Get performance stats for counter verification
+    GhostActor::PerformanceStats* GetPerfStats()
+    {
+        if (_map && _map->GetCellActorManager())
+            return &_map->GetCellActorManager()->GetPerfStats();
+        return nullptr;
+    }
+
 private:
     uint32_t _cellId;
     std::unique_ptr<TestMap> _map;

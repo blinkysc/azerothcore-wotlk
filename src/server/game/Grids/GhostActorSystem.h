@@ -290,6 +290,9 @@ public:
     void IncrementMessageCount() { _messagesProcessedLastTick.fetch_add(1, std::memory_order_relaxed); }
     void ResetMessageCount() { _messagesProcessedLastTick.store(0, std::memory_order_relaxed); }
 
+    // Per-cell update timing for performance monitoring
+    [[nodiscard]] uint64_t GetLastUpdateUs() const { return _lastUpdateUs.load(std::memory_order_relaxed); }
+
 private:
     void ProcessMessages();
     void UpdateEntities(uint32_t diff);
@@ -304,6 +307,7 @@ private:
     std::vector<WorldObject*> _entities;
     std::unordered_map<uint64_t, std::unique_ptr<GhostEntity>> _ghosts;
     std::atomic<uint32_t> _messagesProcessedLastTick{0};
+    std::atomic<uint64_t> _lastUpdateUs{0};  // Last update duration in microseconds
     std::atomic<bool> _isActive{false};  // Lock-free activity flag
 };
 
