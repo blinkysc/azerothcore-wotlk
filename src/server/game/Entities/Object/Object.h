@@ -105,7 +105,7 @@ class Object
 public:
     virtual ~Object();
 
-    [[nodiscard]] bool IsInWorld() const { return m_inWorld; }
+    [[nodiscard]] virtual bool IsInWorld() const { return m_inWorld; }
 
     virtual void AddToWorld();
     virtual void RemoveFromWorld();

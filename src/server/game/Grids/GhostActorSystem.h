@@ -65,6 +65,12 @@ enum class MessageType : uint8_t
     HEAL,
     AURA_APPLY,
     AURA_REMOVE,
+    SPELL_INTERRUPT,
+    SPELL_DISPEL,
+    POWER_DRAIN,
+    SPELLSTEAL,
+    SPELLSTEAL_APPLY,  // Response: apply stolen aura to caster
+    REFLECT_DAMAGE,    // Bi-directional: thorns/damage shield response
 
     // Movement
     ENTITY_ENTERING,
@@ -557,6 +563,73 @@ struct PetRemovalPayload
     bool returnReagent{false};
 };
 
+struct SpellInterruptPayload
+{
+    uint64_t casterGuid{0};
+    uint64_t targetGuid{0};
+    uint32_t interruptSpellId{0};      // The spell doing the interrupt
+    uint32_t interruptedSpellId{0};    // The spell being interrupted
+    uint32_t schoolMask{0};            // School to lock out
+    int32_t lockoutDuration{0};        // Duration in ms
+};
+
+struct SpellDispelPayload
+{
+    uint64_t casterGuid{0};
+    uint64_t targetGuid{0};
+    uint32_t dispelSpellId{0};         // The dispel spell
+    std::vector<std::pair<uint32_t, uint8_t>> dispelList;  // spellId, charges
+};
+
+struct PowerDrainPayload
+{
+    uint64_t casterGuid{0};
+    uint64_t targetGuid{0};
+    uint32_t spellId{0};
+    uint8_t powerType{0};              // Powers enum value
+    int32_t amount{0};                 // Amount to drain
+    float gainMultiplier{0.0f};        // Multiplier for caster gain (0 for PowerBurn)
+    bool isPowerBurn{false};           // PowerBurn deals damage, PowerDrain gives to caster
+};
+
+struct SpellstealPayload
+{
+    uint64_t casterGuid{0};
+    uint64_t targetGuid{0};
+    uint32_t spellstealSpellId{0};     // The spellsteal spell (e.g., 30449)
+    std::vector<std::pair<uint32_t, uint64_t>> stealList;  // spellId, originalCasterGuid
+};
+
+struct StolenAuraData
+{
+    uint32_t spellId{0};
+    uint64_t originalCasterGuid{0};
+    int32_t duration{0};               // Remaining duration in ms
+    int32_t maxDuration{0};            // Max duration in ms
+    uint8_t stackAmount{1};
+    uint8_t charges{0};
+    int32_t baseAmount[3]{0, 0, 0};    // Base amounts for each effect
+};
+
+struct SpellstealApplyPayload
+{
+    uint64_t stealerGuid{0};           // Who stole the aura (mage)
+    uint64_t targetGuid{0};            // Who had the aura stolen
+    uint32_t spellstealSpellId{0};
+    std::vector<StolenAuraData> stolenAuras;
+};
+
+struct ReflectDamagePayload
+{
+    uint64_t reflectorGuid{0};         // Who has thorns (victim of original attack)
+    uint64_t attackerGuid{0};          // Who to deal damage to (original attacker)
+    uint32_t spellId{0};               // Thorns spell ID for logging
+    int32_t damage{0};                 // Damage to deal
+    uint32_t schoolMask{0};            // Damage school
+    uint32_t absorb{0};                // Absorbed damage
+    uint32_t resist{0};                // Resisted damage
+};
+
 // ---------------------------------------------------------------------------
 // Performance Monitoring
 // ---------------------------------------------------------------------------
@@ -681,8 +754,20 @@ public:
     void SendSpellHitMessage(Unit* caster, Unit* target, uint32_t spellId, int32_t damage, int32_t healing);
     void SendMeleeDamageMessage(Unit* attacker, Unit* target, int32_t damage, bool isCrit);
     void SendHealMessage(Unit* healer, Unit* target, uint32_t spellId, int32_t amount);
+    void SendReflectDamageMessage(Unit* reflector, Unit* attacker, uint32_t spellId, int32_t damage,
+                                  uint32_t schoolMask, uint32_t absorb, uint32_t resist);
     void SendTargetSwitchMessage(Unit* creature, uint64_t oldTargetGuid, uint64_t newTargetGuid);
     void BroadcastEvadeTriggered(Unit* creature);
+
+    // Cross-cell spell effects
+    void SendInterruptMessage(Unit* caster, Unit* target, uint32_t interruptSpellId,
+                              uint32_t interruptedSpellId, uint32_t schoolMask, int32_t lockoutDuration);
+    void SendDispelMessage(Unit* caster, Unit* target, uint32_t dispelSpellId,
+                           const std::vector<std::pair<uint32_t, uint8_t>>& dispelList);
+    void SendPowerDrainMessage(Unit* caster, Unit* target, uint32_t spellId, uint8_t powerType,
+                               int32_t amount, float gainMultiplier, bool isPowerBurn);
+    void SendSpellstealMessage(Unit* caster, Unit* target, uint32_t spellstealSpellId,
+                               const std::vector<std::pair<uint32_t, uint64_t>>& stealList);
 
     struct VictimInfo
     {

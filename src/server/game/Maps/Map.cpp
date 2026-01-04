@@ -110,6 +110,15 @@ void Map::OnCreateMap()
     sScriptMgr->OnCreateMap(this);
 }
 
+void Map::InitCellActorManager()
+{
+    // Simplified init for derived classes (e.g., TestMap) without MapUpdater/pool dependency
+    if (!_cellActorManager)
+    {
+        _cellActorManager = std::make_unique<GhostActor::CellActorManager>(this);
+    }
+}
+
 void Map::InitVisibilityDistance()
 {
     //init visibility for continents

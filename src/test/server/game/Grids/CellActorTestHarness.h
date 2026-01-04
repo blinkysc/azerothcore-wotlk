@@ -21,8 +21,10 @@
 #include "GhostActorSystem.h"
 #include "TestCreature.h"
 #include "TestPlayer.h"
+#include "TestMap.h"
 #include "TestObjectAccessor.h"
 #include "ScriptMgr.h"
+#include "ScriptDefines/AllMapScript.h"
 #include "ScriptDefines/MiscScript.h"
 #include "ScriptDefines/PlayerScript.h"
 #include "ScriptDefines/WorldObjectScript.h"
@@ -164,12 +166,73 @@ inline std::shared_ptr<MigrationAckPayload> MakeMigrationAckPayload(uint64_t mig
     return payload;
 }
 
-// Initialize script registries required for object construction
+inline std::shared_ptr<SpellInterruptPayload> MakeSpellInterruptPayload(uint64_t caster, uint64_t target,
+    uint32_t interruptSpellId, uint32_t interruptedSpellId, uint32_t schoolMask = 1, int32_t lockoutDuration = 4000)
+{
+    auto payload = std::make_shared<SpellInterruptPayload>();
+    payload->casterGuid = caster;
+    payload->targetGuid = target;
+    payload->interruptSpellId = interruptSpellId;
+    payload->interruptedSpellId = interruptedSpellId;
+    payload->schoolMask = schoolMask;
+    payload->lockoutDuration = lockoutDuration;
+    return payload;
+}
+
+inline std::shared_ptr<SpellDispelPayload> MakeSpellDispelPayload(uint64_t caster, uint64_t target,
+    uint32_t dispelSpellId, const std::vector<std::pair<uint32_t, uint8_t>>& dispelList)
+{
+    auto payload = std::make_shared<SpellDispelPayload>();
+    payload->casterGuid = caster;
+    payload->targetGuid = target;
+    payload->dispelSpellId = dispelSpellId;
+    payload->dispelList = dispelList;
+    return payload;
+}
+
+inline std::shared_ptr<PowerDrainPayload> MakePowerDrainPayload(uint64_t caster, uint64_t target,
+    uint32_t spellId, uint8_t powerType, int32_t amount, float gainMultiplier = 1.0f, bool isPowerBurn = false)
+{
+    auto payload = std::make_shared<PowerDrainPayload>();
+    payload->casterGuid = caster;
+    payload->targetGuid = target;
+    payload->spellId = spellId;
+    payload->powerType = powerType;
+    payload->amount = amount;
+    payload->gainMultiplier = gainMultiplier;
+    payload->isPowerBurn = isPowerBurn;
+    return payload;
+}
+
+inline std::shared_ptr<SpellstealPayload> MakeSpellstealPayload(uint64_t caster, uint64_t target,
+    uint32_t spellstealSpellId, const std::vector<std::pair<uint32_t, uint64_t>>& stealList)
+{
+    auto payload = std::make_shared<SpellstealPayload>();
+    payload->casterGuid = caster;
+    payload->targetGuid = target;
+    payload->spellstealSpellId = spellstealSpellId;
+    payload->stealList = stealList;
+    return payload;
+}
+
+inline std::shared_ptr<SpellstealApplyPayload> MakeSpellstealApplyPayload(uint64_t stealer, uint64_t target,
+    uint32_t spellstealSpellId, const std::vector<StolenAuraData>& stolenAuras)
+{
+    auto payload = std::make_shared<SpellstealApplyPayload>();
+    payload->stealerGuid = stealer;
+    payload->targetGuid = target;
+    payload->spellstealSpellId = spellstealSpellId;
+    payload->stolenAuras = stolenAuras;
+    return payload;
+}
+
+// Initialize script registries required for object construction and map destruction
 inline void EnsureCellActorTestScriptsInitialized()
 {
     static bool initialized = false;
     if (!initialized)
     {
+        ScriptRegistry<AllMapScript>::InitEnabledHooksIfNeeded(ALLMAPHOOK_END);
         ScriptRegistry<MiscScript>::InitEnabledHooksIfNeeded(MISCHOOK_END);
         ScriptRegistry<WorldObjectScript>::InitEnabledHooksIfNeeded(WORLDOBJECTHOOK_END);
         ScriptRegistry<UnitScript>::InitEnabledHooksIfNeeded(UNITHOOK_END);
@@ -207,8 +270,11 @@ public:
         // Initialize script registries for object construction
         EnsureCellActorTestScriptsInitialized();
 
-        // Create CellActor without map (nullptr safe for testing)
-        _cell = std::make_unique<CellActor>(_cellId, nullptr);
+        // Create TestMap with CellActorManager (initializes DBC stores too)
+        _map = std::make_unique<TestMap>(0, 0);
+
+        // Create CellActor with real map for full ghost system integration
+        _cell = std::make_unique<CellActor>(_cellId, _map.get());
     }
 
     ~CellActorTestHarness() = default;
@@ -221,6 +287,9 @@ public:
 
         TestCreature* ptr = creature.get();
         _creatures.push_back(std::move(creature));
+
+        // Set map on entity (enables FindMap() to work for ghost notifications)
+        _map->AddTestEntity(ptr);
 
         // Register with accessor and cell
         _accessor.Register(ptr);
@@ -237,6 +306,9 @@ public:
 
         TestPlayer* ptr = player.get();
         _players.push_back(std::move(player));
+
+        // Set map on entity (enables FindMap() to work for ghost notifications)
+        _map->AddTestEntity(ptr);
 
         // Register with accessor and cell
         _accessor.Register(ptr);
@@ -333,8 +405,12 @@ public:
         _cell->Update(0);  // Process immediately
     }
 
+    // Get the test map
+    TestMap* GetMap() { return _map.get(); }
+
 private:
     uint32_t _cellId;
+    std::unique_ptr<TestMap> _map;
     std::unique_ptr<CellActor> _cell;
     std::vector<std::unique_ptr<TestCreature>> _creatures;
     std::vector<std::unique_ptr<TestPlayer>> _players;

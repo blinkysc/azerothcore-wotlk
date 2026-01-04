@@ -785,6 +785,123 @@ TEST_F(CrossCellInteractionTest, PetRemovalForDeletedGhost)
 }
 
 // ============================================================================
+// Interrupt/Dispel Cross-Cell Safety Tests
+// ============================================================================
+
+TEST_F(CrossCellInteractionTest, SpellInterruptForDeletedGhost)
+{
+    CellActorTestHarness harness;
+
+    uint64_t casterGuid = 2000;
+    uint64_t targetGuid = 2001;
+
+    harness.AddGhost(targetGuid, 0x00640064);
+
+    ActorMessage msg{};
+    msg.type = MessageType::SPELL_INTERRUPT;
+    msg.sourceGuid = casterGuid;
+    msg.targetGuid = targetGuid;
+    msg.complexPayload = MakeSpellInterruptPayload(casterGuid, targetGuid, 1766, 116, 16, 5000);
+    harness.InjectMessage(msg);
+
+    harness.DestroyGhost(targetGuid);
+    EXPECT_NO_FATAL_FAILURE(harness.ProcessAllMessages());
+}
+
+TEST_F(CrossCellInteractionTest, SpellDispelForDeletedGhost)
+{
+    CellActorTestHarness harness;
+
+    uint64_t casterGuid = 2000;
+    uint64_t targetGuid = 2001;
+
+    harness.AddGhost(targetGuid, 0x00640064);
+
+    std::vector<std::pair<uint32_t, uint8_t>> dispelList = {{21562, 1}, {1459, 1}};
+
+    ActorMessage msg{};
+    msg.type = MessageType::SPELL_DISPEL;
+    msg.sourceGuid = casterGuid;
+    msg.targetGuid = targetGuid;
+    msg.complexPayload = MakeSpellDispelPayload(casterGuid, targetGuid, 527, dispelList);
+    harness.InjectMessage(msg);
+
+    harness.DestroyGhost(targetGuid);
+    EXPECT_NO_FATAL_FAILURE(harness.ProcessAllMessages());
+}
+
+TEST_F(CrossCellInteractionTest, PowerDrainForDeletedGhost)
+{
+    CellActorTestHarness harness;
+
+    uint64_t casterGuid = 2100;
+    uint64_t targetGuid = 2101;
+
+    harness.AddGhost(targetGuid, 0x00640064);
+
+    ActorMessage msg{};
+    msg.type = MessageType::POWER_DRAIN;
+    msg.sourceGuid = casterGuid;
+    msg.targetGuid = targetGuid;
+    msg.complexPayload = MakePowerDrainPayload(casterGuid, targetGuid, 5138, 0, 100, 1.0f, false);
+    harness.InjectMessage(msg);
+
+    harness.DestroyGhost(targetGuid);
+    EXPECT_NO_FATAL_FAILURE(harness.ProcessAllMessages());
+}
+
+TEST_F(CrossCellInteractionTest, SpellstealForDeletedGhost)
+{
+    CellActorTestHarness harness;
+
+    uint64_t casterGuid = 2200;
+    uint64_t targetGuid = 2201;
+
+    harness.AddGhost(targetGuid, 0x00640064);
+
+    std::vector<std::pair<uint32_t, uint64_t>> stealList = {{21562, casterGuid}, {1459, casterGuid}};
+
+    ActorMessage msg{};
+    msg.type = MessageType::SPELLSTEAL;
+    msg.sourceGuid = casterGuid;
+    msg.targetGuid = targetGuid;
+    msg.complexPayload = MakeSpellstealPayload(casterGuid, targetGuid, 30449, stealList);
+    harness.InjectMessage(msg);
+
+    harness.DestroyGhost(targetGuid);
+    EXPECT_NO_FATAL_FAILURE(harness.ProcessAllMessages());
+}
+
+TEST_F(CrossCellInteractionTest, SpellstealApplyForDeletedGhost)
+{
+    CellActorTestHarness harness;
+
+    uint64_t stealerGuid = 2300;
+    uint64_t targetGuid = 2301;
+
+    harness.AddGhost(stealerGuid, 0x00640064);
+
+    StolenAuraData auraData;
+    auraData.spellId = 21562;
+    auraData.originalCasterGuid = targetGuid;
+    auraData.duration = 60000;
+    auraData.maxDuration = 60000;
+    auraData.stackAmount = 1;
+    auraData.charges = 0;
+    std::vector<StolenAuraData> stolenAuras = {auraData};
+
+    ActorMessage msg{};
+    msg.type = MessageType::SPELLSTEAL_APPLY;
+    msg.sourceGuid = targetGuid;
+    msg.targetGuid = stealerGuid;
+    msg.complexPayload = MakeSpellstealApplyPayload(stealerGuid, targetGuid, 30449, stolenAuras);
+    harness.InjectMessage(msg);
+
+    harness.DestroyGhost(stealerGuid);
+    EXPECT_NO_FATAL_FAILURE(harness.ProcessAllMessages());
+}
+
+// ============================================================================
 // Null Payload Edge Cases
 // ============================================================================
 
@@ -808,7 +925,12 @@ TEST_F(CrossCellInteractionTest, AllMessageTypesWithNullPayload)
         MessageType::COMBAT_INITIATED,
         MessageType::TARGET_SWITCH,
         MessageType::ASSISTANCE_REQUEST,
-        MessageType::PET_REMOVAL
+        MessageType::PET_REMOVAL,
+        MessageType::SPELL_INTERRUPT,
+        MessageType::SPELL_DISPEL,
+        MessageType::POWER_DRAIN,
+        MessageType::SPELLSTEAL,
+        MessageType::SPELLSTEAL_APPLY
     };
 
     for (MessageType type : payloadTypes)

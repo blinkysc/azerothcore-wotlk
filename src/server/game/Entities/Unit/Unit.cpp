@@ -14444,7 +14444,7 @@ int32 Unit::ModifyHealth(int32 dVal)
     // Phase 7G: Notify ghost system of health changes
     if (gain != 0)
     {
-        if (Map* map = GetMap())
+        if (Map* map = FindMap())  // FindMap() is null-safe for unit tests
         {
             if (GhostActor::CellActorManager* cellMgr = map->GetCellActorManager())
             {

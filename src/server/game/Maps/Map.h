@@ -636,6 +636,10 @@ private:
     // Ghost Actor System - Cell-based parallel processing
     std::unique_ptr<GhostActor::CellActorManager> _cellActorManager;
 
+protected:
+    // Allow derived classes (e.g., TestMap) to initialize CellActorManager
+    void InitCellActorManager();
+
 public:
     // Cell Actor System access
     GhostActor::CellActorManager* GetCellActorManager() { return _cellActorManager.get(); }
