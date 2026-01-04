@@ -226,6 +226,68 @@ inline std::shared_ptr<SpellstealApplyPayload> MakeSpellstealApplyPayload(uint64
     return payload;
 }
 
+inline std::shared_ptr<ControlEffectPayload> MakeControlEffectPayload(uint64_t caster, uint64_t target,
+    uint32_t spellId, int32_t duration, uint32_t controlType, uint8_t auraType = 0)
+{
+    auto payload = std::make_shared<ControlEffectPayload>();
+    payload->casterGuid = caster;
+    payload->targetGuid = target;
+    payload->spellId = spellId;
+    payload->duration = duration;
+    payload->controlType = controlType;
+    payload->auraType = auraType;
+    return payload;
+}
+
+inline std::shared_ptr<ControlEffectPayload> MakePolymorphPayload(uint64_t caster, uint64_t target,
+    uint32_t spellId, int32_t duration, uint32_t displayId)
+{
+    auto payload = std::make_shared<ControlEffectPayload>();
+    payload->casterGuid = caster;
+    payload->targetGuid = target;
+    payload->spellId = spellId;
+    payload->duration = duration;
+    payload->controlType = 0;  // Polymorph uses aura, not unit state
+    payload->auraType = 0;     // SPELL_AURA_MOD_CONFUSE equivalent
+    payload->transformDisplayId = displayId;
+    return payload;
+}
+
+inline std::shared_ptr<ControlEffectPayload> MakeFearPayload(uint64_t caster, uint64_t target,
+    uint32_t spellId, int32_t duration, float destX = 0.0f, float destY = 0.0f, float destZ = 0.0f)
+{
+    auto payload = std::make_shared<ControlEffectPayload>();
+    payload->casterGuid = caster;
+    payload->targetGuid = target;
+    payload->spellId = spellId;
+    payload->duration = duration;
+    payload->controlType = 0;  // Fear uses fleeing state
+    payload->auraType = 0;
+    payload->fearDestX = destX;
+    payload->fearDestY = destY;
+    payload->fearDestZ = destZ;
+    return payload;
+}
+
+inline std::shared_ptr<KnockbackPayload> MakeKnockbackPayload(uint64_t caster, uint64_t target,
+    uint32_t spellId, float originX, float originY, float originZ,
+    float speedXY, float speedZ, float destX = 0.0f, float destY = 0.0f, float destZ = 0.0f)
+{
+    auto payload = std::make_shared<KnockbackPayload>();
+    payload->casterGuid = caster;
+    payload->targetGuid = target;
+    payload->spellId = spellId;
+    payload->originX = originX;
+    payload->originY = originY;
+    payload->originZ = originZ;
+    payload->speedXY = speedXY;
+    payload->speedZ = speedZ;
+    payload->destX = destX;
+    payload->destY = destY;
+    payload->destZ = destZ;
+    return payload;
+}
+
 // Initialize script registries required for object construction and map destruction
 inline void EnsureCellActorTestScriptsInitialized()
 {

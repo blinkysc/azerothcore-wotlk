@@ -85,6 +85,7 @@ enum class MessageType : uint8_t
     AURA_STATE_SYNC,
     COMBAT_STATE_CHANGED,
     PHASE_CHANGED,
+    CONTROL_STATE_CHANGED,  // Stun, root, fear, etc.
 
     // Ghost lifecycle
     GHOST_CREATE,
@@ -386,6 +387,15 @@ public:
     void SyncPower(uint8_t power, uint32_t value, uint32_t maxValue);
     void SyncAuraState(uint32_t auraState) { _auraState = auraState; }
     void SyncPhaseMask(uint32_t phaseMask) { _phaseMask = phaseMask; }
+    void SyncControlState(uint32_t state, bool apply)
+    {
+        if (apply)
+            _controlState |= state;
+        else
+            _controlState &= ~state;
+    }
+    [[nodiscard]] uint32_t GetControlState() const { return _controlState; }
+    [[nodiscard]] bool HasControlState(uint32_t state) const { return (_controlState & state) != 0; }
 
     // Aura tracking for ghosts
     void SyncAuraApplied(uint32_t spellId, uint8_t effectMask);
@@ -405,6 +415,7 @@ private:
     uint64_t _targetGuid{0};
     uint32_t _auraState{0};
     uint32_t _phaseMask{1};
+    uint32_t _controlState{0};  // UnitState flags for control effects (stun, root, fear, etc.)
     std::array<uint32_t, 7> _power{};
     std::array<uint32_t, 7> _maxPower{};
     std::set<uint32_t> _activeAuras;  // Spell IDs of active auras
@@ -720,7 +731,7 @@ struct ControlEffectPayload
     uint64_t targetGuid{0};        // Who is affected
     uint32_t spellId{0};           // Spell that caused the effect
     int32_t duration{0};           // Duration in milliseconds
-    uint8_t controlType{0};        // Maps to UnitState flags
+    uint32_t controlType{0};       // Maps to UnitState flags (uint32 for large values like ROOT=1024)
     uint8_t auraType{0};           // SPELL_AURA_* type
 
     // Polymorph-specific
@@ -974,11 +985,23 @@ class CellActorManager
 {
 public:
     explicit CellActorManager(Map* map);
-    ~CellActorManager() = default;
+    ~CellActorManager();
 
-    // Get or create CellActor for a grid position
-    CellActor* GetOrCreateCellActor(uint32_t gridX, uint32_t gridY);
-    CellActor* GetCellActor(uint32_t gridX, uint32_t gridY);
+    // Get or create CellActor for a grid position - INLINED FOR PERFORMANCE
+    // These are the hottest paths in the system, called millions of times per second
+    [[gnu::hot]] [[gnu::always_inline]]
+    inline CellActor* GetOrCreateCellActor(uint32_t gridX, uint32_t gridY) noexcept
+    {
+        // O(1) lock-free array access - cells are pre-allocated
+        // No bounds check needed: cells pre-allocated for all 512x512
+        return _cellActors[(gridY << 9) + gridX];  // y*512 + x, using shift for speed
+    }
+
+    [[gnu::hot]] [[gnu::always_inline]]
+    inline CellActor* GetCellActor(uint32_t gridX, uint32_t gridY) noexcept
+    {
+        return _cellActors[(gridY << 9) + gridX];
+    }
 
     // Get CellActor for world coordinates
     CellActor* GetCellActorForPosition(float x, float y);
@@ -1003,6 +1026,7 @@ public:
     void OnEntityAuraApplied(WorldObject* obj, uint32_t spellId, uint8_t effectMask);
     void OnEntityAuraRemoved(WorldObject* obj, uint32_t spellId);
     void OnEntityPhaseChanged(WorldObject* obj, uint32_t newPhaseMask);
+    void OnEntityControlStateChanged(WorldObject* obj, uint32_t state, bool apply);
     void BroadcastToGhosts(uint64_t guid, const ActorMessage& msg);
     void DestroyAllGhostsForEntity(uint64_t guid);
     bool CanInteractCrossPhase(WorldObject* source, uint64_t targetGuid);
@@ -1197,8 +1221,8 @@ public:
     [[nodiscard]] size_t GetActiveCellCount() const
     {
         size_t count = 0;
-        for (const auto& cell : _cellActors)
-            if (cell && cell->IsActive())
+        for (uint32_t i = 0; i < TOTAL_CELLS; ++i)
+            if (_cellActors[i] && _cellActors[i]->IsActive())
                 ++count;
         return count;
     }
@@ -1213,10 +1237,10 @@ public:
     [[nodiscard]] std::vector<std::pair<uint32_t, uint32_t>> GetHotspotCells(size_t count) const
     {
         std::vector<std::pair<uint32_t, uint32_t>> cells;
-        for (const auto& cell : _cellActors)
+        for (uint32_t i = 0; i < TOTAL_CELLS; ++i)
         {
-            if (cell && cell->IsActive())
-                cells.emplace_back(cell->GetCellId(), cell->GetMessagesProcessedLastTick());
+            if (_cellActors[i] && _cellActors[i]->IsActive())
+                cells.emplace_back(_cellActors[i]->GetCellId(), _cellActors[i]->GetMessagesProcessedLastTick());
         }
 
         std::sort(cells.begin(), cells.end(),
@@ -1286,26 +1310,26 @@ public:
         uint32_t cellX, cellY;
         ExtractCellCoords(cellId, cellX, cellY);
         uint32_t index = CellIndex(cellX, cellY);
-        if (index < _cellActors.size() && _cellActors[index])
-            return _cellActors[index].get();
+        if (index < TOTAL_CELLS)
+            return _cellActors[index];
         return nullptr;
     }
 
     [[nodiscard]] size_t GetTotalEntityCount() const
     {
         size_t total = 0;
-        for (const auto& cell : _cellActors)
-            if (cell)
-                total += cell->GetEntityCount();
+        for (uint32_t i = 0; i < TOTAL_CELLS; ++i)
+            if (_cellActors[i])
+                total += _cellActors[i]->GetEntityCount();
         return total;
     }
 
     [[nodiscard]] size_t GetTotalGhostCount() const
     {
         size_t total = 0;
-        for (const auto& cell : _cellActors)
-            if (cell)
-                total += cell->GetGhostCount();
+        for (uint32_t i = 0; i < TOTAL_CELLS; ++i)
+            if (_cellActors[i])
+                total += _cellActors[i]->GetGhostCount();
         return total;
     }
 
@@ -1372,7 +1396,7 @@ private:
     uint64_t GenerateMigrationId();
 
     Map* _map;
-    std::vector<std::unique_ptr<CellActor>> _cellActors;  // Pre-allocated, TOTAL_CELLS size
+    CellActor** _cellActors;  // Raw pointer array for O(1) access, no unique_ptr overhead
     std::unordered_map<uint64_t, EntityGhostInfo> _entityGhostInfo;
     std::unordered_map<uint64_t, EntityMigrationInfo> _entityMigrations;
     std::atomic<uint64_t> _nextMigrationId{1};
