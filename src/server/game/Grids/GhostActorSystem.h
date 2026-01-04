@@ -39,12 +39,14 @@
 #include <cmath>
 #include <cstdint>
 #include <memory>
+#include <set>
 #include <unordered_map>
 #include <vector>
 
 // Forward declarations
 class WorldObject;
 class Unit;
+class Player;
 class Cell;
 class Map;
 class WorkStealingPool;
@@ -105,6 +107,60 @@ enum class MessageType : uint8_t
 
     // Pet safety
     PET_REMOVAL,
+
+    // =========================================================================
+    // Control Effects - Cross-cell crowd control
+    // TODO: Integrate with Unit::SetControlled(), SpellAuras, and AI reaction
+    // =========================================================================
+    STUN,              // Apply stun - target cannot act
+    ROOT,              // Apply root - target cannot move, can still cast
+    FEAR,              // Apply fear - target flees, needs position sync
+    CHARM,             // Apply charm/mind control - changes faction temporarily
+    KNOCKBACK,         // Positional displacement with velocity
+    SILENCE,           // Apply silence - cannot cast spells
+    POLYMORPH,         // Transform target (sheep, pig, etc.)
+
+    // =========================================================================
+    // Combat Feedback - Attack result notifications for AI and procs
+    // TODO: Integrate with Unit::AttackerStateUpdate(), CalcDamageInfo
+    // =========================================================================
+    DODGE,             // Attack dodged - no damage dealt
+    PARRY,             // Attack parried - no damage, can trigger riposte
+    BLOCK,             // Attack blocked - reduced/no damage
+    MISS,              // Attack missed - no damage
+    IMMUNE,            // Target immune to this effect/spell
+    ABSORB_NOTIFICATION, // Damage absorbed by shield effect
+
+    // =========================================================================
+    // Spell Cast Notifications - For AI reactions and proc system
+    // TODO: Integrate with Spell::prepare(), Spell::finish(), Spell::cancel()
+    // =========================================================================
+    SPELL_CAST_START,  // Caster began casting - notify ghosts for interrupt AI
+    SPELL_CAST_FAILED, // Cast was interrupted or failed
+    SPELL_CAST_SUCCESS,// Cast completed successfully - for proc triggers
+
+    // =========================================================================
+    // Taunt - Tank gameplay, forces target switching
+    // Integrated with ThreatManager and Unit::TauntApply/TauntFadeOut
+    // =========================================================================
+    TAUNT,             // Force creature to attack taunter
+    DETAUNT,           // Remove taunt effect / drop threat
+
+    // =========================================================================
+    // Resurrection - Cross-cell resurrection support
+    // TODO: Integrate with Player::ResurrectPlayer(), corpse handling
+    // =========================================================================
+    RESURRECT_REQUEST, // Resurrection spell cast on dead player
+    RESURRECT_ACCEPT,  // Dead player accepted resurrection
+
+    // =========================================================================
+    // Player Social - Cross-cell social interactions
+    // TODO: Integrate with DuelHandler, TradeHandler
+    // =========================================================================
+    DUEL_REQUEST,      // Player challenged another to duel
+    DUEL_STARTED,      // Duel countdown finished, combat begins
+    DUEL_ENDED,        // Duel completed (winner, loser, or fled)
+    TRADE_REQUEST,     // Trade window request sent
 };
 
 /// Message passed between cell actors
@@ -213,6 +269,10 @@ public:
     uint32_t GetCellId() const { return _cellId; }
     bool HasWork() const { return !_entities.empty() || !_inbox.Empty(); }
 
+    // Lock-free activity tracking for Update() iteration
+    [[nodiscard]] bool IsActive() const { return _isActive.load(std::memory_order_acquire); }
+    void SetActive(bool active) { _isActive.store(active, std::memory_order_release); }
+
     [[nodiscard]] size_t GetEntityCount() const { return _entities.size(); }
     [[nodiscard]] size_t GetGhostCount() const { return _ghosts.size(); }
     [[nodiscard]] size_t GetPendingMessageCount() const { return _inbox.ApproximateSize(); }
@@ -243,6 +303,7 @@ private:
     std::vector<WorldObject*> _entities;
     std::unordered_map<uint64_t, std::unique_ptr<GhostEntity>> _ghosts;
     std::atomic<uint32_t> _messagesProcessedLastTick{0};
+    std::atomic<bool> _isActive{false};  // Lock-free activity flag
 };
 
 // ---------------------------------------------------------------------------
@@ -326,7 +387,15 @@ public:
     void SyncAuraState(uint32_t auraState) { _auraState = auraState; }
     void SyncPhaseMask(uint32_t phaseMask) { _phaseMask = phaseMask; }
 
+    // Aura tracking for ghosts
+    void SyncAuraApplied(uint32_t spellId, uint8_t effectMask);
+    void SyncAuraRemoved(uint32_t spellId);
+    [[nodiscard]] bool HasAura(uint32_t spellId) const { return _activeAuras.count(spellId) > 0; }
+    [[nodiscard]] size_t GetActiveAuraCount() const { return _activeAuras.size(); }
+
 private:
+    void RecalculateAuraState();
+
     uint64_t _guid;
     uint32_t _ownerCellId;
     float _posX{0}, _posY{0}, _posZ{0}, _orientation{0};
@@ -338,6 +407,7 @@ private:
     uint32_t _phaseMask{1};
     std::array<uint32_t, 7> _power{};
     std::array<uint32_t, 7> _maxPower{};
+    std::set<uint32_t> _activeAuras;  // Spell IDs of active auras
     bool _inCombat{false};
     bool _isDead{false};
 };
@@ -631,6 +701,222 @@ struct ReflectDamagePayload
 };
 
 // ---------------------------------------------------------------------------
+// Control Effect Payloads
+// ---------------------------------------------------------------------------
+
+/// Payload for control effects (stun, root, fear, charm, silence, polymorph)
+///
+/// Cross-cell control effects are complex because they modify target state
+/// and may require ongoing synchronization (e.g., fear pathing).
+///
+/// Integration points:
+/// - Unit::SetControlled() for applying the effect
+/// - SpellAuras for duration tracking
+/// - MovementGenerator for fear pathing
+/// - CreatureAI::SpellHit() for NPC reactions
+struct ControlEffectPayload
+{
+    uint64_t casterGuid{0};        // Who applied the effect
+    uint64_t targetGuid{0};        // Who is affected
+    uint32_t spellId{0};           // Spell that caused the effect
+    int32_t duration{0};           // Duration in milliseconds
+    uint8_t controlType{0};        // Maps to UnitState flags
+    uint8_t auraType{0};           // SPELL_AURA_* type
+
+    // Polymorph-specific
+    uint32_t transformDisplayId{0}; // Display ID for transform effects
+
+    // Fear-specific: destination for fear pathing
+    float fearDestX{0.0f};
+    float fearDestY{0.0f};
+    float fearDestZ{0.0f};
+};
+
+/// Payload for knockback effects
+///
+/// Knockbacks are position-changing effects that must update both
+/// the target's actual position and all ghost projections.
+///
+/// Integration points:
+/// - Unit::KnockbackFrom() for physics calculation
+/// - MovementHandler for client sync
+/// - All ghost projections need position updates
+struct KnockbackPayload
+{
+    uint64_t casterGuid{0};
+    uint64_t targetGuid{0};
+    uint32_t spellId{0};
+    float originX{0.0f};           // Knockback origin point
+    float originY{0.0f};
+    float originZ{0.0f};
+    float speedXY{0.0f};           // Horizontal velocity
+    float speedZ{0.0f};            // Vertical velocity
+    float destX{0.0f};             // Calculated landing position
+    float destY{0.0f};
+    float destZ{0.0f};
+};
+
+// ---------------------------------------------------------------------------
+// Combat Feedback Payloads
+// ---------------------------------------------------------------------------
+
+/// Payload for combat result notifications (dodge, parry, block, miss, immune)
+///
+/// Combat feedback is important for:
+/// - Proc triggers (e.g., Overpower after dodge)
+/// - AI behavior (some creatures react to parry/dodge)
+/// - Combat log entries for cross-cell attacks
+///
+/// Integration points:
+/// - Unit::AttackerStateUpdate() for result determination
+/// - CalcDamageInfo for mitigation calculation
+/// - Proc system for result-based triggers
+struct CombatResultPayload
+{
+    uint64_t attackerGuid{0};
+    uint64_t victimGuid{0};
+    uint32_t spellId{0};           // 0 for melee attacks
+    uint8_t attackType{0};         // WeaponAttackType enum
+    uint8_t hitInfo{0};            // HITINFO_* flags
+    uint8_t resultType{0};         // MELEE_HIT_DODGE, PARRY, BLOCK, MISS
+    int32_t blockedAmount{0};      // For partial blocks
+    int32_t absorbedAmount{0};     // For absorb notifications
+    uint32_t procAttacker{0};      // PROC_FLAG_* for attacker
+    uint32_t procVictim{0};        // PROC_FLAG_* for victim
+    uint32_t procEx{0};            // PROC_EX_* flags
+};
+
+// ---------------------------------------------------------------------------
+// Spell Cast Notification Payloads
+// ---------------------------------------------------------------------------
+
+/// Payload for spell cast notifications
+///
+/// Spell cast notifications enable:
+/// - AI interrupt decisions (creatures can interrupt casts)
+/// - Proc triggers on cast start/finish
+/// - Ghost state synchronization for cast bars
+///
+/// Integration points:
+/// - Spell::prepare() for CAST_START
+/// - Spell::finish() for CAST_SUCCESS
+/// - Spell::cancel() for CAST_FAILED
+/// - CreatureAI for interrupt AI
+struct SpellCastPayload
+{
+    uint64_t casterGuid{0};
+    uint64_t targetGuid{0};        // Primary target, may be 0
+    uint32_t spellId{0};
+    int32_t castTime{0};           // Total cast time in ms (for CAST_START)
+    int32_t remainingTime{0};      // Remaining time if interrupted
+    uint8_t failReason{0};         // SPELL_FAILED_* for CAST_FAILED
+    uint32_t schoolMask{0};        // For AI interrupt priority
+    bool isChanneled{false};       // Channeled spells have different behavior
+};
+
+// ---------------------------------------------------------------------------
+// Taunt Payloads
+// ---------------------------------------------------------------------------
+
+/// Payload for taunt effects
+///
+/// Taunts force creatures to attack the taunter, overriding normal
+/// threat-based targeting. This is critical for tank gameplay.
+///
+/// Integration points:
+/// - ThreatManager::Taunt() to apply taunt
+/// - ThreatManager::TauntFadeOut() when taunt expires
+/// - CreatureAI::TauntApply()/TauntFadeOut() callbacks
+struct TauntPayload
+{
+    uint64_t taunterGuid{0};       // Tank who taunted
+    uint64_t targetGuid{0};        // Creature being taunted
+    uint32_t spellId{0};           // Taunt spell (e.g., 355 Taunt, 694 Mocking Blow)
+    int32_t duration{0};           // Taunt duration in ms (usually 3 sec)
+    bool isSingleTarget{true};     // false for AoE taunts (Challenging Shout)
+    float threatAmount{0.0f};      // Threat granted with taunt (some taunts add threat)
+};
+
+/// Payload for detaunt/threat drop effects
+///
+/// Detaunts remove taunt effects and may reduce threat.
+/// Examples: Fade, Cower, Hand of Salvation
+struct DetauntPayload
+{
+    uint64_t sourceGuid{0};        // Who is dropping threat
+    uint64_t targetGuid{0};        // Creature to reduce threat on
+    uint32_t spellId{0};
+    float threatReductionPct{0.0f}; // Percentage threat reduction (0-100)
+    bool removeTaunt{false};       // Remove active taunt effect
+};
+
+// ---------------------------------------------------------------------------
+// Resurrection Payloads
+// ---------------------------------------------------------------------------
+
+/// Payload for resurrection spells
+///
+/// Resurrection across cells requires:
+/// - Corpse location awareness (may be different cell than spirit)
+/// - Proper health/mana restoration
+/// - Resurrection sickness handling
+///
+/// Integration points:
+/// - Player::ResurrectPlayer() for actual resurrection
+/// - Corpse system for corpse removal
+/// - SpellEffects for resurrection spells
+struct ResurrectPayload
+{
+    uint64_t casterGuid{0};        // Resurrector
+    uint64_t targetGuid{0};        // Dead player
+    uint32_t spellId{0};
+    uint32_t healthPct{0};         // Health restored (percentage)
+    uint32_t manaPct{0};           // Mana restored (percentage)
+    float destX{0.0f};             // Resurrection location
+    float destY{0.0f};
+    float destZ{0.0f};
+    bool applySickness{false};     // Apply resurrection sickness
+    int32_t sicknessLevel{0};      // Sickness level (based on level difference)
+};
+
+// ---------------------------------------------------------------------------
+// Player Social Payloads
+// ---------------------------------------------------------------------------
+
+/// Payload for duel requests and state changes
+///
+/// Duels involve:
+/// - Challenge/accept handshake
+/// - Duel area flagging
+/// - Combat state that doesn't affect others
+/// - Win/loss determination
+///
+/// Integration points:
+/// - DuelHandler for duel logic
+/// - Player::DuelComplete() for results
+struct DuelPayload
+{
+    uint64_t challengerGuid{0};
+    uint64_t challengedGuid{0};
+    float duelX{0.0f};             // Duel flag location
+    float duelY{0.0f};
+    float duelZ{0.0f};
+    uint8_t state{0};              // 0=request, 1=accepted, 2=started, 3=ended
+    uint8_t result{0};             // 0=none, 1=challenger won, 2=challenged won, 3=fled
+};
+
+/// Payload for trade requests
+///
+/// Trade windows may involve cross-cell players.
+/// Most trade logic is handled client-side, but initiation needs routing.
+struct TradePayload
+{
+    uint64_t initiatorGuid{0};
+    uint64_t targetGuid{0};
+    uint8_t state{0};              // 0=request, 1=accepted, 2=cancelled
+};
+
+// ---------------------------------------------------------------------------
 // Performance Monitoring
 // ---------------------------------------------------------------------------
 
@@ -640,7 +926,7 @@ struct PerformanceStats
     uint64_t avgUpdateUs{0};
     uint64_t maxUpdateUs{0};
 
-    static constexpr size_t MAX_MESSAGE_TYPES = 32;
+    static constexpr size_t MAX_MESSAGE_TYPES = 64;  // Room for 54 current + future growth
     std::array<std::atomic<uint32_t>, MAX_MESSAGE_TYPES> messageCountsByType{};
     std::atomic<uint32_t> totalMessagesThisTick{0};
     std::atomic<uint32_t> tasksStolen{0};
@@ -769,6 +1055,129 @@ public:
     void SendSpellstealMessage(Unit* caster, Unit* target, uint32_t spellstealSpellId,
                                const std::vector<std::pair<uint32_t, uint64_t>>& stealList);
 
+    // =========================================================================
+    // Cross-cell Control Effects
+    // TODO: Implement - these integrate with Unit::SetControlled() and SpellAuras
+    // =========================================================================
+
+    /// Send stun notification to target's cell.
+    /// The target cell should apply the stun via Unit::SetControlled(true, UNIT_STATE_STUNNED).
+    /// Ghost projections in neighboring cells should update their state to show stunned.
+    void SendStunMessage(Unit* caster, Unit* target, uint32_t spellId, int32_t duration);
+
+    /// Send root notification to target's cell.
+    /// Target cannot move but can still cast. Position is frozen.
+    void SendRootMessage(Unit* caster, Unit* target, uint32_t spellId, int32_t duration);
+
+    /// Send fear notification with calculated flee path.
+    /// Fear causes target to run in fear - requires ongoing position sync.
+    /// The destination should be pre-calculated to avoid cross-cell pathfinding.
+    void SendFearMessage(Unit* caster, Unit* target, uint32_t spellId, int32_t duration,
+                         float destX, float destY, float destZ);
+
+    /// Send charm/mind control notification.
+    /// Target faction changes temporarily. Very complex - affects targeting, threat, etc.
+    void SendCharmMessage(Unit* caster, Unit* target, uint32_t spellId, int32_t duration);
+
+    /// Send knockback notification with velocity.
+    /// Target position changes. Must update all ghost projections.
+    void SendKnockbackMessage(Unit* caster, Unit* target, uint32_t spellId,
+                              float speedXY, float speedZ, float destX, float destY, float destZ);
+
+    /// Send silence notification.
+    /// Target cannot cast spells. Different from interrupt (which stops current cast).
+    void SendSilenceMessage(Unit* caster, Unit* target, uint32_t spellId, int32_t duration);
+
+    /// Send polymorph notification.
+    /// Target transforms and is incapacitated. Display ID changes.
+    void SendPolymorphMessage(Unit* caster, Unit* target, uint32_t spellId, int32_t duration,
+                              uint32_t transformDisplayId);
+
+    // =========================================================================
+    // Combat Feedback Messages
+    // TODO: Implement - for procs and AI reactions to attack results
+    // =========================================================================
+
+    /// Notify that an attack was dodged.
+    /// Important for procs (e.g., Overpower) and AI reactions.
+    void SendDodgeMessage(Unit* attacker, Unit* victim, uint32_t spellId);
+
+    /// Notify that an attack was parried.
+    /// May trigger parry-haste on creatures.
+    void SendParryMessage(Unit* attacker, Unit* victim, uint32_t spellId);
+
+    /// Notify that an attack was blocked.
+    /// Includes blocked amount for partial blocks.
+    void SendBlockMessage(Unit* attacker, Unit* victim, uint32_t spellId, int32_t blockedAmount);
+
+    /// Notify that an attack missed.
+    void SendMissMessage(Unit* attacker, Unit* victim, uint32_t spellId);
+
+    /// Notify that target was immune to effect.
+    void SendImmuneMessage(Unit* caster, Unit* target, uint32_t spellId);
+
+    /// Notify that damage was absorbed by a shield.
+    /// Separate from damage event for proper absorb tracking.
+    void SendAbsorbMessage(Unit* attacker, Unit* victim, uint32_t spellId, int32_t absorbedAmount);
+
+    // =========================================================================
+    // Spell Cast Notifications
+    // TODO: Implement - for AI interrupt decisions and proc system
+    // =========================================================================
+
+    /// Notify neighbors that a unit started casting.
+    /// Creatures may decide to interrupt based on spell school/danger.
+    void SendSpellCastStartMessage(Unit* caster, Unit* target, uint32_t spellId, int32_t castTime);
+
+    /// Notify neighbors that a cast failed.
+    /// Could be interrupted, out of range, etc.
+    void SendSpellCastFailedMessage(Unit* caster, uint32_t spellId, uint8_t failReason);
+
+    /// Notify neighbors that a cast succeeded.
+    /// For proc triggers on successful casts.
+    void SendSpellCastSuccessMessage(Unit* caster, Unit* target, uint32_t spellId);
+
+    // =========================================================================
+    // Taunt Messages
+    // Integrated with ThreatManager, Unit::TauntApply/TauntFadeOut, HandleModTaunt
+    // =========================================================================
+
+    /// Send taunt notification to creature's cell.
+    /// Forces creature to attack taunter for duration.
+    void SendTauntMessage(Unit* taunter, Unit* target, uint32_t spellId, int32_t duration);
+
+    /// Send detaunt/threat drop notification.
+    /// Removes taunt and/or reduces threat.
+    void SendDetauntMessage(Unit* source, Unit* target, uint32_t spellId, float threatReductionPct);
+
+    // =========================================================================
+    // Resurrection Messages
+    // TODO: Implement - for cross-cell resurrection
+    // =========================================================================
+
+    /// Send resurrection request to dead player's cell.
+    /// Player will receive accept/decline dialog.
+    void SendResurrectRequestMessage(Unit* caster, Unit* target, uint32_t spellId,
+                                     uint32_t healthPct, uint32_t manaPct);
+
+    /// Handle resurrection acceptance.
+    /// Routes to original caster to complete the resurrection.
+    void SendResurrectAcceptMessage(Unit* target, uint64_t casterGuid);
+
+    // =========================================================================
+    // Player Social Messages
+    // TODO: Implement - for cross-cell duels and trades
+    // =========================================================================
+
+    /// Send duel request to target's cell.
+    void SendDuelRequestMessage(Player* challenger, Player* challenged);
+
+    /// Notify duel state change (accepted, started, ended).
+    void SendDuelStateMessage(Player* player1, Player* player2, uint8_t state, uint8_t result);
+
+    /// Send trade request to target's cell.
+    void SendTradeRequestMessage(Player* initiator, Player* target);
+
     struct VictimInfo
     {
         uint64_t guid{0};
@@ -785,7 +1194,14 @@ public:
     bool HasWorkPool() const { return _workPool != nullptr; }
 
     // Stats
-    [[nodiscard]] size_t GetActiveCellCount() const { return _activeCells.size(); }
+    [[nodiscard]] size_t GetActiveCellCount() const
+    {
+        size_t count = 0;
+        for (const auto& cell : _cellActors)
+            if (cell && cell->IsActive())
+                ++count;
+        return count;
+    }
     [[nodiscard]] size_t GetGhostCount() const { return _entityGhostInfo.size(); }
     [[nodiscard]] size_t GetMigratingCount() const { return _entityMigrations.size(); }
 
@@ -797,9 +1213,11 @@ public:
     [[nodiscard]] std::vector<std::pair<uint32_t, uint32_t>> GetHotspotCells(size_t count) const
     {
         std::vector<std::pair<uint32_t, uint32_t>> cells;
-        cells.reserve(_cellActors.size());
-        for (const auto& [id, cell] : _cellActors)
-            cells.emplace_back(id, cell->GetMessagesProcessedLastTick());
+        for (const auto& cell : _cellActors)
+        {
+            if (cell && cell->IsActive())
+                cells.emplace_back(cell->GetCellId(), cell->GetMessagesProcessedLastTick());
+        }
 
         std::sort(cells.begin(), cells.end(),
             [](const auto& a, const auto& b) { return a.second > b.second; });
@@ -865,23 +1283,29 @@ public:
     // Debug query methods
     [[nodiscard]] CellActor* GetCell(uint32_t cellId) const
     {
-        auto it = _cellActors.find(cellId);
-        return it != _cellActors.end() ? it->second.get() : nullptr;
+        uint32_t cellX, cellY;
+        ExtractCellCoords(cellId, cellX, cellY);
+        uint32_t index = CellIndex(cellX, cellY);
+        if (index < _cellActors.size() && _cellActors[index])
+            return _cellActors[index].get();
+        return nullptr;
     }
 
     [[nodiscard]] size_t GetTotalEntityCount() const
     {
         size_t total = 0;
-        for (const auto& [id, cell] : _cellActors)
-            total += cell->GetEntityCount();
+        for (const auto& cell : _cellActors)
+            if (cell)
+                total += cell->GetEntityCount();
         return total;
     }
 
     [[nodiscard]] size_t GetTotalGhostCount() const
     {
         size_t total = 0;
-        for (const auto& [id, cell] : _cellActors)
-            total += cell->GetGhostCount();
+        for (const auto& cell : _cellActors)
+            if (cell)
+                total += cell->GetGhostCount();
         return total;
     }
 
@@ -911,7 +1335,18 @@ public:
         return neighbors;
     }
 
+    // Grid dimension constants (64 grids × 8 cells = 512 cells per dimension)
+    static constexpr uint32_t CELLS_PER_DIMENSION = 512;
+    static constexpr uint32_t TOTAL_CELLS = CELLS_PER_DIMENSION * CELLS_PER_DIMENSION;  // 262,144
+
 private:
+    // Linear index for O(1) array access (0-262143)
+    static uint32_t CellIndex(uint32_t cellX, uint32_t cellY)
+    {
+        return cellY * CELLS_PER_DIMENSION + cellX;
+    }
+
+    // Packed ID for CellActor identity (y << 16 | x format)
     static uint32_t MakeCellId(uint32_t cellX, uint32_t cellY)
     {
         return (cellY << 16) | cellX;
@@ -937,8 +1372,7 @@ private:
     uint64_t GenerateMigrationId();
 
     Map* _map;
-    std::unordered_map<uint32_t, std::unique_ptr<CellActor>> _cellActors;
-    std::vector<CellActor*> _activeCells;
+    std::vector<std::unique_ptr<CellActor>> _cellActors;  // Pre-allocated, TOTAL_CELLS size
     std::unordered_map<uint64_t, EntityGhostInfo> _entityGhostInfo;
     std::unordered_map<uint64_t, EntityMigrationInfo> _entityMigrations;
     std::atomic<uint64_t> _nextMigrationId{1};
