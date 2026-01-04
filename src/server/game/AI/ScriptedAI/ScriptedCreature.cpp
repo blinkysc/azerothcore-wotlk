@@ -441,7 +441,7 @@ void ScriptedAI::DoAddThreat(Unit* unit, float amount)
     if (!unit)
         return;
 
-    me->GetThreatManager().AddThreat(unit, amount);
+    me->GetThreatMgr().AddThreat(unit, amount);
 }
 
 void ScriptedAI::DoModifyThreatByPercent(Unit* unit, int32 pct)
@@ -449,7 +449,7 @@ void ScriptedAI::DoModifyThreatByPercent(Unit* unit, int32 pct)
     if (!unit)
         return;
 
-    me->GetThreatManager().ModifyThreatByPercent(unit, pct);
+    me->GetThreatMgr().ModifyThreatByPercent(unit, pct);
 }
 
 void ScriptedAI::DoResetThreat(Unit* unit)
@@ -457,18 +457,18 @@ void ScriptedAI::DoResetThreat(Unit* unit)
     if (!unit)
         return;
 
-    me->GetThreatManager().ResetThreat(unit);
+    me->GetThreatMgr().ResetThreat(unit);
 }
 
 void ScriptedAI::DoResetThreatList()
 {
-    if (!me->CanHaveThreatList() || me->GetThreatManager().IsThreatListEmpty())
+    if (!me->CanHaveThreatList() || me->GetThreatMgr().IsThreatListEmpty())
     {
         LOG_ERROR("entities.unit.ai", "DoResetThreatList called for creature that either cannot have threat list or has empty threat list (me entry = {})", me->GetEntry());
         return;
     }
 
-    me->GetThreatManager().ResetAllThreat();
+    me->GetThreatMgr().ResetAllThreat();
 }
 
 float ScriptedAI::DoGetThreat(Unit* unit)
@@ -476,7 +476,7 @@ float ScriptedAI::DoGetThreat(Unit* unit)
     if (!unit)
         return 0.0f;
 
-    return me->GetThreatManager().GetThreat(unit);
+    return me->GetThreatMgr().GetThreat(unit);
 }
 
 void ScriptedAI::DoTeleportPlayer(Unit* unit, float x, float y, float z, float o)
@@ -704,7 +704,7 @@ void BossAI::TeleportCheaters()
     float x, y, z;
     me->GetPosition(x, y, z);
 
-    for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+    for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
         if (Unit* target = ref->GetVictim())
             if (target->IsPlayer() && !IsInBoundary(target))
                 target->NearTeleportTo(x, y, z, 0);

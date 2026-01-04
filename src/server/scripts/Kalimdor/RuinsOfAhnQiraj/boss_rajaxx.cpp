@@ -114,7 +114,7 @@ struct boss_rajaxx : public BossAI
                     break;
                 case EVENT_THUNDERCRASH:
                     DoCastSelf(SPELL_THUNDERCRASH);
-                    me->GetThreatManager().ResetAllThreat();
+                    me->GetThreatMgr().ResetAllThreat();
                     events.ScheduleEvent(EVENT_THUNDERCRASH, 21s);
                     break;
                 default:

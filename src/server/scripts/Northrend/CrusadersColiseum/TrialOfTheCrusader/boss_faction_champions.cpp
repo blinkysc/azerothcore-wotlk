@@ -103,14 +103,14 @@ struct boss_faction_championsAI : public ScriptedAI
 
     void RecalculateThreat()
     {
-        for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+        for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
         {
             Unit* pUnit = ref->GetVictim();
-            if (pUnit && pUnit->IsPlayer() && me->GetThreatManager().GetThreat(pUnit))
+            if (pUnit && pUnit->IsPlayer() && me->GetThreatMgr().GetThreat(pUnit))
             {
                 float threatMod = GetThreatMod(me->GetDistance2d(pUnit), (float)pUnit->GetArmor(), pUnit->GetHealth(), pUnit->GetMaxHealth(), pUnit);
-                me->GetThreatManager().ResetThreat(pUnit);
-                me->GetThreatManager().AddThreat(pUnit, 10000000.0f * threatMod, nullptr, true, true);
+                me->GetThreatMgr().ResetThreat(pUnit);
+                me->GetThreatMgr().AddThreat(pUnit, 10000000.0f * threatMod, nullptr, true, true);
             }
         }
     }
@@ -177,7 +177,7 @@ struct boss_faction_championsAI : public ScriptedAI
     uint32 EnemiesInRange(float distance)
     {
         uint32 count = 0;
-        for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+        for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
         {
             if (Unit* target = ref->GetVictim())
                 if (me->GetDistance2d(target) < distance)
@@ -188,7 +188,7 @@ struct boss_faction_championsAI : public ScriptedAI
 
     Unit* SelectEnemyCaster(bool casting, float range)
     {
-        for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+        for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
         {
             if (Unit* target = ref->GetVictim())
                 if (target->getPowerType() == POWER_MANA && (!casting || target->HasUnitState(UNIT_STATE_CASTING)) && me->GetExactDist(target) <= range)

@@ -2726,7 +2726,7 @@ void Spell::DoAllEffectOnTarget(TargetInfo* target)
         if (caster->IsClass(CLASS_PALADIN))
             threat *= 0.5f;
 
-        unitTarget->GetThreatManager().ForwardThreatForAssistingMe(caster, threat, m_spellInfo);
+        unitTarget->GetThreatMgr().ForwardThreatForAssistingMe(caster, threat, m_spellInfo);
         m_healing = gain;
 
         // Xinef: if heal acutally healed something, add no overheal flag
@@ -3010,7 +3010,7 @@ SpellMissInfo Spell::DoSpellHitOnUnit(Unit* unit, uint32 effectMask, bool scaleA
             if (unit->IsInCombat() && !m_spellInfo->HasAttribute(SPELL_ATTR3_SUPPRESS_TARGET_PROCS) && !m_triggeredByAuraSpell)
             {
                 m_caster->SetInCombatState(unit->GetCombatTimer() > 0, unit);
-                unit->GetThreatManager().ForwardThreatForAssistingMe(m_caster, 0.0f, nullptr, true);
+                unit->GetThreatMgr().ForwardThreatForAssistingMe(m_caster, 0.0f, nullptr, true);
             }
         }
     }
@@ -5567,7 +5567,7 @@ void Spell::HandleThreatSpells()
         bool IsFriendly = m_caster->IsFriendlyTo(target);
         // positive spells distribute threat among all units that are in combat with target, like healing
         if (m_spellInfo->_IsPositiveSpell() && IsFriendly)
-            target->GetThreatManager().ForwardThreatForAssistingMe(m_caster, threatToAdd, m_spellInfo);
+            target->GetThreatMgr().ForwardThreatForAssistingMe(m_caster, threatToAdd, m_spellInfo);
         // for negative spells threat gets distributed among affected targets
         else if (!m_spellInfo->_IsPositiveSpell() && !IsFriendly && target->CanHaveThreatList())
             target->AddThreat(m_caster, threatToAdd, m_spellInfo->GetSchoolMask(), m_spellInfo);

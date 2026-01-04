@@ -155,8 +155,8 @@ void ThreatReference::ClearThreat()
 
 void ThreatReference::UnregisterAndFree()
 {
-    _owner->GetThreatManager().PurgeThreatListRef(_victim->GetGUID());
-    _victim->GetThreatManager().PurgeThreatenedByMeRef(_owner->GetGUID());
+    _owner->GetThreatMgr().PurgeThreatListRef(_victim->GetGUID());
+    _victim->GetThreatMgr().PurgeThreatenedByMeRef(_owner->GetGUID());
     delete this;
 }
 
@@ -399,7 +399,7 @@ void ThreatManager::AddThreat(Unit* target, float amount, SpellInfo const* spell
         if (!combatMgr.SetInCombatWith(target))
             return;
         // traverse redirects and put them in combat, too
-        for (auto const& pair : target->GetThreatManager()._redirectInfo)
+        for (auto const& pair : target->GetThreatMgr()._redirectInfo)
             if (!combatMgr.IsInCombatWith(pair.first))
                 if (Unit* redirTarget = ObjectAccessor::GetUnit(*_owner, pair.first))
                     combatMgr.SetInCombatWith(redirTarget);
@@ -413,7 +413,7 @@ void ThreatManager::AddThreat(Unit* target, float amount, SpellInfo const* spell
     // if we're increasing threat, send some/all of it to redirection targets instead if applicable
     if (!ignoreRedirects && amount > 0.0f)
     {
-        auto const& redirInfo = target->GetThreatManager()._redirectInfo;
+        auto const& redirInfo = target->GetThreatMgr()._redirectInfo;
         if (!redirInfo.empty())
         {
             float const origAmount = amount;
@@ -466,7 +466,7 @@ void ThreatManager::AddThreat(Unit* target, float amount, SpellInfo const* spell
     // ok, we're now in combat - create the threat list reference and push it to the respective managers
     ThreatReference* ref = new ThreatReferenceImpl(this, target);
     PutThreatListRef(target->GetGUID(), ref);
-    target->GetThreatManager().PutThreatenedByMeRef(_owner->GetGUID(), ref);
+    target->GetThreatMgr().PutThreatenedByMeRef(_owner->GetGUID(), ref);
 
     ref->UpdateOffline();
     if (ref->IsOnline()) // we only add the threat if the ref is currently available
@@ -698,7 +698,7 @@ void ThreatManager::ProcessAIUpdates()
     }
 
     // modifiers by effect school
-    ThreatManager const& victimMgr = victim->GetThreatManager();
+    ThreatManager const& victimMgr = victim->GetThreatMgr();
     SpellSchoolMask const mask = spell ? spell->GetSchoolMask() : SPELL_SCHOOL_MASK_NORMAL;
     switch (mask)
     {
@@ -761,11 +761,11 @@ void ThreatManager::ForwardThreatForAssistingMe(Unit* assistant, float baseAmoun
     {
         float const perTarget = baseAmount / canBeThreatened.size();
         for (Creature* threatened : canBeThreatened)
-            threatened->GetThreatManager().AddThreat(assistant, perTarget, spell, ignoreModifiers);
+            threatened->GetThreatMgr().AddThreat(assistant, perTarget, spell, ignoreModifiers);
     }
 
     for (Creature* threatened : cannotBeThreatened)
-        threatened->GetThreatManager().AddThreat(assistant, 0.0f, spell, true);
+        threatened->GetThreatMgr().AddThreat(assistant, 0.0f, spell, true);
 }
 
 void ThreatManager::RemoveMeFromThreatLists()

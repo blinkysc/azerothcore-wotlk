@@ -918,7 +918,7 @@ public:
     void SetImmuneToNPC(bool apply, bool keepCombat = false);
     bool IsImmuneToNPC() const { return HasUnitFlag(UNIT_FLAG_IMMUNE_TO_NPC); }
 
-    bool IsEngaged() const { return IsInCombat(); }
+    virtual bool IsEngaged() const { return IsInCombat(); }
     bool IsEngagedBy(Unit const* who) const { return IsInCombatWith(who); }
 
     [[nodiscard]] bool IsInCombat() const { return HasUnitFlag(UNIT_FLAG_IN_COMBAT); }
@@ -941,9 +941,9 @@ public:
     void TauntApply(Unit* victim);
     void TauntFadeOut(Unit* taunter);
 
-    // New ThreatManager/CombatManager accessors
-    ThreatManager& GetThreatManager() { return m_threatManager; }
-    ThreatManager const& GetThreatManager() const { return m_threatManager; }
+    // ThreatManager/CombatManager accessors
+    ThreatManager& GetThreatMgr() { return m_threatManager; }
+    ThreatManager const& GetThreatMgr() const { return m_threatManager; }
     CombatManager& GetCombatManager() { return m_combatManager; }
     CombatManager const& GetCombatManager() const { return m_combatManager; }
 

@@ -1207,7 +1207,7 @@ public:
             if (!attacker || attacker == me || attacker == me->GetVictim() || (det != DIRECT_DAMAGE && det != SPELL_DIRECT_DAMAGE))
                 return;
 
-            me->GetThreatManager().ClearAllThreat();
+            me->GetThreatMgr().ClearAllThreat();
             me->AddThreat(attacker, 500000000.0f);
         }
 

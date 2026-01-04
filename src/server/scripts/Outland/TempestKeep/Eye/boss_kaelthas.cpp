@@ -975,7 +975,7 @@ class spell_kaelthas_mind_control : public SpellScript
             return;
 
         if (Player* player = GetHitPlayer())
-            GetCaster()->GetThreatManager().ResetThreat(player);
+            GetCaster()->GetThreatMgr().ResetThreat(player);
     }
 
     void Register() override
@@ -1084,7 +1084,7 @@ class spell_kaelthas_nether_beam : public SpellScript
         PreventHitEffect(effIndex);
 
         std::list<Unit*> targetList;
-        for (ThreatReference const* ref : GetCaster()->GetThreatManager().GetUnsortedThreatList())
+        for (ThreatReference const* ref : GetCaster()->GetThreatMgr().GetUnsortedThreatList())
         {
             if (Unit* target = ref->GetVictim())
             {

@@ -380,7 +380,7 @@ struct npc_molten_golem : public ScriptedAI
             case EVENT_CHANGE_TARGET:
                 if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, 0.0f, true))
                 {
-                    me->GetThreatManager().ResetAllThreat();
+                    me->GetThreatMgr().ResetAllThreat();
                     me->AddThreat(target, 30000.0f);
                     AttackStart(target);
                 }

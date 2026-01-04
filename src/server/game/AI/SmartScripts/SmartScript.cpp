@@ -584,11 +584,11 @@ void SmartScript::ProcessAction(SmartScriptHolder& e, Unit* unit, uint32 var0, u
             if (!me)
                 break;
 
-            for (ThreatReference* ref : me->GetThreatManager().GetModifiableThreatList())
+            for (ThreatReference* ref : me->GetThreatMgr().GetModifiableThreatList())
             {
                 if (Unit* target = ref->GetVictim())
                 {
-                    me->GetThreatManager().ModifyThreatByPercent(target, e.action.threatPCT.threatINC ? (int32)e.action.threatPCT.threatINC : -(int32)e.action.threatPCT.threatDEC);
+                    me->GetThreatMgr().ModifyThreatByPercent(target, e.action.threatPCT.threatINC ? (int32)e.action.threatPCT.threatINC : -(int32)e.action.threatPCT.threatDEC);
                     LOG_DEBUG("sql.sql", "SmartScript::ProcessAction:: SMART_ACTION_THREAT_ALL_PCT: Creature {} modify threat for unit {}, value {}",
                                    me->GetGUID().ToString(), target->GetGUID().ToString(), e.action.threatPCT.threatINC ? (int32)e.action.threatPCT.threatINC : -(int32)e.action.threatPCT.threatDEC);
                 }
@@ -604,7 +604,7 @@ void SmartScript::ProcessAction(SmartScriptHolder& e, Unit* unit, uint32 var0, u
             {
                 if (IsUnit(target))
                 {
-                    me->GetThreatManager().ModifyThreatByPercent(target->ToUnit(), e.action.threatPCT.threatINC ? (int32)e.action.threatPCT.threatINC : -(int32)e.action.threatPCT.threatDEC);
+                    me->GetThreatMgr().ModifyThreatByPercent(target->ToUnit(), e.action.threatPCT.threatINC ? (int32)e.action.threatPCT.threatINC : -(int32)e.action.threatPCT.threatDEC);
                     LOG_DEBUG("scripts.ai", "SmartScript::ProcessAction:: SMART_ACTION_THREAT_SINGLE_PCT: Creature guidLow {} modify threat for unit {}, value {}",
                               me->GetGUID().ToString(), target->GetGUID().ToString(), e.action.threatPCT.threatINC ? (int32)e.action.threatPCT.threatINC : -(int32)e.action.threatPCT.threatDEC);
                 }
@@ -668,7 +668,7 @@ void SmartScript::ProcessAction(SmartScriptHolder& e, Unit* unit, uint32 var0, u
 
                     // If the threatlist is a singleton, cancel
                     if (e.action.cast.castFlags & SMARTCAST_THREATLIST_NOT_SINGLE)
-                        if (me->GetThreatManager().GetThreatListSize() <= 1)
+                        if (me->GetThreatMgr().GetThreatListSize() <= 1)
                             break;
 
                     // If target does not use mana, skip
@@ -3854,7 +3854,7 @@ void SmartScript::GetTargets(ObjectVector& targets, SmartScriptHolder const& e, 
         {
             if (me)
             {
-                for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+                for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
                     if (Unit* temp = ref->GetVictim())
                         // Xinef: added distance check
                         if (e.target.threatList.maxDist == 0 || me->IsWithinCombatRange(temp, (float)e.target.threatList.maxDist))
@@ -4757,7 +4757,7 @@ void SmartScript::ProcessEvent(SmartScriptHolder& e, Unit* unit, uint32 var0, ui
             if (!me || !me->IsEngaged())
                 return;
 
-            for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+            for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
             {
                 if (Unit* target = ref->GetVictim())
                 {
@@ -4783,7 +4783,7 @@ void SmartScript::ProcessEvent(SmartScriptHolder& e, Unit* unit, uint32 var0, ui
             if (!me || !me->IsEngaged())
                 return;
 
-            for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+            for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
             {
                 if (Unit* target = ref->GetVictim())
                 {

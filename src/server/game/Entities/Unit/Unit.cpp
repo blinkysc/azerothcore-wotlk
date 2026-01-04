@@ -9544,7 +9544,7 @@ bool Unit::HandleProcTriggerSpell(Unit* victim, uint32 damage, AuraEffect* trigg
                             return false;
 
                         if (victim && victim->IsAlive())
-                            victim->GetThreatManager().ModifyThreatByPercent(this, -10);
+                            victim->GetThreatMgr().ModifyThreatByPercent(this, -10);
 
                         basepoints0 = int32(CountPctFromMaxHealth(triggerAmount));
                         trigger_spell_id = 31616;
@@ -11497,7 +11497,7 @@ void Unit::EnergizeBySpell(Unit* victim, uint32 spellID, uint32 damage, Powers p
     if (powerType != POWER_HAPPINESS && gainedPower)
     {
         SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spellID);
-        victim->GetThreatManager().ForwardThreatForAssistingMe(this, float(gainedPower) * 0.5f, spellInfo);
+        victim->GetThreatMgr().ForwardThreatForAssistingMe(this, float(gainedPower) * 0.5f, spellInfo);
     }
 
     SendEnergizeSpellLog(victim, spellID, damage, powerType);
@@ -14682,8 +14682,8 @@ void Unit::setDeathState(DeathState s, bool despawn)
     if (s != DeathState::Alive && s != DeathState::JustRespawned)
     {
         CombatStop();
-        GetThreatManager().ClearAllThreat();
-        GetThreatManager().RemoveMeFromThreatLists();
+        GetThreatMgr().ClearAllThreat();
+        GetThreatMgr().RemoveMeFromThreatLists();
         ClearComboPointHolders();                           // any combo points pointed to unit lost at it death
 
         if (IsNonMeleeSpellCast(false))
@@ -16002,8 +16002,8 @@ void Unit::CleanupBeforeRemoveFromMap(bool finalCleanup)
     CombatStop();
     ClearComboPoints();
     ClearComboPointHolders();
-    GetThreatManager().ClearAllThreat();
-    GetThreatManager().RemoveMeFromThreatLists();
+    GetThreatMgr().ClearAllThreat();
+    GetThreatMgr().RemoveMeFromThreatLists();
     GetMotionMaster()->Clear(false);                    // remove different non-standard movement generators.
 }
 
@@ -18139,7 +18139,7 @@ void Unit::Kill(Unit* killer, Unit* victim, bool durabilityLoss, WeaponAttackTyp
 
                 // Stop attacks
                 victim->CombatStop();
-                victim->GetThreatManager().RemoveMeFromThreatLists();
+                victim->GetThreatMgr().RemoveMeFromThreatLists();
 
                 // restore for use at real death
                 victim->SetUInt32Value(PLAYER_SELF_RES_SPELL, ressSpellId);
@@ -18201,7 +18201,7 @@ void Unit::Kill(Unit* killer, Unit* victim, bool durabilityLoss, WeaponAttackTyp
 
         if (!creature->IsPet() && creature->GetLootMode() > 0)
         {
-            creature->GetThreatManager().ClearAllThreat();
+            creature->GetThreatMgr().ClearAllThreat();
 
             // must be after setDeathState which resets dynamic flags
             if (!creature->loot.isLooted())
@@ -19329,7 +19329,7 @@ void Unit::SetPhaseMask(uint32 newPhaseMask, bool update)
         if (IsCreature() || (!ToPlayer()->IsGameMaster() && !ToPlayer()->GetSession()->PlayerLogout()))
         {
             // Update online state for units that have me on their threat list
-            for (auto const& pair : GetThreatManager().GetThreatenedByMeList())
+            for (auto const& pair : GetThreatMgr().GetThreatenedByMeList())
             {
                 if (ThreatReference* ref = pair.second)
                     ref->UpdateOffline();
@@ -19338,7 +19338,7 @@ void Unit::SetPhaseMask(uint32 newPhaseMask, bool update)
             // Update online state for units on my threat list
             if (!IsPlayer())
             {
-                for (ThreatReference* ref : GetThreatManager().GetModifiableThreatList())
+                for (ThreatReference* ref : GetThreatMgr().GetModifiableThreatList())
                     ref->UpdateOffline();
             }
         }
@@ -20052,14 +20052,14 @@ void Unit::UpdateHeight(float newZ)
 
 void Unit::SendThreatListUpdate()
 {
-    if (!GetThreatManager().IsThreatListEmpty())
+    if (!GetThreatMgr().IsThreatListEmpty())
     {
-        uint32 count = static_cast<uint32>(GetThreatManager().GetThreatListSize());
+        uint32 count = static_cast<uint32>(GetThreatMgr().GetThreatListSize());
 
         WorldPacket data(SMSG_THREAT_UPDATE, 8 + count * 8);
         data << GetPackGUID();
         data << uint32(count);
-        for (ThreatReference const* ref : GetThreatManager().GetSortedThreatList())
+        for (ThreatReference const* ref : GetThreatMgr().GetSortedThreatList())
         {
             data << ref->GetVictim()->GetGUID().WriteAsPacked();
             data << uint32(ref->GetThreat() * 100);
@@ -20138,7 +20138,7 @@ void Unit::StopAttackFaction(uint32 faction_id)
     }
 
     // Remove myself from threat lists of creatures in this faction
-    for (auto itr = GetThreatManager().GetThreatenedByMeList().begin(); itr != GetThreatManager().GetThreatenedByMeList().end();)
+    for (auto itr = GetThreatMgr().GetThreatenedByMeList().begin(); itr != GetThreatMgr().GetThreatenedByMeList().end();)
     {
         ThreatReference* ref = itr->second;
         ++itr;

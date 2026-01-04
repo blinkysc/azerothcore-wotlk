@@ -73,7 +73,7 @@ class spell_gahzranka_slam : public SpellScript
     void FilterTargets(std::list<WorldObject*>& targets)
     {
         if (Unit* caster = GetCaster())
-            _wipeThreat = targets.size() < caster->GetThreatManager().GetThreatListSize();
+            _wipeThreat = targets.size() < caster->GetThreatMgr().GetThreatListSize();
     }
 
     void HandleWipeThreat(SpellEffIndex /*effIndex*/)
@@ -81,7 +81,7 @@ class spell_gahzranka_slam : public SpellScript
         if (_wipeThreat)
             if (Unit* caster = GetCaster())
                 if (Unit* target = GetHitUnit())
-                    caster->GetThreatManager().ModifyThreatByPercent(target, -100);
+                    caster->GetThreatMgr().ModifyThreatByPercent(target, -100);
     }
 
     void Register() override

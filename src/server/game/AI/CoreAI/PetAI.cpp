@@ -77,7 +77,7 @@ void PetAI::_stopAttack()
         me->GetMotionMaster()->Clear();
         me->GetMotionMaster()->MoveIdle();
         me->CombatStop();
-        me->GetThreatManager().RemoveMeFromThreatLists();
+        me->GetThreatMgr().RemoveMeFromThreatLists();
         return;
     }
 
@@ -589,7 +589,7 @@ void PetAI::HandleReturnMovement()
     me->GetCharmInfo()->SetForcedTargetGUID();
 
     // xinef: remember that npcs summoned by npcs can also be pets
-    me->GetThreatManager().ClearAllThreat();
+    me->GetThreatMgr().ClearAllThreat();
     me->ClearInPetCombat();
 }
 

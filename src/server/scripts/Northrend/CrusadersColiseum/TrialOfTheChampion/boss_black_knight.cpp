@@ -454,7 +454,7 @@ class spell_black_knight_ghoul_claw : public SpellScript
     {
         if (Unit* caster = GetCaster())
         {
-            GetCaster()->GetThreatManager().ResetAllThreat();
+            GetCaster()->GetThreatMgr().ResetAllThreat();
             if (Unit* target = caster->GetAI()->SelectTarget(SelectTargetMethod::Random, 0, 30.0f))
             {
                 caster->AddThreat(target, 100.0f);

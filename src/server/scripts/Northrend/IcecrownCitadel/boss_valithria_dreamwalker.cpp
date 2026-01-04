@@ -593,7 +593,7 @@ public:
             {
                 checkTimer = 3000;
                 me->SetInCombatWithZone();
-                for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+                for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
                 {
                     if (Unit* target = ref->GetVictim())
                         if (target->IsAlive() && target->IsPlayer() && me->GetExactDist(target) < 200.0f && !target->IsImmunedToDamageOrSchool(SPELL_SCHOOL_MASK_ALL))

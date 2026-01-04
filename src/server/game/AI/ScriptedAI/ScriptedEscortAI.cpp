@@ -191,7 +191,7 @@ void npc_escortAI::ReturnToLastPoint()
 
 void npc_escortAI::EnterEvadeMode(EvadeReason /*why*/)
 {
-    me->GetThreatManager().ClearAllThreat();
+    me->GetThreatMgr().ClearAllThreat();
     me->CombatStop(true);
     me->SetLootRecipient(nullptr);
 

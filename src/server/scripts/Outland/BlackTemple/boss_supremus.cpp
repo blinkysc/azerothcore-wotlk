@@ -168,7 +168,7 @@ struct boss_supremus : public BossAI
     Unit* FindHatefulStrikeTarget()
     {
         Unit* target = nullptr;
-        for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+        for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
         {
             if (Unit* unit = ref->GetVictim())
             {

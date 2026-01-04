@@ -117,8 +117,8 @@ public:
                         std::list<Unit*> meleeRangeTargets;
                         Unit* finalTarget = nullptr;
                         uint8 counter = 0;
-                        auto i = me->GetThreatManager().GetUnsortedThreatList().begin();
-                        for (; i != me->GetThreatManager().GetUnsortedThreatList().end(); ++i, ++counter)
+                        auto i = me->GetThreatMgr().GetUnsortedThreatList().begin();
+                        for (; i != me->GetThreatMgr().GetUnsortedThreatList().end(); ++i, ++counter)
                         {
                             // Gather all units with melee range
                             Unit* target = (*i)->GetVictim();

@@ -106,10 +106,10 @@ struct npc_pet_mage_mirror_image : CasterAI
 
         // Xinef: Inherit Master's Threat List (not yet implemented)
         //owner->CastSpell((Unit*)nullptr, SPELL_MAGE_MASTERS_THREAT_LIST, true);
-        for (auto const& pair : owner->GetThreatManager().GetThreatenedByMeList())
+        for (auto const& pair : owner->GetThreatMgr().GetThreatenedByMeList())
         {
             if (Unit* unit = pair.second->GetOwner())
-                unit->GetThreatManager().AddThreat(me, pair.second->GetThreat());
+                unit->GetThreatMgr().AddThreat(me, pair.second->GetThreat());
         }
 
         _ebonGargoyleGUID.Clear();
@@ -171,7 +171,7 @@ struct npc_pet_mage_mirror_image : CasterAI
 
             if (selection)
             {
-                me->GetThreatManager().ResetAllThreat();
+                me->GetThreatMgr().ResetAllThreat();
                 me->AddThreat(selection, 1000000.0f);
 
                 if (owner->IsInCombat())

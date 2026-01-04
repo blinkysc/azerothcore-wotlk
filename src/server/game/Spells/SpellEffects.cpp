@@ -2642,7 +2642,7 @@ void Spell::EffectDispel(SpellEffIndex effIndex)
 
     // put in combat
     if (unitTarget->IsFriendlyTo(m_caster))
-        unitTarget->GetThreatManager().ForwardThreatForAssistingMe(m_caster, 0.0f, m_spellInfo);
+        unitTarget->GetThreatMgr().ForwardThreatForAssistingMe(m_caster, 0.0f, m_spellInfo);
 
     if (success_list.empty())
         return;
@@ -3304,7 +3304,7 @@ void Spell::EffectTaunt(SpellEffIndex /*effIndex*/)
         return;
     }
 
-    ThreatManager& mgr = unitTarget->GetThreatManager();
+    ThreatManager& mgr = unitTarget->GetThreatMgr();
     if (!mgr.IsThreatListEmpty())
     {
         // Also use this effect to set the taunter's threat to the taunted creature's highest value
@@ -4029,21 +4029,21 @@ void Spell::EffectSanctuary(SpellEffIndex /*effIndex*/)
 
     if (unitTarget->GetInstanceScript() && unitTarget->GetInstanceScript()->IsEncounterInProgress())
     {
-        unitTarget->GetThreatManager().EvaluateSuppressed();
+        unitTarget->GetThreatMgr().EvaluateSuppressed();
         // Xinef: replaced with CombatStop(false)
         unitTarget->AttackStop();
         unitTarget->RemoveAllAttackers();
 
         // Night Elf: Shadowmeld only resets threat temporarily
         if (m_spellInfo->Id != 59646)
-            unitTarget->GetThreatManager().ResetAllThreat();
+            unitTarget->GetThreatMgr().ResetAllThreat();
 
         if (unitTarget->IsPlayer())
             unitTarget->ToPlayer()->SendAttackSwingCancelAttack();     // melee and ranged forced attack cancel
     }
     else
     {
-        unitTarget->GetThreatManager().EvaluateSuppressed();
+        unitTarget->GetThreatMgr().EvaluateSuppressed();
         unitTarget->CombatStop(true);
     }
 
@@ -5208,7 +5208,7 @@ void Spell::EffectDispelMechanic(SpellEffIndex effIndex)
 
     // put in combat
     if (unitTarget->IsFriendlyTo(m_caster))
-        unitTarget->GetThreatManager().ForwardThreatForAssistingMe(m_caster, 0.0f, m_spellInfo);
+        unitTarget->GetThreatMgr().ForwardThreatForAssistingMe(m_caster, 0.0f, m_spellInfo);
 }
 
 void Spell::EffectResurrectPet(SpellEffIndex /*effIndex*/)
@@ -5370,7 +5370,7 @@ void Spell::EffectModifyThreatPercent(SpellEffIndex /*effIndex*/)
     if (!unitTarget)
         return;
 
-    unitTarget->GetThreatManager().ModifyThreatByPercent(m_caster, damage);
+    unitTarget->GetThreatMgr().ModifyThreatByPercent(m_caster, damage);
 }
 
 void Spell::EffectTransmitted(SpellEffIndex effIndex)
@@ -5925,7 +5925,7 @@ void Spell::EffectRedirectThreat(SpellEffIndex /*effIndex*/)
         return;
 
     if (unitTarget)
-        m_caster->GetThreatManager().RegisterRedirectThreat(m_spellInfo->Id, unitTarget->GetGUID(), uint32(damage));
+        m_caster->GetThreatMgr().RegisterRedirectThreat(m_spellInfo->Id, unitTarget->GetGUID(), uint32(damage));
 }
 
 void Spell::EffectGameObjectDamage(SpellEffIndex /*effIndex*/)

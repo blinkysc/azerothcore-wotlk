@@ -212,7 +212,7 @@ struct boss_the_lurker_below : public BossAI
         }
         else
         {
-            for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+            for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
             {
                 if (Unit* threatTarget = ref->GetVictim())
                 {

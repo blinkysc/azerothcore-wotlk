@@ -253,8 +253,8 @@ bool TemporaryThreatModifierEvent::Execute(uint64 /*e_time*/, uint32 /*p_time*/)
     {
         if (m_owner.IsInCombatWith(victim))
         {
-            m_owner.GetThreatManager().ModifyThreatByPercent(victim, -100); // Reset threat to zero.
-            m_owner.GetThreatManager().AddThreat(victim, m_threatValue);  // Set to the previous value it had, first before modification.
+            m_owner.GetThreatMgr().ModifyThreatByPercent(victim, -100); // Reset threat to zero.
+            m_owner.GetThreatMgr().AddThreat(victim, m_threatValue);  // Set to the previous value it had, first before modification.
         }
     }
 
@@ -528,7 +528,7 @@ bool Creature::InitEntry(uint32 Entry, const CreatureData* data)
     for (uint8 i = 0; i < MAX_CREATURE_SPELLS; ++i)
         m_spells[i] = GetCreatureTemplate()->spells[i];
 
-    GetThreatManager().Initialize();
+    GetThreatMgr().Initialize();
 
     return true;
 }
@@ -723,7 +723,7 @@ void Creature::Update(uint32 diff)
             if (!IsAlive())
                 break;
 
-            GetThreatManager().Update(diff);
+            GetThreatMgr().Update(diff);
 
             // if creature is charmed, switch to charmed AI
             if (NeedChangeAI)
@@ -888,7 +888,7 @@ void Creature::Update(uint32 diff)
                             }
                         };
 
-                        if (GetThreatManager().GetThreatListSize() <= 1)
+                        if (GetThreatMgr().GetThreatListSize() <= 1)
                         {
                             EnterEvade();
                         }
@@ -896,9 +896,9 @@ void Creature::Update(uint32 diff)
                         {
                             if (Unit* target = ObjectAccessor::GetUnit(*this, m_cannotReachTarget))
                             {
-                                if (GetThreatManager().IsThreatenedBy(target))
+                                if (GetThreatMgr().IsThreatenedBy(target))
                                 {
-                                    GetThreatManager().ClearThreat(target);
+                                    GetThreatMgr().ClearThreat(target);
                                     SetCannotReachTarget();
                                 }
                                 else
@@ -2851,6 +2851,13 @@ void Creature::AtDisengage()
     }
 }
 
+bool Creature::IsEngaged() const
+{
+    if (CreatureAI const* ai = AI())
+        return ai->IsEngaged();
+    return false;
+}
+
 void Creature::ProhibitSpellSchool(SpellSchoolMask idSchoolMask, uint32 unTimeMs)
 {
     for (uint8 i = SPELL_SCHOOL_NORMAL; i < MAX_SPELL_SCHOOL; ++i)
@@ -3731,11 +3738,11 @@ void Creature::ModifyThreatPercentTemp(Unit* victim, int32 percent, Milliseconds
 {
     if (victim)
     {
-        float currentThreat = GetThreatManager().GetThreat(victim);
+        float currentThreat = GetThreatMgr().GetThreat(victim);
 
         if (percent != 0.0f)
         {
-            GetThreatManager().ModifyThreatByPercent(victim, percent);
+            GetThreatMgr().ModifyThreatByPercent(victim, percent);
         }
 
         TemporaryThreatModifierEvent* pEvent = new TemporaryThreatModifierEvent(*this, victim->GetGUID(), currentThreat);

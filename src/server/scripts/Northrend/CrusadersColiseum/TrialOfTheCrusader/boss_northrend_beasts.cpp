@@ -133,7 +133,7 @@ public:
             {
                 t->RemoveAura(SPELL_CHANGE_VEHICLE);
                 me->RemoveAllAuras();
-                me->GetThreatManager().ClearAllThreat();
+                me->GetThreatMgr().ClearAllThreat();
                 me->CombatStop(true);
                 me->SetHealth(me->GetMaxHealth());
                 if (pInstance)

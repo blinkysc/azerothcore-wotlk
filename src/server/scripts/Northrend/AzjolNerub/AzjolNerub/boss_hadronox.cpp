@@ -235,7 +235,7 @@ struct boss_hadronox : public BossAI
 
     bool IsInCombatWithPlayer() const
     {
-        for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+        for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
             if (ref->GetVictim()->IsControlledByPlayer())
                 return true;
         return false;

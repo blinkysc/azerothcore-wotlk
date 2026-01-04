@@ -136,7 +136,7 @@ SpellCastResult UnitAI::DoAddAuraToAllHostilePlayers(uint32 spellid)
 {
     if (me->IsInCombat())
     {
-        for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+        for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
         {
             if (ref->IsOffline())
                 continue;
@@ -159,7 +159,7 @@ SpellCastResult UnitAI::DoCastToAllHostilePlayers(uint32 spellid, bool triggered
 {
     if (me->IsInCombat())
     {
-        for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+        for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
         {
             if (ref->IsOffline())
                 continue;
@@ -377,9 +377,9 @@ void UnitAI::FillAISpellInfo()
     }
 }
 
-ThreatManager& UnitAI::GetThreatManager()
+ThreatManager& UnitAI::GetThreatMgr()
 {
-    return me->GetThreatManager();
+    return me->GetThreatMgr();
 }
 
 void UnitAI::SortByDistance(std::list<Unit*>& list, bool ascending)
@@ -474,7 +474,7 @@ bool NonTankTargetSelector::operator()(Unit const* target) const
     if (_playerOnly && !target->IsPlayer())
         return false;
 
-    if (Unit* currentVictim = _source->GetThreatManager().GetLastVictim())
+    if (Unit* currentVictim = _source->GetThreatMgr().GetLastVictim())
         return target != currentVictim;
 
     return target != _source->GetVictim();

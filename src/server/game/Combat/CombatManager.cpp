@@ -70,8 +70,8 @@ void CombatReference::EndCombat()
     // sequencing matters here - AI might do nasty stuff, so make sure refs are in a consistent state before you hand off!
 
     // first, get rid of any threat that still exists...
-    first->GetThreatManager().ClearThreat(second);
-    second->GetThreatManager().ClearThreat(first);
+    first->GetThreatMgr().ClearThreat(second);
+    second->GetThreatMgr().ClearThreat(first);
 
     // ...then, remove the references from both managers...
     first->GetCombatManager().PurgeReference(second->GetGUID(), _isPvP);
@@ -329,8 +329,8 @@ void CombatManager::SuppressPvPCombat()
 void CombatManager::EndAllPvECombat()
 {
     // cannot have threat without combat
-    _owner->GetThreatManager().RemoveMeFromThreatLists();
-    _owner->GetThreatManager().ClearAllThreat();
+    _owner->GetThreatMgr().RemoveMeFromThreatLists();
+    _owner->GetThreatMgr().ClearAllThreat();
     while (!_pveRefs.empty())
         _pveRefs.begin()->second->EndCombat();
 }

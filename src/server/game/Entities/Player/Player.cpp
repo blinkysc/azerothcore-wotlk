@@ -2164,7 +2164,7 @@ void Player::SetInWater(bool apply)
     // remove auras that need water/land
     RemoveAurasWithInterruptFlags(apply ? AURA_INTERRUPT_FLAG_NOT_ABOVEWATER : AURA_INTERRUPT_FLAG_NOT_UNDERWATER);
 
-    GetThreatManager().EvaluateSuppressed();
+    GetThreatMgr().EvaluateSuppressed();
 
     if (InstanceScript* instance = GetInstanceScript())
         instance->OnPlayerInWaterStateUpdate(this, apply);

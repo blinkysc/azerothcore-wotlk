@@ -416,13 +416,13 @@ public:
 
                     // Clear threat from targets not on the same side as Gothik
                     NotOnSameSide notOnSameSide(me);
-                    for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+                    for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
                         if (notOnSameSide(ref->GetVictim()))
-                            me->GetThreatManager().ClearThreat(ref->GetVictim());
+                            me->GetThreatMgr().ClearThreat(ref->GetVictim());
 
                     if (Unit* pTarget = SelectTarget(SelectTargetMethod::MaxDistance, 0))
                     {
-                        me->GetThreatManager().AddThreat(pTarget, 100.0f);
+                        me->GetThreatMgr().AddThreat(pTarget, 100.0f);
                         AttackStart(pTarget);
                     }
                     events.Repeat(20s);

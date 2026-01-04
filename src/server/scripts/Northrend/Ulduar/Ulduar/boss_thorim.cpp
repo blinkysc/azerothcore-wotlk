@@ -1111,7 +1111,7 @@ public:
                         }
                     }
                 _playerAttack = true;
-                me->GetThreatManager().ResetAllThreat();
+                me->GetThreatMgr().ResetAllThreat();
                 me->CallForHelp(40.0f);
                 AttackStart(who);
             }

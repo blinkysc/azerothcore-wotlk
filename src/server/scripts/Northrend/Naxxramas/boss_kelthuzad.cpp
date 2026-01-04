@@ -401,7 +401,7 @@ public:
                 case EVENT_DETONATE_MANA:
                     {
                         std::vector<Unit*> unitList;
-                        for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+                        for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
                         {
                             if (Unit* target = ref->GetVictim())
                             {

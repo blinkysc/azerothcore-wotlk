@@ -233,14 +233,14 @@ struct boss_priestess_lackey_commonAI : public ScriptedAI
 
     void RecalculateThreat()
     {
-        for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+        for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
         {
             Unit* pUnit = ref->GetVictim();
-            if (pUnit && pUnit->IsPlayer() && me->GetThreatManager().GetThreat(pUnit))
+            if (pUnit && pUnit->IsPlayer() && me->GetThreatMgr().GetThreat(pUnit))
             {
                 float threatMod = GetThreatMod(me->GetDistance2d(pUnit), (float)pUnit->GetArmor(), pUnit->GetHealth(), pUnit->GetMaxHealth(), pUnit);
-                me->GetThreatManager().ResetThreat(pUnit);
-                me->GetThreatManager().AddThreat(pUnit, 10000000.0f * threatMod, nullptr, true, true);
+                me->GetThreatMgr().ResetThreat(pUnit);
+                me->GetThreatMgr().AddThreat(pUnit, 10000000.0f * threatMod, nullptr, true, true);
             }
         }
     }

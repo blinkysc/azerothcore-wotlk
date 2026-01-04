@@ -498,7 +498,7 @@ public:
     bool Execute(uint64 /*time*/, uint32 /*diff*/) override
     {
         _owner->SetReactState(REACT_AGGRESSIVE);
-        if (!_owner->GetThreatManager().IsThreatListEmpty())
+        if (!_owner->GetThreatMgr().IsThreatListEmpty())
             if (Unit* target = _owner->SelectVictim())
                 _owner->AI()->AttackStart(target);
         if (!_owner->GetVictim())
@@ -1646,7 +1646,7 @@ public:
                     return;
                 }
 
-            me->GetThreatManager().ClearAllThreat();
+            me->GetThreatMgr().ClearAllThreat();
             me->CombatStop(false);
         }
 
@@ -2273,7 +2273,7 @@ public:
                     {
                         me->SetControlled(false, UNIT_STATE_ROOT);
 
-                        if (!me->GetThreatManager().IsThreatListEmpty())
+                        if (!me->GetThreatMgr().IsThreatListEmpty())
                             if (Unit* target = me->SelectVictim())
                                 AttackStart(target);
                         if (!me->GetVictim())
@@ -3173,7 +3173,7 @@ public:
             if (!me->IsAlive())
                 return;
 
-            me->GetThreatManager().ClearAllThreat();
+            me->GetThreatMgr().ClearAllThreat();
             me->CombatStop(false);
         }
     };

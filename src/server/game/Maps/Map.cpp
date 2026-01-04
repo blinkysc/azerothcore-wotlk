@@ -702,7 +702,7 @@ void Map::RemovePlayerFromMap(Player* player, bool remove)
 {
     UpdatePlayerZoneStats(player->GetZoneId(), MAP_INVALID_ZONE);
 
-    player->GetThreatManager().RemoveMeFromThreatLists(); // pussywizard: multithreading crashfix
+    player->GetThreatMgr().RemoveMeFromThreatLists(); // pussywizard: multithreading crashfix
 
     player->RemoveFromWorld();
     SendRemoveTransports(player);

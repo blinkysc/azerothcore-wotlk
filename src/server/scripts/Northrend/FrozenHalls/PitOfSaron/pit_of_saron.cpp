@@ -1125,7 +1125,7 @@ public:
                 return;
 
             me->RemoveEvadeAuras();
-            me->GetThreatManager().ClearAllThreat();
+            me->GetThreatMgr().ClearAllThreat();
             me->CombatStop(true);
             me->LoadCreaturesAddon(true);
             me->SetLootRecipient(nullptr);

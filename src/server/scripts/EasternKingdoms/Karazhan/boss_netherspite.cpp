@@ -179,7 +179,7 @@ struct boss_netherspite : public BossAI
                 // aggro target if Red Beam
                 if (j == RED_PORTAL && me->GetVictim() != target && target->IsPlayer())
                 {
-                    me->GetThreatManager().AddThreat(target, 100000.0f + DoGetThreat(me->GetVictim()));
+                    me->GetThreatMgr().AddThreat(target, 100000.0f + DoGetThreat(me->GetVictim()));
                 }
             }
         }

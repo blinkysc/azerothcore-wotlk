@@ -2877,7 +2877,7 @@ public:
         }
 
         playerTarget->CombatStop();
-        playerTarget->GetThreatManager().RemoveMeFromThreatLists();
+        playerTarget->GetThreatMgr().RemoveMeFromThreatLists();
         return true;
     }
 

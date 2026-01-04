@@ -115,7 +115,7 @@ struct boss_teron_gorefiend : public BossAI
 
         ScheduleTimedEvent(10s, [&]
         {
-            if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, ShadowOfDeathSelector(me->GetThreatManager().GetCurrentVictim())))
+            if (Unit* target = SelectTarget(SelectTargetMethod::Random, 0, ShadowOfDeathSelector(me->GetThreatMgr().GetCurrentVictim())))
                 me->CastSpell(target, SPELL_SHADOW_OF_DEATH, false);
         }, 30s, 50s);
 

@@ -88,7 +88,7 @@ public:
 
             ScheduleHealthCheckEvent(55, [&] {
                 Talk(SAY_FLESH);
-                me->GetThreatManager().ResetAllThreat();
+                me->GetThreatMgr().ResetAllThreat();
                 me->CastSpell((Unit*)nullptr, SPELL_TURN_FLESH, false);
 
                 events.Reset();
@@ -229,7 +229,7 @@ class spell_tharon_ja_dummy_aura : public AuraScript
     void HandleEffectRemove(AuraEffect const*  /*aurEff*/, AuraEffectHandleModes /*mode*/)
     {
         PreventDefaultAction();
-        GetUnitOwner()->GetThreatManager().ResetAllThreat();
+        GetUnitOwner()->GetThreatMgr().ResetAllThreat();
         GetUnitOwner()->CastSpell((Unit*)nullptr, SPELL_TURN_BONES, false);
         GetUnitOwner()->GetAI()->DoAction(ACTION_TURN_BONES);
     }

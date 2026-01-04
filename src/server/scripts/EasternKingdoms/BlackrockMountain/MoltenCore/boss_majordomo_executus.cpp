@@ -596,7 +596,7 @@ class spell_hate_to_zero : public SpellScript
         {
             if (Creature* creatureCaster = caster->ToCreature())
             {
-                creatureCaster->GetThreatManager().ResetAllThreat();
+                creatureCaster->GetThreatMgr().ResetAllThreat();
             }
         }
     }

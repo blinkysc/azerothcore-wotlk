@@ -339,7 +339,7 @@ public:
 
         Unit* SelectUnitCasting()
         {
-          for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+          for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
           {
               if (Unit* unit = ref->GetVictim())
               {

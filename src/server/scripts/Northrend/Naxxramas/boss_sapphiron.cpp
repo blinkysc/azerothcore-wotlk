@@ -314,8 +314,8 @@ public:
                         }
 
                         std::vector<Unit*> targets;
-                        auto i = me->GetThreatManager().GetUnsortedThreatList().begin();
-                        for (; i != me->GetThreatManager().GetUnsortedThreatList().end(); ++i)
+                        auto i = me->GetThreatMgr().GetUnsortedThreatList().begin();
+                        for (; i != me->GetThreatMgr().GetUnsortedThreatList().end(); ++i)
                         {
                             if ((*i)->GetVictim()->IsPlayer())
                             {

@@ -78,11 +78,11 @@ public:
 
         bool CanAIAttack(Unit const* target) const override
         {
-            if (me->GetThreatManager().GetThreatListSize() > 1)
+            if (me->GetThreatMgr().GetThreatListSize() > 1)
             {
                 // Check if target is the lowest threat (last in sorted list)
                 ThreatReference const* lowestRef = nullptr;
-                for (ThreatReference const* ref : me->GetThreatManager().GetSortedThreatList())
+                for (ThreatReference const* ref : me->GetThreatMgr().GetSortedThreatList())
                     lowestRef = ref; // Last iteration will have the lowest threat target
 
                 if (lowestRef && lowestRef->GetVictim() != target)
@@ -161,7 +161,7 @@ public:
                         if (_thousandBladesTargets.empty())
                         {
                             std::vector<Unit*> targetList;
-                            for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+                            for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
                             {
                                 if (Unit* target = ref->GetVictim())
                                 {

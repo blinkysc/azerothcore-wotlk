@@ -166,8 +166,8 @@ class spell_shazzrah_gate_dummy : public SpellScript
 
             if (Creature* creatureCaster = caster->ToCreature())
             {
-                creatureCaster->GetThreatManager().ResetAllThreat();
-                creatureCaster->GetThreatManager().AddThreat(target, 1);
+                creatureCaster->GetThreatMgr().ResetAllThreat();
+                creatureCaster->GetThreatMgr().AddThreat(target, 1);
                 creatureCaster->AI()->AttackStart(target); // Attack the target which caster will teleport to.
             }
         }

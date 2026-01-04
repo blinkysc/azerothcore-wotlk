@@ -85,7 +85,7 @@ struct boss_blackheart_the_inciter : public BossAI
             DoCastAOE(SPELL_INCITE_CHAOS);
             DoCastSelf(SPELL_LAUGHTER, true);
             uint32 inciteTriggerID = NPC_INCITE_TRIGGER;
-            for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+            for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
             {
                 if (Unit* target = ref->GetVictim())
                 {

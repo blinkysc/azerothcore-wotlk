@@ -71,7 +71,7 @@ struct boss_eck : public BossAI
     {
         if (spell->Id == SPELL_ECK_SPRING)
         {
-            me->GetThreatManager().ResetAllThreat();
+            me->GetThreatMgr().ResetAllThreat();
             me->AddThreat(target, 1.0f);
         }
     }

@@ -164,7 +164,7 @@ public:
         void DoFriend()
         {
             me->RemoveAllAuras();
-            me->GetThreatManager().ClearAllThreat();
+            me->GetThreatMgr().ClearAllThreat();
             me->CombatStop(true);
 
             me->StopMoving();

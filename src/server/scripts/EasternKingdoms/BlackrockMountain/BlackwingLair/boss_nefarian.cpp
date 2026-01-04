@@ -672,7 +672,7 @@ struct boss_nefarian : public BossAI
                 case EVENT_CLASSCALL:
                     if (classesPresent.empty())
                     {
-                        for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+                        for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
                         {
                             if (Unit* victim = ref->GetVictim())
                             {

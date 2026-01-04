@@ -53,7 +53,7 @@ void NPCStaveQuestAI::StorePlayerGUID()
         return;
     }
 
-    for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+    for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
     {
         if (Unit* target = ref->GetVictim())
         {
@@ -110,7 +110,7 @@ bool NPCStaveQuestAI::UnitIsUnfair(Unit* unit)
 
 bool NPCStaveQuestAI::IsFairFight()
 {
-    for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+    for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
     {
         if (!ref->GetThreat())
         {
@@ -130,7 +130,7 @@ bool NPCStaveQuestAI::IsFairFight()
 
 bool NPCStaveQuestAI::ValidThreatlist()
 {
-    if (me->GetThreatManager().GetThreatListSize() == 1)
+    if (me->GetThreatMgr().GetThreatListSize() == 1)
     {
         return true;
     }

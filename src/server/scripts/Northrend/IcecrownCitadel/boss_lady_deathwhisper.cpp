@@ -301,7 +301,7 @@ public:
             if (events.GetPhaseMask() & PHASE_ONE_MASK && damage >= me->GetPower(POWER_MANA))
             {
                 // reset threat
-                for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+                for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
                 {
                     if (Unit* unit = ref->GetVictim())
                     {
@@ -517,7 +517,7 @@ public:
                 {
                     darnavan->RemoveAllAuras();
                     darnavan->SetFaction(FACTION_FRIENDLY);
-                    darnavan->GetThreatManager().ClearAllThreat();
+                    darnavan->GetThreatMgr().ClearAllThreat();
                     darnavan->CombatStop(true);
                     darnavan->GetMotionMaster()->MoveIdle();
                     darnavan->StopMoving();
@@ -932,7 +932,7 @@ public:
             ScriptedAI::AttackStart(who);
             if (!targetGUID)
             {
-                me->GetThreatManager().ResetAllThreat();
+                me->GetThreatMgr().ResetAllThreat();
                 me->AddThreat(who, 1000000.0f);
                 targetGUID = who->GetGUID();
             }

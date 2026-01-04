@@ -2882,13 +2882,13 @@ void AuraEffect::HandleFeignDeath(AuraApplication const* aurApp, uint8 mode, boo
             // Xinef: replaced with CombatStop(false)
             target->AttackStop();
             target->RemoveAllAttackers();
-            target->GetThreatManager().ResetAllThreat();
+            target->GetThreatMgr().ResetAllThreat();
             target->ToPlayer()->SendAttackSwingCancelAttack();     // melee and ranged forced attack cancel
         }
         else
         {
             target->CombatStop();
-            target->GetThreatManager().RemoveMeFromThreatLists();
+            target->GetThreatMgr().RemoveMeFromThreatLists();
         }
 
         target->RemoveAurasWithInterruptFlags(AURA_INTERRUPT_FLAG_IMMUNE_OR_LOST_SELECTION);
@@ -3475,7 +3475,7 @@ void AuraEffect::HandleAuraModTotalThreat(AuraApplication const* aurApp, uint8 m
 
     Unit* caster = GetCaster();
     if (caster && caster->IsAlive())
-        caster->GetThreatManager().UpdateMyTempModifiers();
+        caster->GetThreatMgr().UpdateMyTempModifiers();
 }
 
 void AuraEffect::HandleModTaunt(AuraApplication const* aurApp, uint8 mode, bool apply) const
@@ -6856,7 +6856,7 @@ void AuraEffect::HandlePeriodicHealthLeechAuraTick(Unit* target, Unit* caster) c
     float threat = float(caster->HealBySpell(healInfo)) * 0.5f;
     if (caster->IsClass(CLASS_PALADIN))
         threat *= 0.5f;
-    caster->GetThreatManager().ForwardThreatForAssistingMe(caster, threat, GetSpellInfo());
+    caster->GetThreatMgr().ForwardThreatForAssistingMe(caster, threat, GetSpellInfo());
 }
 
 void AuraEffect::HandlePeriodicHealthFunnelAuraTick(Unit* target, Unit* caster) const
@@ -7008,7 +7008,7 @@ void AuraEffect::HandlePeriodicHealAurasTick(Unit* target, Unit* caster) const
         if (caster->IsClass(CLASS_PALADIN))
             threat *= 0.5f;
 
-        target->GetThreatManager().ForwardThreatForAssistingMe(caster, threat, GetSpellInfo());
+        target->GetThreatMgr().ForwardThreatForAssistingMe(caster, threat, GetSpellInfo());
     }
 
     bool haveCastItem = GetBase()->GetCastItemGUID();
@@ -7146,7 +7146,7 @@ void AuraEffect::HandleObsModPowerAuraTick(Unit* target, Unit* caster) const
     int32 gain = target->ModifyPower(PowerType, amount);
 
     if (caster)
-        target->GetThreatManager().ForwardThreatForAssistingMe(caster, float(gain) * 0.5f, GetSpellInfo(), true);
+        target->GetThreatMgr().ForwardThreatForAssistingMe(caster, float(gain) * 0.5f, GetSpellInfo(), true);
 }
 
 void AuraEffect::HandlePeriodicEnergizeAuraTick(Unit* target, Unit* caster) const
@@ -7180,7 +7180,7 @@ void AuraEffect::HandlePeriodicEnergizeAuraTick(Unit* target, Unit* caster) cons
     int32 gain = target->ModifyPower(PowerType, amount);
 
     if (caster)
-        target->GetThreatManager().ForwardThreatForAssistingMe(caster, float(gain) * 0.5f, GetSpellInfo(), true);
+        target->GetThreatMgr().ForwardThreatForAssistingMe(caster, float(gain) * 0.5f, GetSpellInfo(), true);
 }
 
 void AuraEffect::HandlePeriodicPowerBurnAuraTick(Unit* target, Unit* caster) const

@@ -208,7 +208,7 @@ public:
         void LeaveCombat()
         {
             me->RemoveAllAuras();
-            me->GetThreatManager().ClearAllThreat();
+            me->GetThreatMgr().ClearAllThreat();
             me->CombatStop(true);
             me->LoadCreaturesAddon(true);
             me->SetLootRecipient(nullptr);

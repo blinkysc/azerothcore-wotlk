@@ -97,14 +97,14 @@ public:
                         me->SetReactState(REACT_AGGRESSIVE);
                         if (Unit* pursuitTarget = ObjectAccessor::GetUnit(*me, _pursuitTargetGUID))
                         {
-                            me->GetThreatManager().AddThreat(pursuitTarget, 1000000.f);
+                            me->GetThreatMgr().AddThreat(pursuitTarget, 1000000.f);
                         }
                         break;
                     case EVENT_STOP_PURSUIT:
                         if (Unit* pursuitTarget = ObjectAccessor::GetUnit(*me, _pursuitTargetGUID))
                         {
                             _pursuitTargetGUID.Clear();
-                            me->GetThreatManager().AddThreat(pursuitTarget, -1000000.f);
+                            me->GetThreatMgr().AddThreat(pursuitTarget, -1000000.f);
                         }
                         break;
                     case EVENT_ENTANGLING_ROOTS:

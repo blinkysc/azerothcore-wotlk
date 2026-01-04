@@ -336,7 +336,7 @@ class spell_leotheras_whirlwind : public SpellScript
     void HandleScriptEffect(SpellEffIndex effIndex)
     {
         PreventHitDefaultEffect(effIndex);
-        GetCaster()->GetThreatManager().ResetAllThreat();
+        GetCaster()->GetThreatMgr().ResetAllThreat();
 
         if (roll_chance_i(33))
             if (Unit* target = GetCaster()->GetAI()->SelectTarget(SelectTargetMethod::Random, 0, 30.0f, true))

@@ -768,7 +768,7 @@ public:
                 _handledWP4 = false;
 
                 me->CombatStop();
-                me->GetThreatManager().ClearAllThreat();
+                me->GetThreatMgr().ClearAllThreat();
             }
         }
 
@@ -1767,21 +1767,21 @@ public:
                 std::vector<std::pair<Unit*, float>> myThreats;
                 std::vector<std::pair<Unit*, float>> targetThreats;
 
-                for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+                for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
                     if (Unit* victim = ref->GetVictim())
                         myThreats.push_back({victim, ref->GetThreat()});
 
-                for (ThreatReference const* ref : c->GetThreatManager().GetUnsortedThreatList())
+                for (ThreatReference const* ref : c->GetThreatMgr().GetUnsortedThreatList())
                     if (Unit* victim = ref->GetVictim())
                         targetThreats.push_back({victim, ref->GetThreat()});
 
                 DoResetThreatList();
                 for (auto const& pair : targetThreats)
-                    me->GetThreatManager().AddThreat(pair.first, pair.second);
+                    me->GetThreatMgr().AddThreat(pair.first, pair.second);
 
-                c->GetThreatManager().ResetAllThreat();
+                c->GetThreatMgr().ResetAllThreat();
                 for (auto const& pair : myThreats)
-                    c->GetThreatManager().AddThreat(pair.first, pair.second);
+                    c->GetThreatMgr().AddThreat(pair.first, pair.second);
             }
         }
 

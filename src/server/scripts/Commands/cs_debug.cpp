@@ -824,7 +824,7 @@ public:
 
         handler->PSendSysMessage("Threat list of {} ({})", target->GetName(), target->GetGUID().ToString());
 
-        for (ThreatReference const* ref : target->GetThreatManager().GetSortedThreatList())
+        for (ThreatReference const* ref : target->GetThreatMgr().GetSortedThreatList())
         {
             Unit* unit = ref->GetVictim();
             if (!unit)
@@ -857,7 +857,7 @@ public:
 
         handler->PSendSysMessage("Threatened by me list of {} ({})", target->GetName(), target->GetGUID().ToString());
 
-        for (auto const& pair : target->GetThreatManager().GetThreatenedByMeList())
+        for (auto const& pair : target->GetThreatMgr().GetThreatenedByMeList())
         {
             ThreatReference const* ref = pair.second;
             Creature* owner = ref->GetOwner();

@@ -322,7 +322,7 @@ public:
 
                 uint8 attackersCount = 0;
 
-                for (ThreatReference const* ref : me->GetThreatManager().GetUnsortedThreatList())
+                for (ThreatReference const* ref : me->GetThreatMgr().GetUnsortedThreatList())
                 {
                     if (Unit* victim = ref->GetVictim())
                         if (victim->ToPlayer() && victim->IsAlive())
