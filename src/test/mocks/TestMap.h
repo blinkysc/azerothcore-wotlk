@@ -20,6 +20,7 @@
 
 #include "Map.h"
 #include "DBCStores.h"
+#include "TestDBCStores.h"
 
 /**
  * TestMap - A minimal Map implementation for unit testing
@@ -27,20 +28,37 @@
  * Provides just enough functionality to test message handling that
  * requires entities to be "in world" without full map/grid infrastructure.
  *
+ * Features:
+ * - Initializes minimal DBC stores (via TestDBC::InitializeMinimalStores)
+ * - Creates CellActorManager for ghost system notifications
+ * - Entities added via AddTestEntity() have full Map access
+ *
  * Usage:
  *   TestMap map;
  *   TestCreature creature;
  *   creature.ForceInit(1001, 12345);
  *   map.AddTestEntity(&creature);
  *   // creature->IsInWorld() now returns true
+ *   // creature->FindMap() returns &map
+ *   // map.GetCellActorManager() returns valid CellActorManager
  */
 class TestMap : public Map
 {
+private:
+    // Helper to ensure DBC stores are initialized BEFORE Map base constructor
+    static uint32 EnsureDBCAndReturnMapId(uint32 mapId)
+    {
+        TestDBC::InitializeMinimalStores();
+        return mapId;
+    }
+
 public:
     // Use Eastern Kingdoms (map 0) as default - it has a valid MapEntry
     TestMap(uint32 mapId = 0, uint32 instanceId = 0)
-        : Map(mapId, instanceId, REGULAR_DIFFICULTY, nullptr)
+        : Map(EnsureDBCAndReturnMapId(mapId), instanceId, REGULAR_DIFFICULTY, nullptr)
     {
+        // Initialize CellActorManager for ghost system notifications
+        InitCellActorManager();
     }
 
     ~TestMap() override = default;

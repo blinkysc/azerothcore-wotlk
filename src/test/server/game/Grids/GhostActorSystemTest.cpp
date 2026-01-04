@@ -801,3 +801,259 @@ TEST_F(GhostActorSystemTest, MPSCQueueConcurrentPushPop)
     EXPECT_EQ(receivedIds.size(), static_cast<size_t>(NUM_MESSAGES));
     EXPECT_EQ(consumed.load(), NUM_MESSAGES);
 }
+
+// ============================================================================
+// Boundary and Corner Position Tests
+// ============================================================================
+
+// Helper to calculate cell ID from world coordinates
+static uint32_t CalcCellId(float worldX, float worldY)
+{
+    uint32_t cellX = static_cast<uint32_t>(CENTER_CELL_OFFSET - (worldX / CELL_SIZE));
+    uint32_t cellY = static_cast<uint32_t>(CENTER_CELL_OFFSET - (worldY / CELL_SIZE));
+    return (cellY << 16) | cellX;
+}
+
+// Helper to get all 8 neighbor cell IDs
+static std::set<uint32_t> GetAllNeighborCellIds(uint32_t cellId)
+{
+    std::set<uint32_t> neighbors;
+    static const NeighborFlags directions[] = {
+        NeighborFlags::NORTH, NeighborFlags::SOUTH,
+        NeighborFlags::EAST, NeighborFlags::WEST,
+        NeighborFlags::NORTH_EAST, NeighborFlags::NORTH_WEST,
+        NeighborFlags::SOUTH_EAST, NeighborFlags::SOUTH_WEST
+    };
+    for (auto dir : directions)
+    {
+        neighbors.insert(GhostBoundary::GetNeighborCellId(cellId, dir));
+    }
+    return neighbors;
+}
+
+// Test: Entity exactly at cell boundary (edge) - which cell does it belong to?
+TEST_F(GhostActorSystemTest, BoundaryCellAssignment_Edge)
+{
+    // Cell boundaries occur at multiples of CELL_SIZE
+    // Entity at exact boundary should deterministically belong to one cell
+
+    // Position exactly at a cell boundary on X axis
+    float boundaryX = CELL_SIZE * 2.0f;  // Exact boundary
+    float centerY = CELL_SIZE * 1.5f;     // Center of cell on Y
+
+    uint32_t cellAtBoundary = CalcCellId(boundaryX, centerY);
+    uint32_t cellJustBefore = CalcCellId(boundaryX - 0.001f, centerY);
+    uint32_t cellJustAfter = CalcCellId(boundaryX + 0.001f, centerY);
+
+    // Boundary belongs to one cell, slightly before/after may differ
+    // Key assertion: calculation is deterministic
+    EXPECT_EQ(CalcCellId(boundaryX, centerY), cellAtBoundary);
+
+    // Positions on opposite sides of boundary should be in different cells
+    // (unless the epsilon is too small to matter)
+    // With our cell size of 66.666, positions 0.002 apart spanning boundary should differ
+    if (cellJustBefore != cellJustAfter)
+    {
+        // Boundary is between these two cells
+        EXPECT_TRUE(cellAtBoundary == cellJustBefore || cellAtBoundary == cellJustAfter);
+    }
+}
+
+// Test: Entity exactly at cell corner (4-cell junction)
+TEST_F(GhostActorSystemTest, BoundaryCellAssignment_Corner)
+{
+    // Corner position where 4 cells meet
+    float cornerX = CELL_SIZE * 3.0f;  // Exact corner on X
+    float cornerY = CELL_SIZE * 3.0f;  // Exact corner on Y
+
+    uint32_t cellAtCorner = CalcCellId(cornerX, cornerY);
+
+    // Positions in each of the 4 quadrants around the corner
+    float epsilon = 0.01f;
+    uint32_t cellNE = CalcCellId(cornerX + epsilon, cornerY + epsilon);
+    uint32_t cellNW = CalcCellId(cornerX - epsilon, cornerY + epsilon);
+    uint32_t cellSE = CalcCellId(cornerX + epsilon, cornerY - epsilon);
+    uint32_t cellSW = CalcCellId(cornerX - epsilon, cornerY - epsilon);
+
+    // All 4 quadrants should be in different cells
+    std::set<uint32_t> quadrantCells = {cellNE, cellNW, cellSE, cellSW};
+    EXPECT_EQ(quadrantCells.size(), 4u) << "Corner should touch exactly 4 different cells";
+
+    // The corner itself should belong to one of these 4 cells
+    EXPECT_TRUE(quadrantCells.count(cellAtCorner) == 1)
+        << "Corner position should belong to one of the 4 adjacent cells";
+}
+
+// Test: Neighbors of corner cells are correct
+TEST_F(GhostActorSystemTest, CornerCellNeighbors)
+{
+    // At a corner, entity needs ghosts in at least 3 other cells (the other quadrants)
+    float cornerX = CELL_SIZE * 5.0f;
+    float cornerY = CELL_SIZE * 5.0f;
+
+    float epsilon = 0.01f;
+    uint32_t cellNE = CalcCellId(cornerX + epsilon, cornerY + epsilon);
+    uint32_t cellNW = CalcCellId(cornerX - epsilon, cornerY + epsilon);
+    uint32_t cellSE = CalcCellId(cornerX + epsilon, cornerY - epsilon);
+    uint32_t cellSW = CalcCellId(cornerX - epsilon, cornerY - epsilon);
+
+    // Verify that each cell can reach the others as neighbors
+    auto neighborsNE = GetAllNeighborCellIds(cellNE);
+    auto neighborsNW = GetAllNeighborCellIds(cellNW);
+    auto neighborsSE = GetAllNeighborCellIds(cellSE);
+    auto neighborsSW = GetAllNeighborCellIds(cellSW);
+
+    // NE cell should have SW, NW, SE as neighbors
+    EXPECT_TRUE(neighborsNE.count(cellSW) == 1) << "NE should neighbor SW (diagonal)";
+    EXPECT_TRUE(neighborsNE.count(cellNW) == 1) << "NE should neighbor NW (west)";
+    EXPECT_TRUE(neighborsNE.count(cellSE) == 1) << "NE should neighbor SE (south)";
+
+    // SW cell should have NE, NW, SE as neighbors
+    EXPECT_TRUE(neighborsSW.count(cellNE) == 1) << "SW should neighbor NE (diagonal)";
+    EXPECT_TRUE(neighborsSW.count(cellNW) == 1) << "SW should neighbor NW (north)";
+    EXPECT_TRUE(neighborsSW.count(cellSE) == 1) << "SW should neighbor SE (east)";
+}
+
+// Test: Entity at edge has correct adjacent cells
+TEST_F(GhostActorSystemTest, EdgeCellNeighbors)
+{
+    // Entity at east edge of cell (but not at corner)
+    float edgeX = CELL_SIZE * 4.0f;       // Exact edge
+    float centerY = CELL_SIZE * 4.5f;     // Middle of cell on Y axis
+
+    float epsilon = 0.01f;
+    uint32_t cellWest = CalcCellId(edgeX - epsilon, centerY);  // West of edge
+    uint32_t cellEast = CalcCellId(edgeX + epsilon, centerY);  // East of edge
+
+    // These should be different cells
+    EXPECT_NE(cellWest, cellEast) << "Cells on opposite sides of edge should differ";
+
+    // They should be neighbors
+    auto neighborsWest = GetAllNeighborCellIds(cellWest);
+    auto neighborsEast = GetAllNeighborCellIds(cellEast);
+
+    EXPECT_TRUE(neighborsWest.count(cellEast) == 1) << "West cell should have East as neighbor";
+    EXPECT_TRUE(neighborsEast.count(cellWest) == 1) << "East cell should have West as neighbor";
+}
+
+// Test: Cross-boundary message routing simulation
+// Simulates player at corner attacking entities in each of the 4 corner cells
+TEST_F(GhostActorSystemTest, CrossBoundaryInteraction_CornerAttack)
+{
+    // Player exactly at a corner
+    float cornerX = CELL_SIZE * 6.0f;
+    float cornerY = CELL_SIZE * 6.0f;
+
+    // Player is in one cell (deterministic based on floor())
+    uint32_t playerCellId = CalcCellId(cornerX, cornerY);
+
+    // Targets in each of the 4 corner quadrants
+    float epsilon = 5.0f;  // 5 yards into each quadrant
+    uint32_t targetCellNE = CalcCellId(cornerX + epsilon, cornerY + epsilon);
+    uint32_t targetCellNW = CalcCellId(cornerX - epsilon, cornerY + epsilon);
+    uint32_t targetCellSE = CalcCellId(cornerX + epsilon, cornerY - epsilon);
+    uint32_t targetCellSW = CalcCellId(cornerX - epsilon, cornerY - epsilon);
+
+    std::set<uint32_t> targetCells = {targetCellNE, targetCellNW, targetCellSE, targetCellSW};
+
+    // Player's neighbors should include all cells they might interact with
+    auto playerNeighbors = GetAllNeighborCellIds(playerCellId);
+
+    // Count how many target cells are reachable as neighbors
+    int reachableTargets = 0;
+    for (uint32_t targetCell : targetCells)
+    {
+        if (targetCell == playerCellId || playerNeighbors.count(targetCell) == 1)
+        {
+            ++reachableTargets;
+        }
+    }
+
+    // All 4 targets should be reachable (same cell or neighbor)
+    EXPECT_EQ(reachableTargets, 4)
+        << "Player at corner should be able to reach all 4 adjacent cells";
+}
+
+// Test: Entity position gives valid local coordinates within cell
+TEST_F(GhostActorSystemTest, LocalPositionWithinCell)
+{
+    // Test that local positions are always within [0, CELL_SIZE)
+    std::vector<std::pair<float, float>> testPositions = {
+        {0.0f, 0.0f},
+        {CELL_SIZE * 3.0f - 1.0f, CELL_SIZE * 3.0f - 1.0f},  // Near boundary
+        {CELL_SIZE * 3.0f + 1.0f, CELL_SIZE * 3.0f + 1.0f},  // Just past boundary
+        {1000.0f, -500.0f},
+    };
+
+    for (const auto& [worldX, worldY] : testPositions)
+    {
+        float localX, localY;
+        GhostBoundary::GetPositionInCell(worldX, worldY, localX, localY);
+
+        // Local position must be within cell bounds
+        EXPECT_GE(localX, 0.0f) << "Local X must be >= 0 for world pos (" << worldX << ", " << worldY << ")";
+        EXPECT_LT(localX, CELL_SIZE) << "Local X must be < CELL_SIZE for world pos (" << worldX << ", " << worldY << ")";
+        EXPECT_GE(localY, 0.0f) << "Local Y must be >= 0 for world pos (" << worldX << ", " << worldY << ")";
+        EXPECT_LT(localY, CELL_SIZE) << "Local Y must be < CELL_SIZE for world pos (" << worldX << ", " << worldY << ")";
+    }
+}
+
+// Test: Interaction distance validation at boundary
+// Two entities on opposite sides of boundary but within interaction range
+TEST_F(GhostActorSystemTest, BoundaryInteractionDistance)
+{
+    // Entity A: 2 yards west of boundary
+    float entityAX = CELL_SIZE * 4.0f - 2.0f;
+    float entityAY = CELL_SIZE * 4.5f;
+
+    // Entity B: 2 yards east of boundary
+    float entityBX = CELL_SIZE * 4.0f + 2.0f;
+    float entityBY = CELL_SIZE * 4.5f;
+
+    uint32_t cellA = CalcCellId(entityAX, entityAY);
+    uint32_t cellB = CalcCellId(entityBX, entityBY);
+
+    // Should be in different cells
+    EXPECT_NE(cellA, cellB) << "Entities should be in different cells";
+
+    // Distance between them is only 4 yards (well within melee range)
+    float dx = entityBX - entityAX;
+    float dy = entityBY - entityAY;
+    float distance = std::sqrt(dx * dx + dy * dy);
+    EXPECT_LT(distance, 5.0f) << "Entities should be within melee range";
+
+    // They should be neighbors
+    auto neighborsA = GetAllNeighborCellIds(cellA);
+    EXPECT_TRUE(neighborsA.count(cellB) == 1)
+        << "Cross-boundary entities within melee range must be in neighbor cells";
+}
+
+// Test: 8-way neighbor coverage from any position
+TEST_F(GhostActorSystemTest, AllNeighborsCovered)
+{
+    // From any valid cell, all 8 neighbors should be calculated correctly
+    // Test with various positions across the map
+
+    std::vector<std::pair<float, float>> testPositions = {
+        {0.0f, 0.0f},           // Map center
+        {1000.0f, 1000.0f},     // Positive quadrant
+        {-1000.0f, -1000.0f},   // Negative quadrant
+        {5000.0f, -3000.0f},    // Mixed
+        {CELL_SIZE * 10.5f, CELL_SIZE * 10.5f},  // Center of a cell
+        {CELL_SIZE * 10.0f, CELL_SIZE * 10.0f},  // At a corner
+    };
+
+    for (const auto& [x, y] : testPositions)
+    {
+        uint32_t cellId = CalcCellId(x, y);
+        auto neighbors = GetAllNeighborCellIds(cellId);
+
+        // Should always have exactly 8 unique neighbors
+        EXPECT_EQ(neighbors.size(), 8u)
+            << "Position (" << x << ", " << y << ") should have 8 neighbors";
+
+        // No neighbor should be the same as the home cell
+        EXPECT_EQ(neighbors.count(cellId), 0u)
+            << "Home cell should not be in neighbor list";
+    }
+}

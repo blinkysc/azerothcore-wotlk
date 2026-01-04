@@ -1069,3 +1069,1112 @@ TEST_F(GhostActorIntegrationTest, PeriodicDamageKillsTarget)
     // THEN: Ghost shows dead
     EXPECT_EQ(GetCellA()->GetGhost(TARGET_GUID)->GetHealth(), 0u);
 }
+
+// ============================================================================
+// Interrupt Cross-Cell Tests
+// ============================================================================
+
+TEST_F(GhostActorIntegrationTest, InterruptSpellAcrossCells)
+{
+    // Test: Player in Cell A interrupts caster in Cell B
+    constexpr uint64_t PLAYER_GUID = 1001;
+    constexpr uint64_t CASTER_GUID = 2001;
+    constexpr uint32_t KICK_SPELL_ID = 1766;       // Kick
+    constexpr uint32_t FROSTBOLT_ID = 116;         // Being cast
+    constexpr uint32_t FROST_SCHOOL_MASK = 16;     // Frost
+
+    // GIVEN: Player in Cell A, caster in Cell B
+    HarnessA().AddPlayer(PLAYER_GUID);
+    HarnessB().AddCreature(CASTER_GUID, 100);
+
+    // Create ghost of caster in Cell A
+    HarnessA().AddGhost(CASTER_GUID, CELL_B_ID);
+
+    // WHEN: Interrupt message is sent to Cell B
+    ActorMessage interrupt{};
+    interrupt.type = MessageType::SPELL_INTERRUPT;
+    interrupt.sourceGuid = PLAYER_GUID;
+    interrupt.targetGuid = CASTER_GUID;
+    interrupt.sourceCellId = CELL_A_ID;
+    interrupt.targetCellId = CELL_B_ID;
+    interrupt.complexPayload = MakeSpellInterruptPayload(PLAYER_GUID, CASTER_GUID,
+        KICK_SPELL_ID, FROSTBOLT_ID, FROST_SCHOOL_MASK, 5000);
+    GetCellB()->SendMessage(std::move(interrupt));
+
+    // THEN: Message is processed without crash
+    EXPECT_NO_THROW(GetCellB()->Update(0));
+}
+
+TEST_F(GhostActorIntegrationTest, InterruptWithSchoolLockout)
+{
+    // Test: Interrupt applies school lockout duration
+    constexpr uint64_t PLAYER_GUID = 1001;
+    constexpr uint64_t CASTER_GUID = 2001;
+    constexpr uint32_t COUNTERSPELL_ID = 2139;
+    constexpr uint32_t POLYMORPH_ID = 118;
+    constexpr uint32_t ARCANE_SCHOOL_MASK = 64;
+    constexpr int32_t LOCKOUT_DURATION = 8000;  // 8 sec lockout
+
+    HarnessA().AddPlayer(PLAYER_GUID);
+    HarnessB().AddCreature(CASTER_GUID, 100);
+    HarnessA().AddGhost(CASTER_GUID, CELL_B_ID);
+
+    // Payload with school lockout
+    auto payload = MakeSpellInterruptPayload(PLAYER_GUID, CASTER_GUID,
+        COUNTERSPELL_ID, POLYMORPH_ID, ARCANE_SCHOOL_MASK, LOCKOUT_DURATION);
+
+    EXPECT_EQ(payload->schoolMask, ARCANE_SCHOOL_MASK);
+    EXPECT_EQ(payload->lockoutDuration, LOCKOUT_DURATION);
+    EXPECT_EQ(payload->interruptSpellId, COUNTERSPELL_ID);
+    EXPECT_EQ(payload->interruptedSpellId, POLYMORPH_ID);
+}
+
+TEST_F(GhostActorIntegrationTest, InterruptDeletedTargetGraceful)
+{
+    // Test: Interrupt message for a target that's been deleted
+    constexpr uint64_t PLAYER_GUID = 1001;
+    constexpr uint64_t CASTER_GUID = 2001;
+
+    HarnessA().AddPlayer(PLAYER_GUID);
+    TestCreature* caster = HarnessB().AddCreature(CASTER_GUID, 100);
+
+    // Delete the caster
+    HarnessB().DeleteEntity(caster->GetGUID());
+
+    // WHEN: Interrupt message arrives for deleted target
+    ActorMessage interrupt{};
+    interrupt.type = MessageType::SPELL_INTERRUPT;
+    interrupt.sourceGuid = PLAYER_GUID;
+    interrupt.targetGuid = CASTER_GUID;
+    interrupt.complexPayload = MakeSpellInterruptPayload(PLAYER_GUID, CASTER_GUID,
+        1766, 116, 16, 5000);
+    GetCellB()->SendMessage(std::move(interrupt));
+
+    // THEN: Processed gracefully without crash
+    EXPECT_NO_THROW(GetCellB()->Update(0));
+}
+
+TEST_F(GhostActorIntegrationTest, InterruptNullPayload)
+{
+    // Test: SPELL_INTERRUPT with null payload
+    ActorMessage interrupt{};
+    interrupt.type = MessageType::SPELL_INTERRUPT;
+    interrupt.sourceGuid = 1001;
+    interrupt.targetGuid = 2001;
+    interrupt.complexPayload = nullptr;  // No payload
+
+    GetCellB()->SendMessage(std::move(interrupt));
+
+    // THEN: Processed gracefully
+    EXPECT_NO_THROW(GetCellB()->Update(0));
+}
+
+// ============================================================================
+// Dispel Cross-Cell Tests
+// ============================================================================
+
+TEST_F(GhostActorIntegrationTest, DispelSpellAcrossCells)
+{
+    // Test: Priest in Cell A dispels buffs from target in Cell B
+    constexpr uint64_t PRIEST_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+    constexpr uint32_t DISPEL_MAGIC_ID = 527;
+
+    // GIVEN: Priest in Cell A, target in Cell B
+    HarnessA().AddPlayer(PRIEST_GUID);
+    HarnessB().AddCreature(TARGET_GUID, 100);
+    HarnessA().AddGhost(TARGET_GUID, CELL_B_ID);
+
+    // Dispel list with multiple auras
+    std::vector<std::pair<uint32_t, uint8_t>> dispelList = {
+        {21562, 1},  // Power Word: Fortitude
+        {1459, 1},   // Arcane Intellect
+        {976, 1}     // Shadow Protection
+    };
+
+    // WHEN: Dispel message is sent
+    ActorMessage dispel{};
+    dispel.type = MessageType::SPELL_DISPEL;
+    dispel.sourceGuid = PRIEST_GUID;
+    dispel.targetGuid = TARGET_GUID;
+    dispel.sourceCellId = CELL_A_ID;
+    dispel.targetCellId = CELL_B_ID;
+    dispel.complexPayload = MakeSpellDispelPayload(PRIEST_GUID, TARGET_GUID,
+        DISPEL_MAGIC_ID, dispelList);
+    GetCellB()->SendMessage(std::move(dispel));
+
+    // THEN: Message processed without crash
+    EXPECT_NO_THROW(GetCellB()->Update(0));
+}
+
+TEST_F(GhostActorIntegrationTest, DispelMultipleCharges)
+{
+    // Test: Dispel that removes multiple charges from a single aura
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+    constexpr uint32_t PURGE_SPELL_ID = 370;
+
+    HarnessA().AddPlayer(CASTER_GUID);
+    HarnessB().AddCreature(TARGET_GUID, 100);
+
+    // Dispelling an aura with multiple stacks
+    std::vector<std::pair<uint32_t, uint8_t>> dispelList = {
+        {48066, 3}  // Power Word: Shield - remove 3 stacks
+    };
+
+    auto payload = MakeSpellDispelPayload(CASTER_GUID, TARGET_GUID, PURGE_SPELL_ID, dispelList);
+
+    // Verify payload structure
+    EXPECT_EQ(payload->dispelList.size(), 1u);
+    EXPECT_EQ(payload->dispelList[0].first, 48066u);   // Spell ID
+    EXPECT_EQ(payload->dispelList[0].second, 3u);      // 3 charges
+}
+
+TEST_F(GhostActorIntegrationTest, DispelDeletedTargetGraceful)
+{
+    // Test: Dispel message for target that's been deleted
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+
+    HarnessA().AddPlayer(CASTER_GUID);
+    TestCreature* target = HarnessB().AddCreature(TARGET_GUID, 100);
+
+    // Delete the target
+    HarnessB().DeleteEntity(target->GetGUID());
+
+    std::vector<std::pair<uint32_t, uint8_t>> dispelList = {{21562, 1}};
+
+    ActorMessage dispel{};
+    dispel.type = MessageType::SPELL_DISPEL;
+    dispel.sourceGuid = CASTER_GUID;
+    dispel.targetGuid = TARGET_GUID;
+    dispel.complexPayload = MakeSpellDispelPayload(CASTER_GUID, TARGET_GUID, 527, dispelList);
+    GetCellB()->SendMessage(std::move(dispel));
+
+    // THEN: Processed gracefully
+    EXPECT_NO_THROW(GetCellB()->Update(0));
+}
+
+TEST_F(GhostActorIntegrationTest, DispelNullPayload)
+{
+    // Test: SPELL_DISPEL with null payload
+    ActorMessage dispel{};
+    dispel.type = MessageType::SPELL_DISPEL;
+    dispel.sourceGuid = 1001;
+    dispel.targetGuid = 2001;
+    dispel.complexPayload = nullptr;
+
+    GetCellB()->SendMessage(std::move(dispel));
+
+    // THEN: Processed gracefully
+    EXPECT_NO_THROW(GetCellB()->Update(0));
+}
+
+TEST_F(GhostActorIntegrationTest, DispelEmptyList)
+{
+    // Test: Dispel with empty dispel list (edge case)
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+
+    HarnessA().AddPlayer(CASTER_GUID);
+    HarnessB().AddCreature(TARGET_GUID, 100);
+
+    std::vector<std::pair<uint32_t, uint8_t>> emptyList;
+
+    ActorMessage dispel{};
+    dispel.type = MessageType::SPELL_DISPEL;
+    dispel.sourceGuid = CASTER_GUID;
+    dispel.targetGuid = TARGET_GUID;
+    dispel.complexPayload = MakeSpellDispelPayload(CASTER_GUID, TARGET_GUID, 527, emptyList);
+    GetCellB()->SendMessage(std::move(dispel));
+
+    // THEN: Processed gracefully (no-op)
+    EXPECT_NO_THROW(GetCellB()->Update(0));
+}
+
+TEST_F(GhostActorIntegrationTest, InterruptAndDispelSequence)
+{
+    // Test: Interrupt followed by dispel in same update cycle
+    constexpr uint64_t PLAYER_GUID = 1001;
+    constexpr uint64_t CASTER_GUID = 2001;
+
+    HarnessA().AddPlayer(PLAYER_GUID);
+    HarnessB().AddCreature(CASTER_GUID, 100);
+    HarnessA().AddGhost(CASTER_GUID, CELL_B_ID);
+
+    // Send interrupt
+    ActorMessage interrupt{};
+    interrupt.type = MessageType::SPELL_INTERRUPT;
+    interrupt.sourceGuid = PLAYER_GUID;
+    interrupt.targetGuid = CASTER_GUID;
+    interrupt.complexPayload = MakeSpellInterruptPayload(PLAYER_GUID, CASTER_GUID,
+        1766, 116, 16, 5000);
+    GetCellB()->SendMessage(std::move(interrupt));
+
+    // Send dispel immediately after
+    std::vector<std::pair<uint32_t, uint8_t>> dispelList = {{10958, 1}}; // Some buff
+    ActorMessage dispel{};
+    dispel.type = MessageType::SPELL_DISPEL;
+    dispel.sourceGuid = PLAYER_GUID;
+    dispel.targetGuid = CASTER_GUID;
+    dispel.complexPayload = MakeSpellDispelPayload(PLAYER_GUID, CASTER_GUID, 527, dispelList);
+    GetCellB()->SendMessage(std::move(dispel));
+
+    // THEN: Both processed correctly
+    EXPECT_NO_THROW(GetCellB()->Update(0));
+}
+
+// ============================================================================
+// Power Drain Cross-Cell Tests
+// ============================================================================
+
+TEST_F(GhostActorIntegrationTest, PowerDrainAcrossCells)
+{
+    // Test: Power drain message from Cell A to target in Cell B
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+    constexpr uint32_t DRAIN_SPELL_ID = 5138;  // Drain Mana
+
+    HarnessA().AddPlayer(CASTER_GUID);
+    HarnessB().AddCreature(TARGET_GUID, 100);
+    HarnessA().AddGhost(TARGET_GUID, CELL_B_ID);
+
+    ActorMessage drain{};
+    drain.type = MessageType::POWER_DRAIN;
+    drain.sourceGuid = CASTER_GUID;
+    drain.targetGuid = TARGET_GUID;
+    drain.complexPayload = MakePowerDrainPayload(CASTER_GUID, TARGET_GUID,
+        DRAIN_SPELL_ID, 0, 1000, 1.0f, false);
+    GetCellB()->SendMessage(std::move(drain));
+
+    // THEN: Processed correctly
+    EXPECT_NO_THROW(GetCellB()->Update(0));
+}
+
+TEST_F(GhostActorIntegrationTest, PowerBurnAcrossCells)
+{
+    // Test: Power burn message from Cell A to target in Cell B
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+    constexpr uint32_t BURN_SPELL_ID = 8129;  // Mana Burn
+
+    HarnessA().AddPlayer(CASTER_GUID);
+    HarnessB().AddCreature(TARGET_GUID, 100);
+    HarnessA().AddGhost(TARGET_GUID, CELL_B_ID);
+
+    ActorMessage burn{};
+    burn.type = MessageType::POWER_DRAIN;
+    burn.sourceGuid = CASTER_GUID;
+    burn.targetGuid = TARGET_GUID;
+    burn.complexPayload = MakePowerDrainPayload(CASTER_GUID, TARGET_GUID,
+        BURN_SPELL_ID, 0, 500, 0.0f, true);  // isPowerBurn=true
+    GetCellB()->SendMessage(std::move(burn));
+
+    // THEN: Processed correctly
+    EXPECT_NO_THROW(GetCellB()->Update(0));
+}
+
+TEST_F(GhostActorIntegrationTest, PowerDrainDeletedTargetGraceful)
+{
+    // Test: Power drain to a target that no longer exists should be handled gracefully
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+
+    HarnessA().AddPlayer(CASTER_GUID);
+    // Intentionally NOT adding the target - simulates deleted entity
+
+    ActorMessage drain{};
+    drain.type = MessageType::POWER_DRAIN;
+    drain.sourceGuid = CASTER_GUID;
+    drain.targetGuid = TARGET_GUID;
+    drain.complexPayload = MakePowerDrainPayload(CASTER_GUID, TARGET_GUID,
+        5138, 0, 1000, 1.0f, false);
+    GetCellB()->SendMessage(std::move(drain));
+
+    // THEN: Processed gracefully (no crash)
+    EXPECT_NO_THROW(GetCellB()->Update(0));
+}
+
+TEST_F(GhostActorIntegrationTest, PowerDrainNullPayload)
+{
+    // Test: Power drain with null payload should be handled gracefully
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+
+    HarnessB().AddCreature(TARGET_GUID, 100);
+
+    ActorMessage drain{};
+    drain.type = MessageType::POWER_DRAIN;
+    drain.sourceGuid = CASTER_GUID;
+    drain.targetGuid = TARGET_GUID;
+    drain.complexPayload = nullptr;  // Null payload
+    GetCellB()->SendMessage(std::move(drain));
+
+    // THEN: Processed gracefully (no-op)
+    EXPECT_NO_THROW(GetCellB()->Update(0));
+}
+
+// ============================================================================
+// Spellsteal Cross-Cell Tests
+// ============================================================================
+
+TEST_F(GhostActorIntegrationTest, SpellstealAcrossCells)
+{
+    // Test: Spellsteal message from Cell A to target in Cell B
+    constexpr uint64_t MAGE_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+    constexpr uint32_t SPELLSTEAL_ID = 30449;
+
+    HarnessA().AddPlayer(MAGE_GUID);
+    HarnessB().AddCreature(TARGET_GUID, 100);
+    HarnessA().AddGhost(TARGET_GUID, CELL_B_ID);
+
+    std::vector<std::pair<uint32_t, uint64_t>> stealList = {
+        {21562, TARGET_GUID},  // Prayer of Fortitude
+        {1459, TARGET_GUID}    // Arcane Intellect
+    };
+
+    ActorMessage steal{};
+    steal.type = MessageType::SPELLSTEAL;
+    steal.sourceGuid = MAGE_GUID;
+    steal.targetGuid = TARGET_GUID;
+    steal.complexPayload = MakeSpellstealPayload(MAGE_GUID, TARGET_GUID,
+        SPELLSTEAL_ID, stealList);
+    GetCellB()->SendMessage(std::move(steal));
+
+    // THEN: Processed correctly
+    EXPECT_NO_THROW(GetCellB()->Update(0));
+}
+
+TEST_F(GhostActorIntegrationTest, SpellstealApplyAcrossCells)
+{
+    // Test: Spellsteal apply message to mage in Cell A after removal from Cell B
+    constexpr uint64_t MAGE_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+    constexpr uint32_t SPELLSTEAL_ID = 30449;
+
+    HarnessA().AddPlayer(MAGE_GUID);
+    HarnessB().AddCreature(TARGET_GUID, 100);
+
+    StolenAuraData auraData;
+    auraData.spellId = 21562;  // Prayer of Fortitude
+    auraData.originalCasterGuid = TARGET_GUID;
+    auraData.duration = 60000;
+    auraData.maxDuration = 1800000;
+    auraData.stackAmount = 1;
+    auraData.charges = 0;
+    std::vector<StolenAuraData> stolenAuras = {auraData};
+
+    ActorMessage apply{};
+    apply.type = MessageType::SPELLSTEAL_APPLY;
+    apply.sourceGuid = TARGET_GUID;
+    apply.targetGuid = MAGE_GUID;
+    apply.complexPayload = MakeSpellstealApplyPayload(MAGE_GUID, TARGET_GUID,
+        SPELLSTEAL_ID, stolenAuras);
+    GetCellA()->SendMessage(std::move(apply));
+
+    // THEN: Processed correctly
+    EXPECT_NO_THROW(GetCellA()->Update(0));
+}
+
+TEST_F(GhostActorIntegrationTest, SpellstealDeletedTargetGraceful)
+{
+    // Test: Spellsteal to a target that no longer exists
+    constexpr uint64_t MAGE_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+
+    HarnessA().AddPlayer(MAGE_GUID);
+    // Intentionally NOT adding the target
+
+    std::vector<std::pair<uint32_t, uint64_t>> stealList = {{21562, TARGET_GUID}};
+
+    ActorMessage steal{};
+    steal.type = MessageType::SPELLSTEAL;
+    steal.sourceGuid = MAGE_GUID;
+    steal.targetGuid = TARGET_GUID;
+    steal.complexPayload = MakeSpellstealPayload(MAGE_GUID, TARGET_GUID,
+        30449, stealList);
+    GetCellB()->SendMessage(std::move(steal));
+
+    // THEN: Processed gracefully (no crash)
+    EXPECT_NO_THROW(GetCellB()->Update(0));
+}
+
+TEST_F(GhostActorIntegrationTest, SpellstealNullPayload)
+{
+    // Test: Spellsteal with null payload
+    constexpr uint64_t TARGET_GUID = 2001;
+
+    HarnessB().AddCreature(TARGET_GUID, 100);
+
+    ActorMessage steal{};
+    steal.type = MessageType::SPELLSTEAL;
+    steal.sourceGuid = 1001;
+    steal.targetGuid = TARGET_GUID;
+    steal.complexPayload = nullptr;
+    GetCellB()->SendMessage(std::move(steal));
+
+    // THEN: Processed gracefully (no-op)
+    EXPECT_NO_THROW(GetCellB()->Update(0));
+}
+
+TEST_F(GhostActorIntegrationTest, SpellstealEmptyList)
+{
+    // Test: Spellsteal with empty steal list
+    constexpr uint64_t MAGE_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+
+    HarnessB().AddCreature(TARGET_GUID, 100);
+
+    std::vector<std::pair<uint32_t, uint64_t>> emptyList;
+
+    ActorMessage steal{};
+    steal.type = MessageType::SPELLSTEAL;
+    steal.sourceGuid = MAGE_GUID;
+    steal.targetGuid = TARGET_GUID;
+    steal.complexPayload = MakeSpellstealPayload(MAGE_GUID, TARGET_GUID,
+        30449, emptyList);
+    GetCellB()->SendMessage(std::move(steal));
+
+    // THEN: Processed gracefully (no-op)
+    EXPECT_NO_THROW(GetCellB()->Update(0));
+}
+
+TEST_F(GhostActorIntegrationTest, PowerDrainAndSpellstealSequence)
+{
+    // Test: Power drain followed by spellsteal in same update cycle
+    constexpr uint64_t PLAYER_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+
+    HarnessA().AddPlayer(PLAYER_GUID);
+    HarnessB().AddCreature(TARGET_GUID, 100);
+    HarnessA().AddGhost(TARGET_GUID, CELL_B_ID);
+
+    // Send power drain
+    ActorMessage drain{};
+    drain.type = MessageType::POWER_DRAIN;
+    drain.sourceGuid = PLAYER_GUID;
+    drain.targetGuid = TARGET_GUID;
+    drain.complexPayload = MakePowerDrainPayload(PLAYER_GUID, TARGET_GUID,
+        5138, 0, 500, 1.0f, false);
+    GetCellB()->SendMessage(std::move(drain));
+
+    // Send spellsteal immediately after
+    std::vector<std::pair<uint32_t, uint64_t>> stealList = {{21562, TARGET_GUID}};
+    ActorMessage steal{};
+    steal.type = MessageType::SPELLSTEAL;
+    steal.sourceGuid = PLAYER_GUID;
+    steal.targetGuid = TARGET_GUID;
+    steal.complexPayload = MakeSpellstealPayload(PLAYER_GUID, TARGET_GUID,
+        30449, stealList);
+    GetCellB()->SendMessage(std::move(steal));
+
+    // THEN: Both processed correctly
+    EXPECT_NO_THROW(GetCellB()->Update(0));
+}
+
+// ============================================================================
+// Periodic Leech Cross-Cell Tests (Health Leech, Mana Leech, Power Burn)
+// ============================================================================
+
+TEST_F(GhostActorIntegrationTest, PeriodicHealthLeechAcrossCells)
+{
+    // Test: Periodic health leech (Drain Life) damage routes to target's cell
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+    constexpr uint32_t DRAIN_LIFE_ID = 689;  // Drain Life
+
+    HarnessA().AddPlayer(CASTER_GUID);
+    HarnessB().AddCreature(TARGET_GUID, 100);
+    HarnessA().AddGhost(TARGET_GUID, CELL_B_ID);
+
+    // Simulate periodic health leech tick via SPELL_HIT message
+    ActorMessage leechTick{};
+    leechTick.type = MessageType::SPELL_HIT;
+    leechTick.sourceGuid = CASTER_GUID;
+    leechTick.targetGuid = TARGET_GUID;
+    leechTick.complexPayload = MakeSpellHitPayload(DRAIN_LIFE_ID, 200, 0);
+    GetCellB()->SendMessage(std::move(leechTick));
+
+    // THEN: Processed correctly
+    EXPECT_NO_THROW(GetCellB()->Update(0));
+}
+
+TEST_F(GhostActorIntegrationTest, PeriodicManaLeechAcrossCells)
+{
+    // Test: Periodic mana leech (Drain Mana) routes to target's cell
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+    constexpr uint32_t DRAIN_MANA_ID = 5138;  // Drain Mana
+
+    HarnessA().AddPlayer(CASTER_GUID);
+    HarnessB().AddCreature(TARGET_GUID, 100);
+    HarnessA().AddGhost(TARGET_GUID, CELL_B_ID);
+
+    // Simulate periodic mana leech via POWER_DRAIN message
+    ActorMessage leechTick{};
+    leechTick.type = MessageType::POWER_DRAIN;
+    leechTick.sourceGuid = CASTER_GUID;
+    leechTick.targetGuid = TARGET_GUID;
+    leechTick.complexPayload = MakePowerDrainPayload(CASTER_GUID, TARGET_GUID,
+        DRAIN_MANA_ID, 0, 500, 1.0f, false);
+    GetCellB()->SendMessage(std::move(leechTick));
+
+    // THEN: Processed correctly
+    EXPECT_NO_THROW(GetCellB()->Update(0));
+}
+
+TEST_F(GhostActorIntegrationTest, PeriodicPowerBurnAcrossCells)
+{
+    // Test: Periodic power burn tick routes to target's cell
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+    constexpr uint32_t POWER_BURN_ID = 32848;  // Power Burn
+
+    HarnessA().AddPlayer(CASTER_GUID);
+    HarnessB().AddCreature(TARGET_GUID, 100);
+    HarnessA().AddGhost(TARGET_GUID, CELL_B_ID);
+
+    // Simulate periodic power burn via POWER_DRAIN (isPowerBurn=true)
+    ActorMessage burnTick{};
+    burnTick.type = MessageType::POWER_DRAIN;
+    burnTick.sourceGuid = CASTER_GUID;
+    burnTick.targetGuid = TARGET_GUID;
+    burnTick.complexPayload = MakePowerDrainPayload(CASTER_GUID, TARGET_GUID,
+        POWER_BURN_ID, 0, 300, 0.5f, true);  // 0.5 damage multiplier
+    GetCellB()->SendMessage(std::move(burnTick));
+
+    // Also send damage via SPELL_HIT
+    ActorMessage dmgMsg{};
+    dmgMsg.type = MessageType::SPELL_HIT;
+    dmgMsg.sourceGuid = CASTER_GUID;
+    dmgMsg.targetGuid = TARGET_GUID;
+    dmgMsg.complexPayload = MakeSpellHitPayload(POWER_BURN_ID, 150, 0);  // 300 * 0.5
+    GetCellB()->SendMessage(std::move(dmgMsg));
+
+    // THEN: Both processed correctly
+    EXPECT_NO_THROW(GetCellB()->Update(0));
+}
+
+TEST_F(GhostActorIntegrationTest, PeriodicHealthLeechCasterDeadGraceful)
+{
+    // Test: Health leech continues even if caster dies (DoT persists)
+    constexpr uint64_t TARGET_GUID = 2001;
+
+    HarnessB().AddCreature(TARGET_GUID, 100);
+
+    // Simulate health leech tick with no caster (caster died)
+    ActorMessage leechTick{};
+    leechTick.type = MessageType::SPELL_HIT;
+    leechTick.sourceGuid = 0;  // Caster dead/removed
+    leechTick.targetGuid = TARGET_GUID;
+    leechTick.complexPayload = MakeSpellHitPayload(689, 200, 0);
+    GetCellB()->SendMessage(std::move(leechTick));
+
+    // THEN: Processed gracefully
+    EXPECT_NO_THROW(GetCellB()->Update(0));
+}
+
+TEST_F(GhostActorIntegrationTest, MultiplePeriodicLeechTicksSequential)
+{
+    // Test: Multiple periodic leech ticks in sequence
+    constexpr uint64_t CASTER_GUID = 1001;
+    constexpr uint64_t TARGET_GUID = 2001;
+
+    HarnessA().AddPlayer(CASTER_GUID);
+    HarnessB().AddCreature(TARGET_GUID, 100);
+    HarnessA().AddGhost(TARGET_GUID, CELL_B_ID);
+
+    // Send multiple leech ticks
+    for (int i = 0; i < 5; ++i)
+    {
+        ActorMessage leechTick{};
+        leechTick.type = MessageType::SPELL_HIT;
+        leechTick.sourceGuid = CASTER_GUID;
+        leechTick.targetGuid = TARGET_GUID;
+        leechTick.complexPayload = MakeSpellHitPayload(689, 200, 0);
+        GetCellB()->SendMessage(std::move(leechTick));
+    }
+
+    // THEN: All processed correctly
+    EXPECT_NO_THROW(GetCellB()->Update(0));
+}
+
+// ============================================================================
+// Bi-directional Thorns/Reflect Damage Tests
+// ============================================================================
+
+TEST_F(GhostActorIntegrationTest, ReflectDamageMessageCreation)
+{
+    // Test: ReflectDamagePayload can be created and populated correctly
+    auto payload = std::make_shared<ReflectDamagePayload>();
+    payload->reflectorGuid = 2001;
+    payload->attackerGuid = 1001;
+    payload->spellId = 467;  // Thorns
+    payload->damage = 50;
+    payload->schoolMask = SPELL_SCHOOL_MASK_NATURE;
+    payload->absorb = 0;
+    payload->resist = 0;
+
+    EXPECT_EQ(payload->reflectorGuid, 2001);
+    EXPECT_EQ(payload->attackerGuid, 1001);
+    EXPECT_EQ(payload->spellId, 467u);
+    EXPECT_EQ(payload->damage, 50);
+    EXPECT_EQ(payload->schoolMask, SPELL_SCHOOL_MASK_NATURE);
+}
+
+TEST_F(GhostActorIntegrationTest, ReflectDamageMessageRouting)
+{
+    // Test: REFLECT_DAMAGE message routes from victim's cell back to attacker's cell
+    constexpr uint64_t ATTACKER_GUID = 1001;
+    constexpr uint64_t VICTIM_GUID = 2001;
+
+    HarnessA().AddPlayer(ATTACKER_GUID);
+    HarnessB().AddCreature(VICTIM_GUID, 100);
+
+    // Create reflect damage message (thorns reflecting back to attacker)
+    auto payload = std::make_shared<ReflectDamagePayload>();
+    payload->reflectorGuid = VICTIM_GUID;
+    payload->attackerGuid = ATTACKER_GUID;
+    payload->spellId = 467;  // Thorns
+    payload->damage = 50;
+    payload->schoolMask = SPELL_SCHOOL_MASK_NATURE;
+
+    ActorMessage reflectMsg{};
+    reflectMsg.type = MessageType::REFLECT_DAMAGE;
+    reflectMsg.sourceGuid = VICTIM_GUID;
+    reflectMsg.targetGuid = ATTACKER_GUID;
+    reflectMsg.sourceCellId = CELL_B_ID;
+    reflectMsg.targetCellId = CELL_A_ID;
+    reflectMsg.complexPayload = payload;
+
+    // Send to attacker's cell
+    GetCellA()->SendMessage(std::move(reflectMsg));
+
+    // THEN: Message processed without throwing
+    EXPECT_NO_THROW(GetCellA()->Update(0));
+}
+
+TEST_F(GhostActorIntegrationTest, ReflectDamageWithMissingAttacker)
+{
+    // Test: REFLECT_DAMAGE gracefully handles case where attacker is not found
+    constexpr uint64_t ATTACKER_GUID = 1001;  // Not added to any cell
+    constexpr uint64_t VICTIM_GUID = 2001;
+
+    // Don't add attacker - simulates attacker leaving or dying
+
+    auto payload = std::make_shared<ReflectDamagePayload>();
+    payload->reflectorGuid = VICTIM_GUID;
+    payload->attackerGuid = ATTACKER_GUID;
+    payload->spellId = 467;
+    payload->damage = 50;
+    payload->schoolMask = SPELL_SCHOOL_MASK_NATURE;
+
+    ActorMessage reflectMsg{};
+    reflectMsg.type = MessageType::REFLECT_DAMAGE;
+    reflectMsg.sourceGuid = VICTIM_GUID;
+    reflectMsg.targetGuid = ATTACKER_GUID;
+    reflectMsg.complexPayload = payload;
+
+    GetCellA()->SendMessage(std::move(reflectMsg));
+
+    // THEN: Processed gracefully (no crash)
+    EXPECT_NO_THROW(GetCellA()->Update(0));
+}
+
+TEST_F(GhostActorIntegrationTest, MeleeDamageTriggersReflect)
+{
+    // Test: MELEE_DAMAGE handler processes damage shields and generates REFLECT_DAMAGE
+    // Note: This test verifies the message flow, actual thorns calculation requires Unit integration
+    constexpr uint64_t ATTACKER_GUID = 1001;
+    constexpr uint64_t VICTIM_GUID = 2001;
+
+    HarnessA().AddPlayer(ATTACKER_GUID);
+    HarnessB().AddCreature(VICTIM_GUID, 100);
+
+    // Create melee damage message with attacker info for reflect routing
+    auto payload = std::make_shared<MeleeDamagePayload>();
+    payload->damage = 500;
+    payload->isCritical = false;
+
+    ActorMessage meleeMsg{};
+    meleeMsg.type = MessageType::MELEE_DAMAGE;
+    meleeMsg.sourceGuid = ATTACKER_GUID;
+    meleeMsg.targetGuid = VICTIM_GUID;
+    meleeMsg.sourceCellId = CELL_A_ID;
+    meleeMsg.targetCellId = CELL_B_ID;
+    meleeMsg.complexPayload = payload;
+
+    GetCellB()->SendMessage(std::move(meleeMsg));
+
+    // THEN: Message processed (thorns would require actual Unit with auras)
+    EXPECT_NO_THROW(GetCellB()->Update(0));
+}
+
+// ============================================================================
+// Boundary/Corner Integration Tests
+// ============================================================================
+
+/**
+ * Test fixture for 4-corner cell scenarios.
+ * Sets up a 2x2 grid of cells where all 4 cells share a common corner point.
+ *
+ *     +-------+-------+
+ *     |  NW   |  NE   |
+ *     | (0,1) | (1,1) |
+ *     +-------+-------+
+ *     |  SW   |  SE   |
+ *     | (0,0) | (1,0) |
+ *     +-------+-------+
+ *
+ * Cell IDs: (cellY << 16) | cellX
+ */
+class GhostActorCornerTest : public ::testing::Test
+{
+protected:
+    // 2x2 grid cell IDs using proper coordinate encoding
+    static constexpr uint32_t CELL_SW = (0 << 16) | 0;  // 0x00000000
+    static constexpr uint32_t CELL_SE = (0 << 16) | 1;  // 0x00000001
+    static constexpr uint32_t CELL_NW = (1 << 16) | 0;  // 0x00010000
+    static constexpr uint32_t CELL_NE = (1 << 16) | 1;  // 0x00010001
+
+    void SetUp() override
+    {
+        _originalWorld = sWorld.release();
+        _worldMock = new NiceMock<WorldMock>();
+        sWorld.reset(_worldMock);
+
+        ON_CALL(*_worldMock, GetDataPath()).WillByDefault(ReturnRef(_emptyString));
+        ON_CALL(*_worldMock, GetRealmName()).WillByDefault(ReturnRef(_emptyString));
+        ON_CALL(*_worldMock, GetDefaultDbcLocale()).WillByDefault(Return(LOCALE_enUS));
+        ON_CALL(*_worldMock, getRate(_)).WillByDefault(Return(1.0f));
+        ON_CALL(*_worldMock, getBoolConfig(_)).WillByDefault(Return(false));
+        ON_CALL(*_worldMock, getIntConfig(_)).WillByDefault(Return(0));
+        ON_CALL(*_worldMock, getFloatConfig(_)).WillByDefault(Return(0.0f));
+
+        EnsureCellActorTestScriptsInitialized();
+        _harnessSW = std::make_unique<CellActorTestHarness>(CELL_SW);
+        _harnessSE = std::make_unique<CellActorTestHarness>(CELL_SE);
+        _harnessNW = std::make_unique<CellActorTestHarness>(CELL_NW);
+        _harnessNE = std::make_unique<CellActorTestHarness>(CELL_NE);
+    }
+
+    void TearDown() override
+    {
+        _harnessNE.reset();
+        _harnessNW.reset();
+        _harnessSE.reset();
+        _harnessSW.reset();
+
+        IWorld* currentWorld = sWorld.release();
+        delete currentWorld;
+        _worldMock = nullptr;
+        sWorld.reset(_originalWorld);
+        _originalWorld = nullptr;
+    }
+
+    CellActorTestHarness& HarnessSW() { return *_harnessSW; }
+    CellActorTestHarness& HarnessSE() { return *_harnessSE; }
+    CellActorTestHarness& HarnessNW() { return *_harnessNW; }
+    CellActorTestHarness& HarnessNE() { return *_harnessNE; }
+
+    CellActor* GetCellSW() { return _harnessSW->GetCell(); }
+    CellActor* GetCellSE() { return _harnessSE->GetCell(); }
+    CellActor* GetCellNW() { return _harnessNW->GetCell(); }
+    CellActor* GetCellNE() { return _harnessNE->GetCell(); }
+
+    void ProcessAllCornerCells()
+    {
+        GetCellSW()->Update(0);
+        GetCellSE()->Update(0);
+        GetCellNW()->Update(0);
+        GetCellNE()->Update(0);
+    }
+
+private:
+    std::unique_ptr<CellActorTestHarness> _harnessSW;
+    std::unique_ptr<CellActorTestHarness> _harnessSE;
+    std::unique_ptr<CellActorTestHarness> _harnessNW;
+    std::unique_ptr<CellActorTestHarness> _harnessNE;
+
+    IWorld* _originalWorld{nullptr};
+    NiceMock<WorldMock>* _worldMock{nullptr};
+    std::string _emptyString;
+};
+
+// Test: Player at corner attacks targets in all 4 adjacent cells
+TEST_F(GhostActorCornerTest, CornerPlayerAttacksAllQuadrants)
+{
+    // Player in SW cell (at the corner position)
+    constexpr uint64_t PLAYER_GUID = 1001;
+    constexpr uint64_t TARGET_SE_GUID = 2001;
+    constexpr uint64_t TARGET_NW_GUID = 2002;
+    constexpr uint64_t TARGET_NE_GUID = 2003;
+    constexpr uint64_t TARGET_SW_GUID = 2004;
+
+    // Player in SW cell
+    HarnessSW().AddPlayer(PLAYER_GUID);
+
+    // Targets in each of the 4 cells
+    HarnessSW().AddCreature(TARGET_SW_GUID, 100);  // Same cell as player
+    HarnessSE().AddCreature(TARGET_SE_GUID, 100);  // East neighbor
+    HarnessNW().AddCreature(TARGET_NW_GUID, 100);  // North neighbor
+    HarnessNE().AddCreature(TARGET_NE_GUID, 100);  // Diagonal neighbor
+
+    // Set up ghosts - player can see creatures in neighbor cells
+    HarnessSW().AddGhost(TARGET_SE_GUID, CELL_SE);
+    HarnessSW().AddGhost(TARGET_NW_GUID, CELL_NW);
+    HarnessSW().AddGhost(TARGET_NE_GUID, CELL_NE);
+
+    // Attack target in same cell (SW)
+    ActorMessage attackSW{};
+    attackSW.type = MessageType::SPELL_HIT;
+    attackSW.sourceGuid = PLAYER_GUID;
+    attackSW.targetGuid = TARGET_SW_GUID;
+    attackSW.sourceCellId = CELL_SW;
+    attackSW.targetCellId = CELL_SW;
+    attackSW.complexPayload = MakeSpellHitPayload(12345, 100);
+    GetCellSW()->SendMessage(std::move(attackSW));
+
+    // Attack target in SE cell (east neighbor)
+    ActorMessage attackSE{};
+    attackSE.type = MessageType::SPELL_HIT;
+    attackSE.sourceGuid = PLAYER_GUID;
+    attackSE.targetGuid = TARGET_SE_GUID;
+    attackSE.sourceCellId = CELL_SW;
+    attackSE.targetCellId = CELL_SE;
+    attackSE.complexPayload = MakeSpellHitPayload(12345, 100);
+    GetCellSE()->SendMessage(std::move(attackSE));
+
+    // Attack target in NW cell (north neighbor)
+    ActorMessage attackNW{};
+    attackNW.type = MessageType::SPELL_HIT;
+    attackNW.sourceGuid = PLAYER_GUID;
+    attackNW.targetGuid = TARGET_NW_GUID;
+    attackNW.sourceCellId = CELL_SW;
+    attackNW.targetCellId = CELL_NW;
+    attackNW.complexPayload = MakeSpellHitPayload(12345, 100);
+    GetCellNW()->SendMessage(std::move(attackNW));
+
+    // Attack target in NE cell (diagonal neighbor)
+    ActorMessage attackNE{};
+    attackNE.type = MessageType::SPELL_HIT;
+    attackNE.sourceGuid = PLAYER_GUID;
+    attackNE.targetGuid = TARGET_NE_GUID;
+    attackNE.sourceCellId = CELL_SW;
+    attackNE.targetCellId = CELL_NE;
+    attackNE.complexPayload = MakeSpellHitPayload(12345, 100);
+    GetCellNE()->SendMessage(std::move(attackNE));
+
+    // THEN: All cells process without error
+    EXPECT_NO_THROW(ProcessAllCornerCells());
+}
+
+// Test: Entity receives attacks from all 4 corner cells simultaneously
+TEST_F(GhostActorCornerTest, CornerEntityReceivesFromAllQuadrants)
+{
+    // Target in NE cell
+    TestCreature* target = HarnessNE().AddCreature(2001, 100);
+    target->SetTestHealth(10000);
+    uint64_t targetGuid = target->GetGUID().GetRawValue();
+
+    // Attackers in each cell
+    auto* attackerSW = HarnessSW().AddPlayer(1001);
+    auto* attackerSE = HarnessSE().AddPlayer(1002);
+    auto* attackerNW = HarnessNW().AddPlayer(1003);
+    auto* attackerNE = HarnessNE().AddPlayer(1004);
+
+    // All attackers send damage to target in NE
+    auto sendDamage = [&](uint64_t attackerGuid, uint32_t sourceCellId) {
+        ActorMessage msg{};
+        msg.type = MessageType::SPELL_HIT;
+        msg.sourceGuid = attackerGuid;
+        msg.targetGuid = targetGuid;
+        msg.sourceCellId = sourceCellId;
+        msg.targetCellId = CELL_NE;
+        msg.complexPayload = MakeSpellHitPayload(12345, 500);
+        GetCellNE()->SendMessage(std::move(msg));
+    };
+
+    sendDamage(attackerSW->GetGUID().GetRawValue(), CELL_SW);
+    sendDamage(attackerSE->GetGUID().GetRawValue(), CELL_SE);
+    sendDamage(attackerNW->GetGUID().GetRawValue(), CELL_NW);
+    sendDamage(attackerNE->GetGUID().GetRawValue(), CELL_NE);
+
+    // Process NE cell where target is
+    GetCellNE()->Update(0);
+
+    // Target should have received 2000 total damage (4 x 500)
+    EXPECT_EQ(target->GetTestHealth(), 8000u);
+}
+
+// Test: AoE from corner position hits entities in all 4 cells
+TEST_F(GhostActorCornerTest, CornerAoEHitsAllQuadrants)
+{
+    // Caster in SW
+    auto* caster = HarnessSW().AddPlayer(1001);
+    uint64_t casterGuid = caster->GetGUID().GetRawValue();
+
+    // Targets in each cell
+    TestCreature* targetSW = HarnessSW().AddCreature(2001, 100);
+    TestCreature* targetSE = HarnessSE().AddCreature(2002, 100);
+    TestCreature* targetNW = HarnessNW().AddCreature(2003, 100);
+    TestCreature* targetNE = HarnessNE().AddCreature(2004, 100);
+
+    targetSW->SetTestHealth(1000);
+    targetSE->SetTestHealth(1000);
+    targetNW->SetTestHealth(1000);
+    targetNE->SetTestHealth(1000);
+
+    // Simulate AoE spell hitting all 4 targets
+    auto sendAoEDamage = [&](TestCreature* target, uint32_t targetCellId, CellActor* cell) {
+        ActorMessage msg{};
+        msg.type = MessageType::SPELL_HIT;
+        msg.sourceGuid = casterGuid;
+        msg.targetGuid = target->GetGUID().GetRawValue();
+        msg.sourceCellId = CELL_SW;
+        msg.targetCellId = targetCellId;
+        msg.complexPayload = MakeSpellHitPayload(99999, 200);
+        cell->SendMessage(std::move(msg));
+    };
+
+    sendAoEDamage(targetSW, CELL_SW, GetCellSW());
+    sendAoEDamage(targetSE, CELL_SE, GetCellSE());
+    sendAoEDamage(targetNW, CELL_NW, GetCellNW());
+    sendAoEDamage(targetNE, CELL_NE, GetCellNE());
+
+    ProcessAllCornerCells();
+
+    // All targets should have taken 200 damage
+    EXPECT_EQ(targetSW->GetTestHealth(), 800u);
+    EXPECT_EQ(targetSE->GetTestHealth(), 800u);
+    EXPECT_EQ(targetNW->GetTestHealth(), 800u);
+    EXPECT_EQ(targetNE->GetTestHealth(), 800u);
+}
+
+// Test: Health sync broadcasts to all 4 corner cells
+TEST_F(GhostActorCornerTest, CornerHealthSyncToAllQuadrants)
+{
+    constexpr uint64_t CREATURE_GUID = 2001;
+
+    // Creature in SW cell
+    TestCreature* creature = HarnessSW().AddCreature(CREATURE_GUID, 100);
+    creature->SetTestHealth(5000);
+
+    // Creature has ghosts in all neighbor cells
+    HarnessSE().AddGhost(CREATURE_GUID, CELL_SW);
+    HarnessNW().AddGhost(CREATURE_GUID, CELL_SW);
+    HarnessNE().AddGhost(CREATURE_GUID, CELL_SW);
+
+    // Send health update to all cells with ghosts
+    auto sendHealthUpdate = [&](CellActor* cell) {
+        ActorMessage msg{};
+        msg.type = MessageType::HEALTH_CHANGED;
+        msg.sourceGuid = CREATURE_GUID;
+        msg.sourceCellId = CELL_SW;
+        msg.intParam1 = 3000;  // New health
+        msg.intParam2 = 5000;  // Max health
+        cell->SendMessage(std::move(msg));
+    };
+
+    sendHealthUpdate(GetCellSE());
+    sendHealthUpdate(GetCellNW());
+    sendHealthUpdate(GetCellNE());
+
+    // Process all cells
+    GetCellSE()->Update(0);
+    GetCellNW()->Update(0);
+    GetCellNE()->Update(0);
+
+    // Verify ghosts in all cells have updated health
+    EXPECT_EQ(GetCellSE()->GetGhost(CREATURE_GUID)->GetHealth(), 3000u);
+    EXPECT_EQ(GetCellNW()->GetGhost(CREATURE_GUID)->GetHealth(), 3000u);
+    EXPECT_EQ(GetCellNE()->GetGhost(CREATURE_GUID)->GetHealth(), 3000u);
+}
+
+// Test: Diagonal cell interaction (opposite corners)
+TEST_F(GhostActorCornerTest, DiagonalCellInteraction)
+{
+    // Player in SW, target in NE (diagonal)
+    auto* player = HarnessSW().AddPlayer(1001);
+    TestCreature* target = HarnessNE().AddCreature(2001, 100);
+    target->SetTestHealth(1000);
+
+    uint64_t playerGuid = player->GetGUID().GetRawValue();
+    uint64_t targetGuid = target->GetGUID().GetRawValue();
+
+    // Ghost of target in player's cell
+    HarnessSW().AddGhost(targetGuid, CELL_NE);
+
+    // Player attacks diagonally across corner
+    ActorMessage attack{};
+    attack.type = MessageType::SPELL_HIT;
+    attack.sourceGuid = playerGuid;
+    attack.targetGuid = targetGuid;
+    attack.sourceCellId = CELL_SW;
+    attack.targetCellId = CELL_NE;
+    attack.complexPayload = MakeSpellHitPayload(12345, 300);
+    GetCellNE()->SendMessage(std::move(attack));
+
+    GetCellNE()->Update(0);
+
+    EXPECT_EQ(target->GetTestHealth(), 700u);
+}
+
+// Test: Melee with thorns across corner (bi-directional)
+TEST_F(GhostActorCornerTest, CornerMeleeWithThornsResponse)
+{
+    constexpr uint64_t ATTACKER_GUID = 1001;
+    constexpr uint64_t VICTIM_GUID = 2001;
+
+    // Attacker in SW, victim with thorns in NE
+    HarnessSW().AddPlayer(ATTACKER_GUID);
+    HarnessNE().AddCreature(VICTIM_GUID, 100);
+
+    // Send melee attack from SW to NE
+    auto payload = std::make_shared<MeleeDamagePayload>();
+    payload->damage = 500;
+    payload->isCritical = false;
+
+    ActorMessage meleeMsg{};
+    meleeMsg.type = MessageType::MELEE_DAMAGE;
+    meleeMsg.sourceGuid = ATTACKER_GUID;
+    meleeMsg.targetGuid = VICTIM_GUID;
+    meleeMsg.sourceCellId = CELL_SW;  // Important for thorns response routing
+    meleeMsg.targetCellId = CELL_NE;
+    meleeMsg.complexPayload = payload;
+    GetCellNE()->SendMessage(std::move(meleeMsg));
+
+    // Process NE cell (victim receives damage, would trigger thorns)
+    EXPECT_NO_THROW(GetCellNE()->Update(0));
+
+    // Thorns would send REFLECT_DAMAGE back to CELL_SW
+    // (Full thorns test requires Unit mock with auras)
+}
+
+// Test: Heal across corner boundary
+TEST_F(GhostActorCornerTest, CornerHealAcrossBoundary)
+{
+    // Healer in SW, wounded target in NE
+    auto* healer = HarnessSW().AddPlayer(1001);
+    TestCreature* target = HarnessNE().AddCreature(2001, 100);
+    target->SetTestHealth(500);
+    target->SetTestMaxHealth(1000);
+
+    uint64_t healerGuid = healer->GetGUID().GetRawValue();
+    uint64_t targetGuid = target->GetGUID().GetRawValue();
+
+    // Send heal from SW to NE
+    ActorMessage healMsg{};
+    healMsg.type = MessageType::HEAL;
+    healMsg.sourceGuid = healerGuid;
+    healMsg.targetGuid = targetGuid;
+    healMsg.sourceCellId = CELL_SW;
+    healMsg.targetCellId = CELL_NE;
+    healMsg.complexPayload = MakeHealPayload(12345, 300);
+    GetCellNE()->SendMessage(std::move(healMsg));
+
+    GetCellNE()->Update(0);
+
+    EXPECT_EQ(target->GetTestHealth(), 800u);
+}

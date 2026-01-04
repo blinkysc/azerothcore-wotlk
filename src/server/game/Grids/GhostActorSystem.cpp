@@ -23,12 +23,18 @@
 #include "Map.h"
 #include "Object.h"
 #include "ObjectAccessor.h"
+#include "ObjectGuid.h"
+#include "Opcodes.h"
 #include "Pet.h"
 #include "Player.h"
+#include "Spell.h"
+#include "SpellAuraEffects.h"
+#include "SpellMgr.h"
 #include "ThreatMgr.h"
 #include "Unit.h"
 #include "WorkStealingPool.h"
 #include "World.h"
+#include "WorldPacket.h"
 #include <thread>
 
 namespace GhostActor
@@ -96,17 +102,72 @@ void CellActor::HandleMessage(ActorMessage& msg)
             if (msg.complexPayload)
             {
                 auto payload = std::static_pointer_cast<MeleeDamagePayload>(msg.complexPayload);
-                LOG_DEBUG("server.ghost", "CellActor[{}]: MELEE_DAMAGE target={} damage={} crit={}",
-                    _cellId, msg.targetGuid, payload->damage, payload->isCritical);
+                LOG_DEBUG("server.ghost", "CellActor[{}]: MELEE_DAMAGE target={} damage={} crit={} attacker={}",
+                    _cellId, msg.targetGuid, payload->damage, payload->isCritical, msg.sourceGuid);
 
                 WorldObject* targetObj = FindEntityByGuid(msg.targetGuid);
                 Unit* target = targetObj ? targetObj->ToUnit() : nullptr;
 
                 if (target && target->IsAlive() && target->IsInWorld())
                 {
+                    // Apply the incoming melee damage
                     Unit::DealDamage(nullptr, target, payload->damage, nullptr,
                         DIRECT_DAMAGE, SPELL_SCHOOL_MASK_NORMAL, nullptr, false);
                     BroadcastHealthChange(target);
+
+                    // Process damage shields (thorns) - send reflect damage back to attacker
+                    if (msg.sourceGuid != 0 && msg.sourceCellId != 0 && payload->damage > 0)
+                    {
+                        // Get damage shield auras on the target (victim with thorns)
+                        Unit::AuraEffectList vDamageShields = target->GetAuraEffectsByType(SPELL_AURA_DAMAGE_SHIELD);
+                        for (AuraEffect const* dmgShield : vDamageShields)
+                        {
+                            SpellInfo const* spellProto = dmgShield->GetSpellInfo();
+                            if (!spellProto)
+                                continue;
+
+                            // Get base damage from the aura
+                            uint32 reflectDamage = uint32(std::max(0, dmgShield->GetAmount()));
+                            if (reflectDamage == 0)
+                                continue;
+
+                            // Apply spell damage bonus from the aura caster if available
+                            if (Unit* auraCaster = dmgShield->GetCaster())
+                            {
+                                // We don't have direct access to the attacker for SpellDamageBonusDone,
+                                // but we can at least apply caster bonuses
+                                reflectDamage = auraCaster->SpellDamageBonusDone(target, spellProto,
+                                    reflectDamage, SPELL_DIRECT_DAMAGE, dmgShield->GetEffIndex());
+                            }
+
+                            LOG_DEBUG("server.ghost", "CellActor[{}]: Processing thorns spell={} damage={} to attacker={}",
+                                _cellId, spellProto->Id, reflectDamage, msg.sourceGuid);
+
+                            // Send reflect damage message to attacker's cell
+                            auto* cellMgr = _map->GetCellActorManager();
+                            if (cellMgr)
+                            {
+                                auto reflectPayload = std::make_shared<ReflectDamagePayload>();
+                                reflectPayload->reflectorGuid = msg.targetGuid;
+                                reflectPayload->attackerGuid = msg.sourceGuid;
+                                reflectPayload->spellId = spellProto->Id;
+                                reflectPayload->damage = reflectDamage;
+                                reflectPayload->schoolMask = spellProto->GetSchoolMask();
+                                reflectPayload->absorb = 0;  // Calculated on receive
+                                reflectPayload->resist = 0;  // Calculated on receive
+
+                                ActorMessage reflectMsg{};
+                                reflectMsg.type = MessageType::REFLECT_DAMAGE;
+                                reflectMsg.sourceGuid = msg.targetGuid;
+                                reflectMsg.targetGuid = msg.sourceGuid;
+                                reflectMsg.sourceCellId = _cellId;
+                                reflectMsg.targetCellId = msg.sourceCellId;
+                                reflectMsg.complexPayload = reflectPayload;
+
+                                cellMgr->SendMessage(msg.sourceCellId, std::move(reflectMsg));
+                            }
+                        }
+                    }
                 }
             }
             break;
@@ -127,6 +188,74 @@ void CellActor::HandleMessage(ActorMessage& msg)
                 {
                     target->ModifyHealth(payload->effectiveHeal);
                     BroadcastHealthChange(target);
+                }
+            }
+            break;
+        }
+
+        case MessageType::REFLECT_DAMAGE:
+        {
+            // Bi-directional thorns/damage shield response
+            if (msg.complexPayload)
+            {
+                auto payload = std::static_pointer_cast<ReflectDamagePayload>(msg.complexPayload);
+                LOG_DEBUG("server.ghost", "CellActor[{}]: REFLECT_DAMAGE spell={} attacker={} damage={}",
+                    _cellId, payload->spellId, payload->attackerGuid, payload->damage);
+
+                WorldObject* attackerObj = FindEntityByGuid(payload->attackerGuid);
+                Unit* attacker = attackerObj ? attackerObj->ToUnit() : nullptr;
+
+                if (attacker && attacker->IsAlive() && attacker->IsInWorld())
+                {
+                    uint32 damage = payload->damage;
+                    SpellInfo const* spellProto = sSpellMgr->GetSpellInfo(payload->spellId);
+                    uint32 absorb = 0;
+                    uint32 resist = 0;
+
+                    // Check immunity
+                    if (spellProto && attacker->IsImmunedToDamageOrSchool(spellProto))
+                    {
+                        LOG_DEBUG("server.ghost", "CellActor[{}]: REFLECT_DAMAGE immune to spell {}",
+                            _cellId, payload->spellId);
+                        break;
+                    }
+
+                    // Calculate absorb/resist on the attacker
+                    if (spellProto && damage > 0)
+                    {
+                        // Create a fake "reflector" unit reference for absorb calc
+                        // We use nullptr for attacker in DamageInfo since we don't have the reflector
+                        DamageInfo dmgInfo(nullptr, attacker, damage, spellProto,
+                            SpellSchoolMask(payload->schoolMask), SPELL_DIRECT_DAMAGE);
+                        Unit::CalcAbsorbResist(dmgInfo);
+                        absorb = dmgInfo.GetAbsorb();
+                        resist = dmgInfo.GetResist();
+                        damage = dmgInfo.GetDamage();
+                    }
+
+                    Unit::DealDamageMods(attacker, damage, &absorb);
+
+                    // Send combat log packet
+                    if (spellProto)
+                    {
+                        WorldPacket data(SMSG_SPELLDAMAGESHIELD, (8 + 8 + 4 + 4 + 4 + 4));
+                        data << ObjectGuid(payload->reflectorGuid);  // Reflector (who has thorns)
+                        data << attacker->GetGUID();                  // Attacker (receiving damage)
+                        data << uint32(payload->spellId);
+                        data << uint32(damage);
+                        int32 overkill = int32(damage) - int32(attacker->GetHealth());
+                        data << uint32(overkill > 0 ? overkill : 0);
+                        data << uint32(payload->schoolMask);
+                        attacker->SendMessageToSet(&data, true);
+                    }
+
+                    // Apply the reflect damage
+                    if (damage > 0)
+                    {
+                        Unit::DealDamage(nullptr, attacker, damage, nullptr,
+                            SPELL_DIRECT_DAMAGE, SpellSchoolMask(payload->schoolMask), spellProto, true);
+                        BroadcastHealthChange(attacker);
+                    }
                 }
             }
             break;
@@ -241,6 +370,221 @@ void CellActor::HandleMessage(ActorMessage& msg)
         {
             LOG_DEBUG("server.ghost", "CellActor[{}]: AURA_REMOVE entity={} spell={}",
                 _cellId, msg.sourceGuid, msg.intParam1);
+            break;
+        }
+
+        case MessageType::SPELL_INTERRUPT:
+        {
+            if (msg.complexPayload)
+            {
+                auto payload = std::static_pointer_cast<SpellInterruptPayload>(msg.complexPayload);
+                LOG_DEBUG("server.ghost", "CellActor[{}]: SPELL_INTERRUPT target={} interruptedSpell={} school={} lockout={}ms",
+                    _cellId, payload->targetGuid, payload->interruptedSpellId, payload->schoolMask, payload->lockoutDuration);
+
+                WorldObject* targetObj = FindEntityByGuid(payload->targetGuid);
+                Unit* target = targetObj ? targetObj->ToUnit() : nullptr;
+
+                if (target && target->IsAlive() && target->IsInWorld())
+                {
+                    // Apply spell school lockout
+                    if (payload->schoolMask && payload->lockoutDuration > 0)
+                    {
+                        target->ProhibitSpellSchool(SpellSchoolMask(payload->schoolMask), payload->lockoutDuration);
+                    }
+
+                    // Interrupt current spells
+                    for (uint32 i = CURRENT_FIRST_NON_MELEE_SPELL; i < CURRENT_AUTOREPEAT_SPELL; ++i)
+                    {
+                        if (Spell* spell = target->GetCurrentSpell(CurrentSpellTypes(i)))
+                        {
+                            if (spell->m_spellInfo->Id == payload->interruptedSpellId)
+                            {
+                                target->InterruptSpell(CurrentSpellTypes(i), false);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            break;
+        }
+
+        case MessageType::SPELL_DISPEL:
+        {
+            if (msg.complexPayload)
+            {
+                auto payload = std::static_pointer_cast<SpellDispelPayload>(msg.complexPayload);
+                LOG_DEBUG("server.ghost", "CellActor[{}]: SPELL_DISPEL target={} dispelSpell={} count={}",
+                    _cellId, payload->targetGuid, payload->dispelSpellId, payload->dispelList.size());
+
+                WorldObject* targetObj = FindEntityByGuid(payload->targetGuid);
+                Unit* target = targetObj ? targetObj->ToUnit() : nullptr;
+                WorldObject* casterObj = FindEntityByGuid(payload->casterGuid);
+                Unit* caster = casterObj ? casterObj->ToUnit() : nullptr;
+
+                if (target && target->IsInWorld())
+                {
+                    for (const auto& [spellId, charges] : payload->dispelList)
+                    {
+                        target->RemoveAurasDueToSpellByDispel(spellId, payload->dispelSpellId,
+                            ObjectGuid::Empty, caster, charges);
+                    }
+                }
+            }
+            break;
+        }
+
+        case MessageType::POWER_DRAIN:
+        {
+            if (msg.complexPayload)
+            {
+                auto payload = std::static_pointer_cast<PowerDrainPayload>(msg.complexPayload);
+                LOG_DEBUG("server.ghost", "CellActor[{}]: POWER_DRAIN target={} powerType={} amount={} isPowerBurn={}",
+                    _cellId, payload->targetGuid, payload->powerType, payload->amount, payload->isPowerBurn);
+
+                WorldObject* targetObj = FindEntityByGuid(payload->targetGuid);
+                Unit* target = targetObj ? targetObj->ToUnit() : nullptr;
+
+                if (target && target->IsAlive() && target->IsInWorld())
+                {
+                    Powers powerType = Powers(payload->powerType);
+                    if (target->HasActivePowerType(powerType))
+                    {
+                        // Apply the power drain to target
+                        target->ModifyPower(powerType, -payload->amount);
+                    }
+                }
+            }
+            break;
+        }
+
+        case MessageType::SPELLSTEAL:
+        {
+            if (msg.complexPayload)
+            {
+                auto payload = std::static_pointer_cast<SpellstealPayload>(msg.complexPayload);
+                LOG_DEBUG("server.ghost", "CellActor[{}]: SPELLSTEAL target={} count={}",
+                    _cellId, payload->targetGuid, payload->stealList.size());
+
+                WorldObject* targetObj = FindEntityByGuid(payload->targetGuid);
+                Unit* target = targetObj ? targetObj->ToUnit() : nullptr;
+
+                if (target && target->IsInWorld())
+                {
+                    // Collect stolen aura data for cross-cell application
+                    auto applyPayload = std::make_shared<SpellstealApplyPayload>();
+                    applyPayload->stealerGuid = payload->casterGuid;
+                    applyPayload->targetGuid = payload->targetGuid;
+                    applyPayload->spellstealSpellId = payload->spellstealSpellId;
+
+                    for (const auto& [spellId, originalCasterGuid] : payload->stealList)
+                    {
+                        ObjectGuid auraCasterGuid = ObjectGuid(originalCasterGuid);
+
+                        // Find the aura to capture its data before removal
+                        if (Aura* aura = target->GetAura(spellId, auraCasterGuid))
+                        {
+                            StolenAuraData auraData;
+                            auraData.spellId = spellId;
+                            auraData.originalCasterGuid = originalCasterGuid;
+                            auraData.duration = aura->GetDuration();
+                            auraData.maxDuration = aura->GetMaxDuration();
+                            auraData.stackAmount = aura->GetStackAmount();
+                            auraData.charges = aura->GetCharges();
+
+                            // Capture base amounts from each effect
+                            for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
+                            {
+                                if (AuraEffect* effect = aura->GetEffect(i))
+                                    auraData.baseAmount[i] = effect->GetBaseAmount();
+                            }
+
+                            applyPayload->stolenAuras.push_back(auraData);
+
+                            // Remove the aura from target (without applying to stealer)
+                            target->RemoveAura(aura);
+                        }
+                    }
+
+                    // Send stolen aura data to caster's cell for application
+                    if (!applyPayload->stolenAuras.empty() && _map)
+                    {
+                        auto* cellMgr = _map->GetCellActorManager();
+                        if (cellMgr)
+                        {
+                            uint32_t casterCellId = msg.sourceCellId;
+                            ActorMessage applyMsg{};
+                            applyMsg.type = MessageType::SPELLSTEAL_APPLY;
+                            applyMsg.sourceGuid = payload->targetGuid;
+                            applyMsg.targetGuid = payload->casterGuid;
+                            applyMsg.sourceCellId = _cellId;
+                            applyMsg.targetCellId = casterCellId;
+                            applyMsg.complexPayload = applyPayload;
+
+                            LOG_DEBUG("server.ghost", "CellActor[{}]: Sending SPELLSTEAL_APPLY to cell {} with {} auras",
+                                _cellId, casterCellId, applyPayload->stolenAuras.size());
+
+                            cellMgr->SendMessage(casterCellId, std::move(applyMsg));
+                        }
+                    }
+                }
+            }
+            break;
+        }
+
+        case MessageType::SPELLSTEAL_APPLY:
+        {
+            if (msg.complexPayload)
+            {
+                auto payload = std::static_pointer_cast<SpellstealApplyPayload>(msg.complexPayload);
+                LOG_DEBUG("server.ghost", "CellActor[{}]: SPELLSTEAL_APPLY stealer={} auras={}",
+                    _cellId, payload->stealerGuid, payload->stolenAuras.size());
+
+                WorldObject* stealerObj = FindEntityByGuid(payload->stealerGuid);
+                Unit* stealer = stealerObj ? stealerObj->ToUnit() : nullptr;
+
+                if (stealer && stealer->IsAlive() && stealer->IsInWorld())
+                {
+                    for (const auto& auraData : payload->stolenAuras)
+                    {
+                        // Apply the stolen aura to the stealer
+                        SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(auraData.spellId);
+                        if (!spellInfo)
+                            continue;
+
+                        // Cap duration for spellsteal (2 minutes max per spell)
+                        int32 dur = std::min(auraData.duration, 2 * MINUTE * IN_MILLISECONDS);
+
+                        // Create and apply the aura with the captured data
+                        if (Aura* newAura = Aura::TryCreate(spellInfo, MAX_EFFECT_MASK, stealer, stealer, nullptr))
+                        {
+                            // Set the stolen aura's properties
+                            newAura->SetMaxDuration(dur);
+                            newAura->SetDuration(dur);
+
+                            if (auraData.stackAmount > 1)
+                                newAura->SetStackAmount(auraData.stackAmount);
+                            if (auraData.charges > 0)
+                                newAura->SetCharges(auraData.charges);
+
+                            // Apply effect base amounts
+                            for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
+                            {
+                                if (AuraEffect* effect = newAura->GetEffect(i))
+                                {
+                                    effect->SetAmount(effect->CalculateAmount(stealer));
+                                    // Optionally could use: effect->ChangeAmount(auraData.baseAmount[i], false);
+                                }
+                            }
+
+                            newAura->ApplyForTargets();
+
+                            LOG_DEBUG("server.ghost", "CellActor[{}]: Applied stolen aura {} to stealer {} with duration {}ms",
+                                _cellId, auraData.spellId, payload->stealerGuid, dur);
+                        }
+                    }
+                }
+            }
             break;
         }
 
@@ -1226,6 +1570,11 @@ void CellActorManager::BroadcastToGhosts(uint64_t guid, const ActorMessage& msg)
 
 void CellActorManager::CreateGhostInCell(uint32_t cellId, const GhostSnapshot& snapshot)
 {
+    // Ensure target cell exists (ghosts need somewhere to live)
+    uint32_t cellX, cellY;
+    ExtractCellCoords(cellId, cellX, cellY);
+    GetOrCreateCellActor(cellX, cellY);
+
     ActorMessage msg;
     msg.type = MessageType::GHOST_CREATE;
     msg.sourceGuid = snapshot.guid;
@@ -2045,6 +2394,41 @@ void CellActorManager::SendHealMessage(Unit* healer, Unit* target, uint32_t spel
     SendMessage(targetCellId, std::move(msg));
 }
 
+void CellActorManager::SendReflectDamageMessage(Unit* reflector, Unit* attacker, uint32_t spellId,
+    int32_t damage, uint32_t schoolMask, uint32_t absorb, uint32_t resist)
+{
+    if (!attacker || !reflector)
+        return;
+
+    // Phase check - reflector must be visible to attacker
+    if (!CanInteractCrossPhase(reflector, attacker->GetGUID().GetRawValue()))
+        return;
+
+    uint32_t attackerCellId = GetCellIdForEntity(attacker);
+
+    auto payload = std::make_shared<ReflectDamagePayload>();
+    payload->reflectorGuid = reflector->GetGUID().GetRawValue();
+    payload->attackerGuid = attacker->GetGUID().GetRawValue();
+    payload->spellId = spellId;
+    payload->damage = damage;
+    payload->schoolMask = schoolMask;
+    payload->absorb = absorb;
+    payload->resist = resist;
+
+    ActorMessage msg{};
+    msg.type = MessageType::REFLECT_DAMAGE;
+    msg.sourceGuid = reflector->GetGUID().GetRawValue();
+    msg.targetGuid = attacker->GetGUID().GetRawValue();
+    msg.sourceCellId = GetCellIdForEntity(reflector);
+    msg.targetCellId = attackerCellId;
+    msg.complexPayload = payload;
+
+    LOG_DEBUG("server.ghost", "SendReflectDamageMessage: reflector={} attacker={} spell={} damage={}",
+        msg.sourceGuid, msg.targetGuid, spellId, damage);
+
+    SendMessage(attackerCellId, std::move(msg));
+}
+
 void CellActorManager::SendTargetSwitchMessage(Unit* creature, uint64_t oldTargetGuid, uint64_t newTargetGuid)
 {
     if (!creature)
@@ -2092,6 +2476,119 @@ void CellActorManager::BroadcastEvadeTriggered(Unit* creature)
     {
         SendMessage(neighborCellId, msg);
     }
+}
+
+void CellActorManager::SendInterruptMessage(Unit* caster, Unit* target, uint32_t interruptSpellId,
+                                             uint32_t interruptedSpellId, uint32_t schoolMask, int32_t lockoutDuration)
+{
+    if (!target)
+        return;
+
+    uint32_t targetCellId = GetCellIdForEntity(target);
+
+    auto payload = std::make_shared<SpellInterruptPayload>();
+    payload->casterGuid = caster ? caster->GetGUID().GetRawValue() : 0;
+    payload->targetGuid = target->GetGUID().GetRawValue();
+    payload->interruptSpellId = interruptSpellId;
+    payload->interruptedSpellId = interruptedSpellId;
+    payload->schoolMask = schoolMask;
+    payload->lockoutDuration = lockoutDuration;
+
+    ActorMessage msg{};
+    msg.type = MessageType::SPELL_INTERRUPT;
+    msg.sourceGuid = payload->casterGuid;
+    msg.targetGuid = payload->targetGuid;
+    msg.targetCellId = targetCellId;
+    msg.complexPayload = payload;
+
+    LOG_DEBUG("server.ghost", "SendInterruptMessage: caster={} target={} spell={} interrupted={} school={} lockout={}",
+        payload->casterGuid, payload->targetGuid, interruptSpellId, interruptedSpellId, schoolMask, lockoutDuration);
+
+    SendMessage(targetCellId, std::move(msg));
+}
+
+void CellActorManager::SendDispelMessage(Unit* caster, Unit* target, uint32_t dispelSpellId,
+                                          const std::vector<std::pair<uint32_t, uint8_t>>& dispelList)
+{
+    if (!target || dispelList.empty())
+        return;
+
+    uint32_t targetCellId = GetCellIdForEntity(target);
+
+    auto payload = std::make_shared<SpellDispelPayload>();
+    payload->casterGuid = caster ? caster->GetGUID().GetRawValue() : 0;
+    payload->targetGuid = target->GetGUID().GetRawValue();
+    payload->dispelSpellId = dispelSpellId;
+    payload->dispelList = dispelList;
+
+    ActorMessage msg{};
+    msg.type = MessageType::SPELL_DISPEL;
+    msg.sourceGuid = payload->casterGuid;
+    msg.targetGuid = payload->targetGuid;
+    msg.targetCellId = targetCellId;
+    msg.complexPayload = payload;
+
+    LOG_DEBUG("server.ghost", "SendDispelMessage: caster={} target={} spell={} count={}",
+        payload->casterGuid, payload->targetGuid, dispelSpellId, dispelList.size());
+
+    SendMessage(targetCellId, std::move(msg));
+}
+
+void CellActorManager::SendPowerDrainMessage(Unit* caster, Unit* target, uint32_t spellId, uint8_t powerType,
+                                              int32_t amount, float gainMultiplier, bool isPowerBurn)
+{
+    if (!target || amount <= 0)
+        return;
+
+    uint32_t targetCellId = GetCellIdForEntity(target);
+
+    auto payload = std::make_shared<PowerDrainPayload>();
+    payload->casterGuid = caster ? caster->GetGUID().GetRawValue() : 0;
+    payload->targetGuid = target->GetGUID().GetRawValue();
+    payload->spellId = spellId;
+    payload->powerType = powerType;
+    payload->amount = amount;
+    payload->gainMultiplier = gainMultiplier;
+    payload->isPowerBurn = isPowerBurn;
+
+    ActorMessage msg{};
+    msg.type = MessageType::POWER_DRAIN;
+    msg.sourceGuid = payload->casterGuid;
+    msg.targetGuid = payload->targetGuid;
+    msg.targetCellId = targetCellId;
+    msg.complexPayload = payload;
+
+    LOG_DEBUG("server.ghost", "SendPowerDrainMessage: caster={} target={} spell={} powerType={} amount={} isPowerBurn={}",
+        payload->casterGuid, payload->targetGuid, spellId, powerType, amount, isPowerBurn);
+
+    SendMessage(targetCellId, std::move(msg));
+}
+
+void CellActorManager::SendSpellstealMessage(Unit* caster, Unit* target, uint32_t spellstealSpellId,
+                                              const std::vector<std::pair<uint32_t, uint64_t>>& stealList)
+{
+    if (!target || stealList.empty())
+        return;
+
+    uint32_t targetCellId = GetCellIdForEntity(target);
+
+    auto payload = std::make_shared<SpellstealPayload>();
+    payload->casterGuid = caster ? caster->GetGUID().GetRawValue() : 0;
+    payload->targetGuid = target->GetGUID().GetRawValue();
+    payload->spellstealSpellId = spellstealSpellId;
+    payload->stealList = stealList;
+
+    ActorMessage msg{};
+    msg.type = MessageType::SPELLSTEAL;
+    msg.sourceGuid = payload->casterGuid;
+    msg.targetGuid = payload->targetGuid;
+    msg.targetCellId = targetCellId;
+    msg.complexPayload = payload;
+
+    LOG_DEBUG("server.ghost", "SendSpellstealMessage: caster={} target={} spell={} count={}",
+        payload->casterGuid, payload->targetGuid, spellstealSpellId, stealList.size());
+
+    SendMessage(targetCellId, std::move(msg));
 }
 
 // ============================================================================

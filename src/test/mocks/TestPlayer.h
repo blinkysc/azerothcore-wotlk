@@ -41,6 +41,9 @@ public:
     // Override heavy methods to no-op
     void UpdateObjectVisibility(bool /*forced*/ = true, bool /*fromUpdate*/ = false) override { }
 
+    // Override IsInWorld to return our test state
+    [[nodiscard]] bool IsInWorld() const override { return _testInWorld; }
+
     // Force initialization without database
     void ForceInit(ObjectGuid::LowType guidLow = 1)
     {
@@ -50,11 +53,47 @@ public:
         SetUInt32Value(UNIT_FIELD_MAXHEALTH, 10000);
         SetUInt32Value(UNIT_FIELD_HEALTH, 10000);
         SetUInt32Value(UNIT_FIELD_LEVEL, 80);
+
+        // Mark as alive for handler checks
+        // Note: Don't set _testInWorld here - let AddToWorld() handle it
+        m_deathState = DeathState::Alive;
+    }
+
+    // Override AddToWorld/RemoveFromWorld to control our test in-world state
+    // Don't call base class - they require infrastructure we don't have
+    void AddToWorld() override
+    {
+        _testInWorld = true;
+    }
+
+    void RemoveFromWorld() override
+    {
+        _testInWorld = false;
+    }
+
+    // Allow tests to control in-world state
+    void SetTestInWorld(bool inWorld) { _testInWorld = inWorld; }
+
+    // Safe health getter for testing
+    uint32 GetTestHealth() const
+    {
+        return GetUInt32Value(UNIT_FIELD_HEALTH);
+    }
+
+    // Safe max health setter
+    void SetTestMaxHealth(uint32 val)
+    {
+        SetUInt32Value(UNIT_FIELD_MAXHEALTH, val);
     }
 
     // Safe health setter that doesn't trigger side effects
+    // Also updates max health if needed to allow setting higher values
     void SetTestHealth(uint32 val)
     {
+        if (val > GetUInt32Value(UNIT_FIELD_MAXHEALTH))
+        {
+            SetUInt32Value(UNIT_FIELD_MAXHEALTH, val);
+        }
         SetUInt32Value(UNIT_FIELD_HEALTH, val);
     }
 
@@ -70,6 +109,7 @@ public:
 
 private:
     TestWorldSession _testSession;
+    bool _testInWorld = false;
 };
 
 #endif // TEST_PLAYER_H

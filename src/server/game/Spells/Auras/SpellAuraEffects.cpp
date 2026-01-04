@@ -6857,6 +6857,33 @@ void AuraEffect::HandlePeriodicHealthLeechAuraTick(Unit* target, Unit* caster) c
 
     int32 new_damage;
 
+    // Route cross-cell periodic health leech through message system
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED) && caster && target)
+    {
+        Map* map = target->GetMap();
+        if (map)
+        {
+            auto* cellMgr = map->GetCellActorManager();
+            if (cellMgr && !cellMgr->AreInSameCell(caster, target))
+            {
+                // Send damage to target's cell
+                cellMgr->SendSpellHitMessage(caster, target, GetId(), damage, 0);
+
+                // Heal caster locally (estimate based on requested damage)
+                if (caster->IsAlive())
+                {
+                    float gainMultiplier = GetSpellInfo()->Effects[GetEffIndex()].CalcValueMultiplier(caster);
+                    uint32 heal = uint32(caster->SpellHealingBonusDone(caster, GetSpellInfo(), uint32(damage * gainMultiplier), DOT, GetEffIndex(), 0.0f, GetBase()->GetStackAmount()));
+                    heal = uint32(caster->SpellHealingBonusTaken(caster, GetSpellInfo(), heal, DOT, GetBase()->GetStackAmount()));
+
+                    HealInfo healInfo(caster, caster, heal, GetSpellInfo(), GetSpellInfo()->GetSchoolMask());
+                    caster->HealBySpell(healInfo);
+                }
+                return;
+            }
+        }
+    }
+
     new_damage = Unit::DealDamage(caster, target, damage, &cleanDamage, DOT, GetSpellInfo()->GetSchoolMask(), GetSpellInfo(), false);
 
     Unit::ProcDamageAndSpell(caster, target, caster ? procAttacker : 0, procVictim, procEx, damage, BASE_ATTACK, GetSpellInfo(), nullptr, GetEffIndex(), nullptr, &dmgInfo);
@@ -7115,6 +7142,34 @@ void AuraEffect::HandlePeriodicManaLeechAuraTick(Unit* target, Unit* caster) con
     if (PowerType == POWER_MANA)
         drainAmount -= target->GetSpellCritDamageReduction(drainAmount);
 
+    // Route cross-cell periodic mana leech through message system
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED) && caster && target)
+    {
+        Map* map = target->GetMap();
+        if (map)
+        {
+            auto* cellMgr = map->GetCellActorManager();
+            if (cellMgr && !cellMgr->AreInSameCell(caster, target))
+            {
+                float gainMultiplier = GetSpellInfo()->Effects[GetEffIndex()].CalcValueMultiplier(caster);
+
+                // Route power drain to target's cell
+                cellMgr->SendPowerDrainMessage(caster, target, GetId(),
+                    static_cast<uint8_t>(PowerType), drainAmount, gainMultiplier, false);
+
+                // Caster gains power locally (estimate)
+                int32 gainAmount = int32(drainAmount * gainMultiplier);
+                if (gainAmount > 0)
+                    caster->ModifyPower(PowerType, gainAmount);
+
+                // Send combat log
+                SpellPeriodicAuraLogInfo pInfo(this, drainAmount, 0, 0, 0, gainMultiplier, false);
+                target->SendPeriodicAuraLog(&pInfo);
+                return;
+            }
+        }
+    }
+
     int32 drainedAmount = -target->ModifyPower(PowerType, -drainAmount);
 
     float gainMultiplier = GetSpellInfo()->Effects[GetEffIndex()].CalcValueMultiplier(caster);
@@ -7239,9 +7294,36 @@ void AuraEffect::HandlePeriodicPowerBurnAuraTick(Unit* target, Unit* caster) con
     if (PowerType == POWER_MANA)
         damage -= target->GetSpellCritDamageReduction(damage);
 
-    uint32 gain = uint32(-target->ModifyPower(PowerType, -damage));
-
     float dmgMultiplier = GetSpellInfo()->Effects[GetEffIndex()].CalcValueMultiplier(caster);
+
+    // Route cross-cell periodic power burn through message system
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED) && caster && target)
+    {
+        Map* map = target->GetMap();
+        if (map)
+        {
+            auto* cellMgr = map->GetCellActorManager();
+            if (cellMgr && !cellMgr->AreInSameCell(caster, target))
+            {
+                // Route power burn to target's cell (damage is also applied there via DealSpellDamage routing)
+                cellMgr->SendPowerDrainMessage(caster, target, GetId(),
+                    static_cast<uint8_t>(PowerType), damage, dmgMultiplier, true);
+
+                // Estimate damage based on requested burn amount
+                SpellInfo const* spellProto = GetSpellInfo();
+                SpellNonMeleeDamage damageInfo(caster, target, spellProto, spellProto->SchoolMask);
+                caster->CalculateSpellDamageTaken(&damageInfo, int32(damage * dmgMultiplier), spellProto);
+                Unit::DealDamageMods(damageInfo.target, damageInfo.damage, &damageInfo.absorb);
+                caster->SendSpellNonMeleeDamageLog(&damageInfo);
+
+                // Route damage to target's cell
+                cellMgr->SendSpellHitMessage(caster, target, spellProto->Id, damageInfo.damage, 0);
+                return;
+            }
+        }
+    }
+
+    uint32 gain = uint32(-target->ModifyPower(PowerType, -damage));
 
     SpellInfo const* spellProto = GetSpellInfo();
     // maybe has to be sent different to client, but not by SMSG_PERIODICAURALOG
