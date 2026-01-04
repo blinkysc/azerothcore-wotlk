@@ -389,9 +389,54 @@ void UnitAI::SortByDistance(std::list<Unit*>& list, bool ascending)
 
 void UnitAI::EvadeTimerExpired()
 {
-    // Default: enter evade mode
-    if (CreatureAI* cai = dynamic_cast<CreatureAI*>(this))
-        cai->EnterEvadeMode(CreatureAI::EVADE_REASON_NO_PATH);
+    Creature* creature = me->ToCreature();
+    if (!creature)
+        return;
+
+    CreatureAI* ai = creature->AI();
+    if (!ai)
+        return;
+
+    // Check if we can teleport an unreachable player first
+    if (ObjectGuid targetGuid = creature->GetCannotReachTarget())
+    {
+        if (Player* player = ObjectAccessor::GetPlayer(*creature, targetGuid))
+        {
+            if (creature->IsEngagedBy(player) && ai->OnTeleportUnreacheablePlayer(player))
+            {
+                creature->SetCannotReachTarget();
+                return;
+            }
+        }
+    }
+
+    // Don't evade in raids
+    if (creature->GetMap()->IsRaid())
+        return;
+
+    // If only one target, enter evade mode
+    if (creature->GetThreatMgr().GetThreatListSize() <= 1)
+    {
+        ai->EnterEvadeMode(CreatureAI::EVADE_REASON_NO_PATH);
+        return;
+    }
+
+    // Multiple targets - clear threat on unreachable target and try another
+    if (ObjectGuid targetGuid = creature->GetCannotReachTarget())
+    {
+        if (Unit* target = ObjectAccessor::GetUnit(*creature, targetGuid))
+        {
+            if (creature->GetThreatMgr().IsThreatenedBy(target))
+            {
+                creature->GetThreatMgr().ClearThreat(target);
+                creature->SetCannotReachTarget();
+                return;
+            }
+        }
+    }
+
+    // Fallback - enter evade
+    ai->EnterEvadeMode(CreatureAI::EVADE_REASON_NO_PATH);
 }
 
 //Enable PlayerAI when charmed

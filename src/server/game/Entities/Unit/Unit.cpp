@@ -434,6 +434,8 @@ void Unit::Update(uint32 p_time)
         }
     }
 
+    m_combatManager.Update(p_time);
+
     _lastDamagedTargetGuid = ObjectGuid::Empty;
     if (_lastExtraAttackSpell)
     {
@@ -21107,6 +21109,11 @@ bool Unit::IsInCombatWith(Unit const* who) const
     if (!who)
         return false;
     return GetCombatManager().IsInCombatWith(who);
+}
+
+bool Unit::IsThreatened() const
+{
+    return !m_threatManager.IsThreatListEmpty();
 }
 
 /**

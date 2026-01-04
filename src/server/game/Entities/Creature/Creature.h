@@ -333,6 +333,7 @@ public:
 
     void SetCannotReachTarget(ObjectGuid const& target = ObjectGuid::Empty);
     [[nodiscard]] bool CanNotReachTarget() const;
+    [[nodiscard]] ObjectGuid const& GetCannotReachTarget() const { return m_cannotReachTarget; }
     [[nodiscard]] bool IsNotReachableAndNeedRegen() const;
 
     void SetPosition(float x, float y, float z, float o);
@@ -523,7 +524,6 @@ private:
     mutable std::shared_ptr<time_t> m_lastLeashExtensionTime;
 
     ObjectGuid m_cannotReachTarget;
-    uint32 m_cannotReachTimer;
 
     Spell const* _focusSpell;   ///> Locks the target during spell cast for proper facing
 
