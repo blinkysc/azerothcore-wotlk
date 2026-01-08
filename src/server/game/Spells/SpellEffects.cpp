@@ -28,6 +28,7 @@
 #include "GameObject.h"
 #include "GameObjectAI.h"
 #include "GameTime.h"
+#include "GhostActorSystem.h"
 #include "GossipDef.h"
 #include "GridNotifiers.h"
 #include "Group.h"
@@ -1370,15 +1371,41 @@ void Spell::EffectPowerDrain(SpellEffIndex effIndex)
     if (PowerType == POWER_MANA)
         power -= unitTarget->GetSpellCritDamageReduction(power);
 
-    int32 newDamage = -(unitTarget->ModifyPower(PowerType, -int32(power)));
-
     float gainMultiplier = 0.0f;
+    if (m_caster != unitTarget)
+        gainMultiplier = m_spellInfo->Effects[effIndex].CalcValueMultiplier(m_originalCaster, this);
+
+    // Cross-cell power drain routing
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED) && m_caster)
+    {
+        Map* map = m_caster->GetMap();
+        if (map)
+        {
+            auto* cellMgr = map->GetCellActorManager();
+            if (cellMgr && !cellMgr->AreInSameCell(m_caster, unitTarget))
+            {
+                // Route power drain to target's cell
+                cellMgr->SendPowerDrainMessage(m_caster, unitTarget, m_spellInfo->Id,
+                    static_cast<uint8_t>(PowerType), power, gainMultiplier, false);
+
+                // Caster gains power locally (estimate based on requested drain)
+                if (m_caster != unitTarget && gainMultiplier > 0.0f)
+                {
+                    int32 gain = int32(power * gainMultiplier);
+                    m_caster->EnergizeBySpell(m_caster, m_spellInfo->Id, gain, PowerType);
+                }
+
+                ExecuteLogEffectTakeTargetPower(effIndex, unitTarget, PowerType, power, gainMultiplier);
+                return;
+            }
+        }
+    }
+
+    int32 newDamage = -(unitTarget->ModifyPower(PowerType, -int32(power)));
 
     // Don`t restore from self drain
     if (m_caster != unitTarget)
     {
-        gainMultiplier = m_spellInfo->Effects[effIndex].CalcValueMultiplier(m_originalCaster, this);
-
         int32 gain = int32(newDamage * gainMultiplier);
 
         m_caster->EnergizeBySpell(m_caster, m_spellInfo->Id, gain, PowerType);
@@ -1456,10 +1483,33 @@ void Spell::EffectPowerBurn(SpellEffIndex effIndex)
     if (PowerType == POWER_MANA)
         power -= unitTarget->GetSpellCritDamageReduction(power);
 
-    int32 newDamage = -(unitTarget->ModifyPower(PowerType, -power));
-
     // NO - Not a typo - EffectPowerBurn uses effect value multiplier - not effect damage multiplier
     float dmgMultiplier = m_spellInfo->Effects[effIndex].CalcValueMultiplier(m_originalCaster, this);
+
+    // Cross-cell power burn routing
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED) && m_caster)
+    {
+        Map* map = m_caster->GetMap();
+        if (map)
+        {
+            auto* cellMgr = map->GetCellActorManager();
+            if (cellMgr && !cellMgr->AreInSameCell(m_caster, unitTarget))
+            {
+                // Route power burn to target's cell
+                cellMgr->SendPowerDrainMessage(m_caster, unitTarget, m_spellInfo->Id,
+                    static_cast<uint8_t>(PowerType), power, 0.0f, true);
+
+                // Log with estimated power burned
+                ExecuteLogEffectTakeTargetPower(effIndex, unitTarget, PowerType, power, 0.0f);
+
+                // Add damage based on estimated power burned
+                m_damage += int32(power * dmgMultiplier);
+                return;
+            }
+        }
+    }
+
+    int32 newDamage = -(unitTarget->ModifyPower(PowerType, -power));
 
     // add log data before multiplication (need power amount, not damage)
     ExecuteLogEffectTakeTargetPower(effIndex, unitTarget, PowerType, newDamage, 0.0f);
@@ -2647,6 +2697,22 @@ void Spell::EffectDispel(SpellEffIndex effIndex)
     if (success_list.empty())
         return;
 
+    // Cross-cell dispel routing
+    bool crossCell = false;
+    GhostActor::CellActorManager* cellMgr = nullptr;
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED) && m_caster)
+    {
+        Map* map = m_caster->GetMap();
+        if (map)
+        {
+            cellMgr = map->GetCellActorManager();
+            if (cellMgr && !cellMgr->AreInSameCell(m_caster, unitTarget))
+            {
+                crossCell = true;
+            }
+        }
+    }
+
     WorldPacket dataSuccess(SMSG_SPELLDISPELLOG, 8 + 8 + 4 + 1 + 4 + success_list.size() * 5);
     // Send packet header
     dataSuccess << unitTarget->GetPackGUID();               // Victim GUID
@@ -2654,14 +2720,31 @@ void Spell::EffectDispel(SpellEffIndex effIndex)
     dataSuccess << uint32(m_spellInfo->Id);                // dispel spell id
     dataSuccess << uint8(0);                               // not used
     dataSuccess << uint32(success_list.size());            // count
+
+    // Build dispel list for cross-cell message
+    std::vector<std::pair<uint32_t, uint8_t>> dispelMsgList;
     for (DispelChargesList::iterator itr = success_list.begin(); itr != success_list.end(); ++itr)
     {
         // Send dispelled spell info
         dataSuccess << uint32(itr->first->GetId());              // Spell Id
         dataSuccess << uint8(0);                        // 0 - dispelled !=0 cleansed
-        unitTarget->RemoveAurasDueToSpellByDispel(itr->first->GetId(), m_spellInfo->Id, itr->first->GetCasterGUID(), m_caster, itr->second);
+
+        if (crossCell)
+        {
+            dispelMsgList.emplace_back(itr->first->GetId(), itr->second);
+        }
+        else
+        {
+            unitTarget->RemoveAurasDueToSpellByDispel(itr->first->GetId(), m_spellInfo->Id, itr->first->GetCasterGUID(), m_caster, itr->second);
+        }
     }
     m_caster->SendMessageToSet(&dataSuccess, true);
+
+    // Send cross-cell dispel message
+    if (crossCell && cellMgr && !dispelMsgList.empty())
+    {
+        cellMgr->SendDispelMessage(m_caster, unitTarget, m_spellInfo->Id, dispelMsgList);
+    }
 
     // On success dispel
     // Devour Magic
@@ -3718,10 +3801,33 @@ void Spell::EffectInterruptCast(SpellEffIndex effIndex)
                     && ((i == CURRENT_GENERIC_SPELL && curSpellInfo->InterruptFlags & SPELL_INTERRUPT_FLAG_INTERRUPT)
                         || (i == CURRENT_CHANNELED_SPELL && curSpellInfo->ChannelInterruptFlags & CHANNEL_INTERRUPT_FLAG_INTERRUPT)))
             {
+                int32 duration = 0;
                 if (m_originalCaster)
                 {
-                    int32 duration = m_originalCaster->ModSpellDuration(m_spellInfo, unitTarget, m_originalCaster->CalcSpellDuration(m_spellInfo), false, 1 << effIndex);
-                    unitTarget->ProhibitSpellSchool(curSpellInfo->GetSchoolMask(), duration/*spellInfo->GetDuration()*/);
+                    duration = m_originalCaster->ModSpellDuration(m_spellInfo, unitTarget, m_originalCaster->CalcSpellDuration(m_spellInfo), false, 1 << effIndex);
+                }
+
+                // Cross-cell interrupt routing
+                if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED) && m_caster)
+                {
+                    Map* map = m_caster->GetMap();
+                    if (map)
+                    {
+                        auto* cellMgr = map->GetCellActorManager();
+                        if (cellMgr && !cellMgr->AreInSameCell(m_caster, unitTarget))
+                        {
+                            cellMgr->SendInterruptMessage(m_originalCaster, unitTarget, m_spellInfo->Id,
+                                curSpellInfo->Id, curSpellInfo->GetSchoolMask(), duration);
+                            ExecuteLogEffectInterruptCast(effIndex, unitTarget, curSpellInfo->Id);
+                            return;
+                        }
+                    }
+                }
+
+                // Same cell - apply directly
+                if (m_originalCaster && duration > 0)
+                {
+                    unitTarget->ProhibitSpellSchool(curSpellInfo->GetSchoolMask(), duration);
                 }
                 ExecuteLogEffectInterruptCast(effIndex, unitTarget, curSpellInfo->Id);
                 unitTarget->InterruptSpell(CurrentSpellTypes(i), false);
@@ -5608,6 +5714,22 @@ void Spell::EffectStealBeneficialBuff(SpellEffIndex effIndex)
     if (!unitTarget || unitTarget == m_caster)                 // can't steal from self
         return;
 
+    // Check for cross-cell scenario
+    bool crossCell = false;
+    GhostActor::CellActorManager* cellMgr = nullptr;
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED) && m_caster)
+    {
+        Map* map = m_caster->GetMap();
+        if (map)
+        {
+            cellMgr = map->GetCellActorManager();
+            if (cellMgr && !cellMgr->AreInSameCell(m_caster, unitTarget))
+            {
+                crossCell = true;
+            }
+        }
+    }
+
     DispelChargesList steal_list;
 
     // Create dispel mask by dispel type
@@ -5694,12 +5816,32 @@ void Spell::EffectStealBeneficialBuff(SpellEffIndex effIndex)
     dataSuccess << uint32(m_spellInfo->Id);         // dispel spell id
     dataSuccess << uint8(0);                        // not used
     dataSuccess << uint32(success_list.size());     // count
+
+    // Build steal list for cross-cell routing
+    std::vector<std::pair<uint32_t, uint64_t>> stealMsgList;
+
     for (DispelList::iterator itr = success_list.begin(); itr != success_list.end(); ++itr)
     {
         dataSuccess << uint32(itr->first);          // Spell Id
         dataSuccess << uint8(0);                    // 0 - steals !=0 transfers
-        unitTarget->RemoveAurasDueToSpellBySteal(itr->first, itr->second, m_caster);
+
+        if (crossCell)
+        {
+            // Queue for cross-cell removal (aura won't be applied to caster across cells)
+            stealMsgList.emplace_back(itr->first, itr->second.GetRawValue());
+        }
+        else
+        {
+            unitTarget->RemoveAurasDueToSpellBySteal(itr->first, itr->second, m_caster);
+        }
     }
+
+    // Route cross-cell spellsteal (removal only - aura application to caster not supported cross-cell)
+    if (crossCell && cellMgr && !stealMsgList.empty())
+    {
+        cellMgr->SendSpellstealMessage(m_caster, unitTarget, m_spellInfo->Id, stealMsgList);
+    }
+
     m_caster->SendMessageToSet(&dataSuccess, true);
 }
 
