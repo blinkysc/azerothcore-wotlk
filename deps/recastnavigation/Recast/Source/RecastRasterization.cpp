@@ -264,7 +264,8 @@ static bool rasterizeTri(const float* v0, const float* v1, const float* v2,
 	// Calculate the footprint of the triangle on the grid's y-axis
 	int y0 = (int)((tmin[2] - bmin[2])*ics);
 	int y1 = (int)((tmax[2] - bmin[2])*ics);
-	y0 = rcClamp(y0, 0, h-1);
+	// Use -1 rather than 0 to cut the polygon properly at the start of the tile
+	y0 = rcClamp(y0, -1, h-1);
 	y1 = rcClamp(y1, 0, h-1);
 	
 	// Clip the triangle into all grid cells it touches.

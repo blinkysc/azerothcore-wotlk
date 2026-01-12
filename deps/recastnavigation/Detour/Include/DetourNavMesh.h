@@ -28,22 +28,8 @@
 #define DT_POLYREF64 1
 
 #ifdef DT_POLYREF64
-// TODO: figure out a multiplatform version of uint64_t
-// - maybe: https://code.google.com/p/msinttypes/
-// - or: http://www.azillionmonkeys.com/qed/pstdint.h
-#if defined(WIN32) && !defined(__MINGW32__)
-/// Do not rename back to uint64. Otherwise mac complains about typedef redefinition
-typedef unsigned __int64    uint64_d;
-#else
-#include <stdint.h>
-#ifndef uint64_t
-#ifdef __linux__
-#include <linux/types.h>
-#endif
-#endif
-/// Do not rename back to uint64. Otherwise mac complains about typedef redefinition
-typedef uint64_t            uint64_d;
-#endif 
+#include <cstdint>
+typedef uint64_t uint64_d;
 #endif
 
 // Note: If you want to use 64-bit refs, change the types of both dtPolyRef & dtTileRef.

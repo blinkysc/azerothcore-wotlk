@@ -351,7 +351,12 @@ void CreatureGroup::LeaderMoveTo(float x, float y, float z, uint32 move_type)
     if (!m_leader)
         return;
 
-    float pathDist = m_leader->GetExactDist(x, y, z);
+    // Use 2D distance for speed calculations to prevent elevation changes on slopes
+    // from causing members to speed up or slow down incorrectly
+    float pathDist = m_leader->GetExactDist2d(x, y);
+    if (pathDist < 0.1f)
+        return; // Leader already at destination, no movement needed
+
     float pathAngle = std::atan2(m_leader->GetPositionY() - y, m_leader->GetPositionX() - x);
 
     for (auto const& itr : m_members)
@@ -405,8 +410,9 @@ void CreatureGroup::LeaderMoveTo(float x, float y, float z, uint32 move_type)
 
         // xinef: if we move members to position without taking care of sizes, we should compare distance without sizes
         // xinef: change members speed basing on distance - if too far speed up, if too close slow down
+        // Use 2D distance to prevent slope elevation from incorrectly inflating speed
         UnitMoveType const mtype = Movement::SelectSpeedType(member->GetUnitMovementFlags());
-        float const speedRate = m_leader->GetSpeedRate(mtype) * member->GetExactDist(dx, dy, dz) / pathDist;
+        float const speedRate = m_leader->GetSpeedRate(mtype) * member->GetExactDist2d(dx, dy) / pathDist;
 
         if (speedRate > 0.01f) // don't move if speed rate is too low
         {

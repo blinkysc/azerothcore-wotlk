@@ -429,21 +429,39 @@ void dtNavMesh::connectExtLinks(dtMeshTile* tile, dtMeshTile* target, int side)
 					// Compress portal limits to a byte value.
 					if (dir == 0 || dir == 4)
 					{
-						float tmin = (neia[k*2+0]-va[2]) / (vb[2]-va[2]);
-						float tmax = (neia[k*2+1]-va[2]) / (vb[2]-va[2]);
-						if (tmin > tmax)
-							dtSwap(tmin,tmax);
-						link->bmin = (unsigned char)(dtClamp(tmin, 0.0f, 1.0f)*255.0f);
-						link->bmax = (unsigned char)(dtClamp(tmax, 0.0f, 1.0f)*255.0f);
+						const float denom = vb[2] - va[2];
+						if (dtAbs(denom) < 1e-6f)
+						{
+							link->bmin = 0;
+							link->bmax = 255;
+						}
+						else
+						{
+							float tmin = (neia[k*2+0]-va[2]) / denom;
+							float tmax = (neia[k*2+1]-va[2]) / denom;
+							if (tmin > tmax)
+								dtSwap(tmin,tmax);
+							link->bmin = (unsigned char)dtClamp((int)(dtClamp(tmin, 0.0f, 1.0f)*255.0f), 0, 255);
+							link->bmax = (unsigned char)dtClamp((int)(dtClamp(tmax, 0.0f, 1.0f)*255.0f), 0, 255);
+						}
 					}
 					else if (dir == 2 || dir == 6)
 					{
-						float tmin = (neia[k*2+0]-va[0]) / (vb[0]-va[0]);
-						float tmax = (neia[k*2+1]-va[0]) / (vb[0]-va[0]);
-						if (tmin > tmax)
-							dtSwap(tmin,tmax);
-						link->bmin = (unsigned char)(dtClamp(tmin, 0.0f, 1.0f)*255.0f);
-						link->bmax = (unsigned char)(dtClamp(tmax, 0.0f, 1.0f)*255.0f);
+						const float denom = vb[0] - va[0];
+						if (dtAbs(denom) < 1e-6f)
+						{
+							link->bmin = 0;
+							link->bmax = 255;
+						}
+						else
+						{
+							float tmin = (neia[k*2+0]-va[0]) / denom;
+							float tmax = (neia[k*2+1]-va[0]) / denom;
+							if (tmin > tmax)
+								dtSwap(tmin,tmax);
+							link->bmin = (unsigned char)dtClamp((int)(dtClamp(tmin, 0.0f, 1.0f)*255.0f), 0, 255);
+							link->bmax = (unsigned char)dtClamp((int)(dtClamp(tmax, 0.0f, 1.0f)*255.0f), 0, 255);
+						}
 					}
 				}
 			}

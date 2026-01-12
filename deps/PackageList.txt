@@ -75,8 +75,8 @@ gSOAP (a portable development toolkit for C and C++ XML Web services and XML dat
   Version: 2.8.105
 
 recastnavigation (Recast is state of the art navigation mesh construction toolset for games)
-  https://github.com/memononen/recastnavigation
-  Version: c40188c796f089f89a42e0b939d934178dbcfc5c
+  https://github.com/recastnavigation/recastnavigation
+  Version: b4554541b658630816dba41466eb1cefb624519e (v1.6.0)
 
 {fmt} is an open-source formatting library providing a fast and safe alternative to C stdio and C++ iostreams.
   https://github.com/fmtlib/fmt
