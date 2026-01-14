@@ -679,6 +679,7 @@ public:
     ~Unit() override;
 
     void Update(uint32 time) override;
+    void UpdateAttackTimersParallel(uint32 diff);  // Phase 7D: Parallel-safe attack timer updates
 
     UnitAI* GetAI() { return i_AI; }
     void SetAI(UnitAI* newAI) { i_AI = newAI; }

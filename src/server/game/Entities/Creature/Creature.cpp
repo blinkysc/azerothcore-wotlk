@@ -26,6 +26,7 @@
 #include "Formulas.h"
 #include "GameEventMgr.h"
 #include "GameTime.h"
+#include "GhostActorSystem.h"
 #include "GridNotifiers.h"
 #include "Group.h"
 #include "GroupMgr.h"
@@ -396,6 +397,15 @@ void Creature::RemoveCorpse(bool setSpawnTime, bool skipVisibility)
     if (getDeathState() != DeathState::Corpse)
         return;
 
+    // Phase 7G: Destroy all ghosts before removing corpse
+    if (Map* map = GetMap())
+    {
+        if (GhostActor::CellActorManager* cellMgr = map->GetCellActorManager())
+        {
+            cellMgr->DestroyAllGhostsForEntity(GetGUID().GetRawValue());
+        }
+    }
+
     m_corpseRemoveTime = GameTime::GetGameTime().count();
     setDeathState(DeathState::Dead);
     RemoveAllAuras();
@@ -654,6 +664,15 @@ bool Creature::UpdateEntry(uint32 Entry, const CreatureData* data, bool changele
     return true;
 }
 
+void Creature::UpdateParallel(uint32 diff)
+{
+    // Phase 7F: Full parallel update with deferred cross-cell effects
+    // When deferral is enabled, cross-cell operations queue messages instead of direct execution
+    SetDeferCrossCellEffects(true);
+    Update(diff);
+    SetDeferCrossCellEffects(false);
+}
+
 void Creature::Update(uint32 diff)
 {
     if (IsAIEnabled && TriggerJustRespawned)
@@ -735,10 +754,14 @@ void Creature::Update(uint32 diff)
             // if periodic combat pulse is enabled and we are both in combat and in a dungeon, do this now
             if (m_combatPulseDelay > 0 && IsInCombat() && GetMap()->IsDungeon())
             {
-                if (diff > m_combatPulseTime)
-                    m_combatPulseTime = 0;
-                else
-                    m_combatPulseTime -= diff;
+                // Phase 7D: Skip decrement if cell-managed (already done in UpdateTimersParallel)
+                if (!IsCellManaged())
+                {
+                    if (diff > m_combatPulseTime)
+                        m_combatPulseTime = 0;
+                    else
+                        m_combatPulseTime -= diff;
+                }
 
                 if (m_combatPulseTime == 0)
                 {
@@ -753,7 +776,16 @@ void Creature::Update(uint32 diff)
             // periodic check to see if the creature has passed an evade boundary
             if (IsAIEnabled && !IsInEvadeMode() && IsEngaged())
             {
-                if (diff >= m_boundaryCheckTime)
+                // Phase 7D: For cell-managed, timer already decremented
+                if (IsCellManaged())
+                {
+                    if (m_boundaryCheckTime == 0)
+                    {
+                        AI()->CheckInRoom();
+                        m_boundaryCheckTime = 2500;
+                    }
+                }
+                else if (diff >= m_boundaryCheckTime)
                 {
                     AI()->CheckInRoom();
                     m_boundaryCheckTime = 2500;
@@ -770,8 +802,12 @@ void Creature::Update(uint32 diff)
 
             if (Unit* victim = GetVictim())
             {
+                // Phase 7D: For cell-managed, timers already decremented in UpdateTimersParallel
+                bool cellManaged = IsCellManaged();
+
                 // If we are closer than 50% of the combat reach we are going to reposition the victim
-                if (diff >= m_moveBackwardsMovementTime)
+                bool moveBackwardsFired = cellManaged ? (m_moveBackwardsMovementTime == 0) : (diff >= m_moveBackwardsMovementTime);
+                if (moveBackwardsFired)
                 {
                     float MaxRange = GetCollisionRadius() + GetVictim()->GetCollisionRadius();
 
@@ -780,33 +816,37 @@ void Creature::Update(uint32 diff)
 
                     m_moveBackwardsMovementTime = urand(MOVE_BACKWARDS_CHECK_INTERVAL, MOVE_BACKWARDS_CHECK_INTERVAL * 3);
                 }
-                else
+                else if (!cellManaged)
                     m_moveBackwardsMovementTime -= diff;
 
                 // Circling the target
-                if (diff >= m_moveCircleMovementTime)
+                bool moveCircleFired = cellManaged ? (m_moveCircleMovementTime == 0) : (diff >= m_moveCircleMovementTime);
+                if (moveCircleFired)
                 {
                     AI()->MoveCircleChecks();
                     m_moveCircleMovementTime = urand(MOVE_CIRCLE_CHECK_INTERVAL, MOVE_CIRCLE_CHECK_INTERVAL * 2);
                 }
-                else
+                else if (!cellManaged)
                     m_moveCircleMovementTime -= diff;
 
                 // Periodically check if able to move, if not, extend leash timer
-                if (diff >= m_extendLeashTime)
+                bool extendLeashFired = cellManaged ? (m_extendLeashTime == 0) : (diff >= m_extendLeashTime);
+                if (extendLeashFired)
                 {
                     if (HasUnitState(UNIT_STATE_LOST_CONTROL))
                         UpdateLeashExtensionTime();
                     m_extendLeashTime = EXTEND_LEASH_CHECK_INTERVAL;
                 }
-                else
+                else if (!cellManaged)
                     m_extendLeashTime -= diff;
             }
 
             // Call for assistance if not disabled
             if (m_assistanceTimer)
             {
-                if (m_assistanceTimer <= diff)
+                // Phase 7D: For cell-managed, timer already decremented
+                bool assistanceFired = IsCellManaged() ? (m_assistanceTimer == 0) : (m_assistanceTimer <= diff);
+                if (assistanceFired)
                 {
                     if (CanPeriodicallyCallForAssistance())
                     {
@@ -815,7 +855,7 @@ void Creature::Update(uint32 diff)
                     }
                     m_assistanceTimer = sWorld->getIntConfig(CONFIG_CREATURE_FAMILY_ASSISTANCE_PERIOD);
                 }
-                else
+                else if (!IsCellManaged())
                 {
                     m_assistanceTimer -= diff;
                 }
@@ -834,34 +874,38 @@ void Creature::Update(uint32 diff)
             if (!IsAlive())
                 break;
 
-            m_regenTimer -= diff;
-            if (m_regenTimer <= 0)
+            // Phase 7B: Skip regeneration if handled by cell actor
+            if (!IsCellManaged())
             {
-                if (!IsInEvadeMode())
+                m_regenTimer -= diff;
+                if (m_regenTimer <= 0)
                 {
-                    // regenerate health if not in combat or if polymorphed)
-                    if (!IsInCombat() || IsPolymorphed())
-                        RegenerateHealth();
-                    else if (IsNotReachableAndNeedRegen())
+                    if (!IsInEvadeMode())
                     {
-                        // regenerate health if cannot reach the target and the setting is set to do so.
-                        // this allows to disable the health regen of raid bosses if pathfinding has issues for whatever reason
-                        if (sWorld->getBoolConfig(CONFIG_REGEN_HP_CANNOT_REACH_TARGET_IN_RAID) || !GetMap()->IsRaid())
-                        {
+                        // regenerate health if not in combat or if polymorphed)
+                        if (!IsInCombat() || IsPolymorphed())
                             RegenerateHealth();
-                            LOG_DEBUG("entities.unit", "RegenerateHealth() enabled because Creature cannot reach the target. Detail: {}", GetDebugInfo());
+                        else if (IsNotReachableAndNeedRegen())
+                        {
+                            // regenerate health if cannot reach the target and the setting is set to do so.
+                            // this allows to disable the health regen of raid bosses if pathfinding has issues for whatever reason
+                            if (sWorld->getBoolConfig(CONFIG_REGEN_HP_CANNOT_REACH_TARGET_IN_RAID) || !GetMap()->IsRaid())
+                            {
+                                RegenerateHealth();
+                                LOG_DEBUG("entities.unit", "RegenerateHealth() enabled because Creature cannot reach the target. Detail: {}", GetDebugInfo());
+                            }
+                            else
+                                LOG_DEBUG("entities.unit", "RegenerateHealth() disabled even if the Creature cannot reach the target. Detail: {}", GetDebugInfo());
                         }
-                        else
-                            LOG_DEBUG("entities.unit", "RegenerateHealth() disabled even if the Creature cannot reach the target. Detail: {}", GetDebugInfo());
                     }
+
+                    if (getPowerType() == POWER_ENERGY)
+                        Regenerate(POWER_ENERGY);
+                    else
+                        Regenerate(POWER_MANA);
+
+                    m_regenTimer += CREATURE_REGEN_INTERVAL;
                 }
-
-                if (getPowerType() == POWER_ENERGY)
-                    Regenerate(POWER_ENERGY);
-                else
-                    Regenerate(POWER_MANA);
-
-                m_regenTimer += CREATURE_REGEN_INTERVAL;
             }
 
             if (CanNotReachTarget() && !IsInEvadeMode())
@@ -914,7 +958,9 @@ void Creature::Update(uint32 diff)
         // pussywizard:
         if (GetOwnerGUID().IsPlayer())
         {
-            if (m_transportCheckTimer <= diff)
+            // Phase 7D: For cell-managed, timer already decremented
+            bool transportCheckFired = IsCellManaged() ? (m_transportCheckTimer == 0) : (m_transportCheckTimer <= diff);
+            if (transportCheckFired)
             {
                 m_transportCheckTimer = 1000;
                 Transport* newTransport = GetMap()->GetTransportForPos(GetPhaseMask(), GetPositionX(), GetPositionY(), GetPositionZ(), this);
@@ -928,7 +974,7 @@ void Creature::Update(uint32 diff)
                     //SendMovementFlagUpdate();
                 }
             }
-            else
+            else if (!IsCellManaged())
                 m_transportCheckTimer -= diff;
         }
 
@@ -1050,6 +1096,99 @@ void Creature::RegenerateHealth()
     addvalue += GetTotalAuraModifier(SPELL_AURA_MOD_REGEN) * CREATURE_REGEN_INTERVAL  / (5 * IN_MILLISECONDS);
 
     ModifyHealth(addvalue);
+}
+
+void Creature::UpdateRegeneration(uint32 diff)
+{
+    // Phase 7B: Extracted regeneration logic for parallel cell updates
+    // This method is safe to call from cell threads - no cross-cell dependencies
+
+    if (!IsAlive())
+        return;
+
+    m_regenTimer -= diff;
+    if (m_regenTimer <= 0)
+    {
+        if (!IsInEvadeMode())
+        {
+            // regenerate health if not in combat or if polymorphed
+            if (!IsInCombat() || IsPolymorphed())
+                RegenerateHealth();
+            else if (IsNotReachableAndNeedRegen())
+            {
+                // regenerate health if cannot reach target and setting allows it
+                if (sWorld->getBoolConfig(CONFIG_REGEN_HP_CANNOT_REACH_TARGET_IN_RAID) || !GetMap()->IsRaid())
+                {
+                    RegenerateHealth();
+                }
+            }
+        }
+
+        if (getPowerType() == POWER_ENERGY)
+            Regenerate(POWER_ENERGY);
+        else
+            Regenerate(POWER_MANA);
+
+        m_regenTimer += CREATURE_REGEN_INTERVAL;
+    }
+}
+
+void Creature::UpdateTimersParallel(uint32 diff)
+{
+    // Phase 7D: Parallel-safe timer updates (decrements only, no callbacks)
+    // Callbacks are handled in centralized Creature::Update() when timers fire
+    //
+    // Safe because:
+    // - Simple arithmetic on self-owned member variables
+    // - No cross-cell dependencies or shared state access
+
+    if (!IsAlive())
+        return;
+
+    // Combat pulse timer - callback fires DoZoneInCombat (unsafe)
+    if (m_combatPulseTime > diff)
+        m_combatPulseTime -= diff;
+    else
+        m_combatPulseTime = 0;
+
+    // Boundary check timer - callback fires AI()->CheckInRoom() (unsafe)
+    if (m_boundaryCheckTime > diff)
+        m_boundaryCheckTime -= diff;
+    else
+        m_boundaryCheckTime = 0;
+
+    // Move backwards timer - callback fires AI()->MoveBackwardsChecks() (unsafe)
+    if (m_moveBackwardsMovementTime > diff)
+        m_moveBackwardsMovementTime -= diff;
+    else
+        m_moveBackwardsMovementTime = 0;
+
+    // Move circle timer - callback fires AI()->MoveCircleChecks() (unsafe)
+    if (m_moveCircleMovementTime > diff)
+        m_moveCircleMovementTime -= diff;
+    else
+        m_moveCircleMovementTime = 0;
+
+    // Extend leash timer - callback fires UpdateLeashExtensionTime() (unsafe)
+    if (m_extendLeashTime > diff)
+        m_extendLeashTime -= diff;
+    else
+        m_extendLeashTime = 0;
+
+    // Assistance timer - callback fires CallAssistance() (unsafe)
+    if (m_assistanceTimer > diff)
+        m_assistanceTimer -= diff;
+    else
+        m_assistanceTimer = 0;
+
+    // Transport check timer - callback accesses Map (unsafe)
+    if (m_transportCheckTimer > diff)
+        m_transportCheckTimer -= diff;
+    else
+        m_transportCheckTimer = 0;
+
+    // Attack timers from Unit (safe arithmetic)
+    UpdateAttackTimersParallel(diff);
 }
 
 void Creature::DoFleeToGetAssistance()
@@ -2090,6 +2229,14 @@ void Creature::Respawn(bool force)
         m_last_notify_position.Relocate(-5000.0f, -5000.0f, -5000.0f, 0.0f);
         UpdateObjectVisibility(false);
 
+        // Phase 7G: Create ghosts in neighboring cells after respawn
+        if (Map* map = GetMap())
+        {
+            if (GhostActor::CellActorManager* cellMgr = map->GetCellActorManager())
+            {
+                cellMgr->UpdateEntityGhosts(this);
+            }
+        }
     }
     else   // the master is dead
     {
@@ -2397,6 +2544,22 @@ void Creature::CallAssistance(Unit* target /*= nullptr*/)
 
         if (radius > 0)
         {
+            // Phase 7E: Use message-based assistance when deferring cross-cell effects
+            if (IsDeferringCrossCellEffects())
+            {
+                Map* map = GetMap();
+                if (map)
+                {
+                    GhostActor::CellActorManager* cellMgr = map->GetCellActorManager();
+                    if (cellMgr)
+                    {
+                        cellMgr->BroadcastAssistanceRequest(this, target->GetGUID().GetRawValue(), radius);
+                        return;
+                    }
+                }
+            }
+
+            // Original synchronous path
             std::list<Creature*> assistList;
 
             Acore::AnyAssistCreatureInRangeCheck u_check(this, target, radius);
@@ -2437,6 +2600,20 @@ void Creature::CallForHelp(float radius, Unit* target /*= nullptr*/)
 
     if (m_alreadyCallForHelp) // avoid recursive call for help for any reason
         return;
+
+    // Phase 7E: Use cell-aware assistance when parallel updates enabled
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
+    {
+        if (Map* map = GetMap())
+        {
+            if (auto* cellMgr = map->GetCellActorManager())
+            {
+                m_alreadyCallForHelp = true;
+                cellMgr->BroadcastAssistanceRequest(this, target->GetGUID().GetRawValue(), radius);
+                return;
+            }
+        }
+    }
 
     Acore::CallOfHelpCreatureInRangeDo u_do(this, target, radius);
     Acore::CreatureWorker<Acore::CallOfHelpCreatureInRangeDo> worker(this, u_do);
