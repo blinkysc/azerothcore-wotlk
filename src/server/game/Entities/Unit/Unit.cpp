@@ -328,6 +328,7 @@ Unit::Unit() : WorldObject(),
     _oldFactionId = 0;
 
     _isWalkingBeforeCharm = false;
+    _isCombatDisallowed = false;
 
     _lastExtraAttackSpell = 0;
 }
@@ -10699,6 +10700,20 @@ void Unit::UpdatePetCombatState()
         SetUnitFlag(UNIT_FLAG_PET_IN_COMBAT);
     else
         RemoveUnitFlag(UNIT_FLAG_PET_IN_COMBAT);
+}
+
+void Unit::AtExitCombat()
+{
+    RemoveAurasWithInterruptFlags(AURA_INTERRUPT_FLAG_LEAVE_COMBAT);
+}
+
+void Unit::AtEngage(Unit* /*target*/)
+{
+    if (HasUnitState(UNIT_STATE_DISTRACTED))
+    {
+        ClearUnitState(UNIT_STATE_DISTRACTED);
+        GetMotionMaster()->MovementExpiredOnSlot(MOTION_SLOT_CONTROLLED, false);
+    }
 }
 
 /**

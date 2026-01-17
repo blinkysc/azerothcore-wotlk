@@ -55,6 +55,9 @@
         return false;
     if (a->HasUnitState(UNIT_STATE_IN_FLIGHT) || b->HasUnitState(UNIT_STATE_IN_FLIGHT))
         return false;
+    // ... both units must be allowed to enter combat
+    if (a->IsCombatDisallowed() || b->IsCombatDisallowed())
+        return false;
     if (a->IsFriendlyTo(b) || b->IsFriendlyTo(a))
         return false;
     Player const* playerA = a->GetCharmerOrOwnerPlayerOrPlayerItself();
@@ -409,10 +412,16 @@ bool CombatManager::UpdateOwnerCombatState() const
     if (combatState)
     {
         _owner->SetUnitFlag(UNIT_FLAG_IN_COMBAT);
+        _owner->AtEnterCombat();
+        if (_owner->GetTypeId() != TYPEID_UNIT)
+            _owner->AtEngage(GetAnyTarget());
     }
     else
     {
         _owner->RemoveUnitFlag(UNIT_FLAG_IN_COMBAT);
+        _owner->AtExitCombat();
+        if (_owner->GetTypeId() != TYPEID_UNIT)
+            _owner->AtDisengage();
     }
 
     if (Unit* master = _owner->GetCharmerOrOwner())

@@ -952,9 +952,15 @@ public:
     [[nodiscard]] bool IsThreatenedBy(Unit const* who) const { return who && m_threatManager.IsThreatenedBy(who, true); }
     void UpdatePetCombatState();
 
+    virtual void AtEnterCombat() {}
+    virtual void AtExitCombat();
+
     // Engagement callbacks - override in Creature for creature-specific behavior
-    virtual void AtEngage(Unit* /*target*/) {}
+    virtual void AtEngage(Unit* target);
     virtual void AtDisengage() {}
+
+    [[nodiscard]] bool IsCombatDisallowed() const { return _isCombatDisallowed; }
+    void SetIsCombatDisallowed(bool value) { _isCombatDisallowed = value; }
 
     void SetLastDamagedTargetGuid(ObjectGuid const& guid) { _lastDamagedTargetGuid = guid; }
     [[nodiscard]] ObjectGuid const& GetLastDamagedTargetGuid() const { return _lastDamagedTargetGuid; }
@@ -2232,6 +2238,7 @@ private:
 
     uint32 _oldFactionId;           ///< faction before charm
     bool _isWalkingBeforeCharm;     ///< Are we walking before we were charmed?
+    bool _isCombatDisallowed;
 
     uint32 _lastExtraAttackSpell;
     std::unordered_map<ObjectGuid /*guid*/, uint32 /*count*/> extraAttacksTargets;
