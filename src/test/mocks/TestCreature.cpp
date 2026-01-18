@@ -25,6 +25,11 @@ TestCreature::TestCreature() : Creature()
 
 TestCreature::~TestCreature()
 {
+    CleanupCombatState();
+}
+
+void TestCreature::CleanupCombatState()
+{
     // Clean up threat/combat references before destruction
     // to avoid assertion failures
     m_threatManager.ClearAllThreat();
@@ -45,6 +50,50 @@ void TestCreature::ForceInitValues(ObjectGuid::LowType guidLow, uint32 entry)
 
     // Note: IsPet/IsTotem/IsTrigger are based on creature template data
     // which we don't load in tests. The default values allow threat lists.
+}
+
+void TestCreature::SetTestMap(Map* map)
+{
+    _testMap = map;
+}
+
+void TestCreature::SetAlive(bool alive)
+{
+    m_deathState = alive ? DeathState::Alive : DeathState::Dead;
+}
+
+void TestCreature::SetInWorld(bool inWorld)
+{
+    // m_inWorld is private, so we use the base class methods
+    // Note: This requires m_uint32Values to be initialized via _Create first
+    if (inWorld && !Object::IsInWorld())
+        Object::AddToWorld();
+    else if (!inWorld && Object::IsInWorld())
+        Object::RemoveFromWorld();
+}
+
+void TestCreature::SetPhase(uint32 phase)
+{
+    SetPhaseMask(phase, false);
+}
+
+void TestCreature::SetFaction(uint32 faction)
+{
+    Unit::SetFaction(faction);
+}
+
+void TestCreature::SetupForCombatTest(Map* map, ObjectGuid::LowType guidLow, uint32 entry)
+{
+    ForceInitValues(guidLow, entry);
+    SetTestMap(map);
+    SetInWorld(true);
+    SetAlive(true);
+    SetPhase(1);
+    SetHostileFaction();
+    SetIsCombatDisallowed(false);
+    ClearUnitState(UNIT_STATE_EVADE);
+    ClearUnitState(UNIT_STATE_IN_FLIGHT);
+    InitializeThreatManager();
 }
 
 void TestCreature::InitializeThreatManager()

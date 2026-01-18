@@ -29,6 +29,7 @@ class TestMap;
  *   creature->ForceInitValues(1, 12345);  // guidLow, entry
  *   creature->SetTestMap(testMap);
  *   creature->SetAlive(true);
+ *   creature->SetupForCombatTest();  // Sets up all necessary state for combat/threat tests
  */
 class TestCreature : public Creature
 {
@@ -44,23 +45,28 @@ public:
     // Force initialization without database
     void ForceInitValues(ObjectGuid::LowType guidLow, uint32 entry);
 
-    // Test control methods - these methods are not virtual in base class
-    // so we shadow them for testing purposes
-    void SetTestMap(Map* map) { _testMap = map; }
+    // Test control methods
+    void SetTestMap(Map* map);
     Map* GetMap() const { return _testMap ? _testMap : Creature::GetMap(); }
 
-    void SetInWorld(bool inWorld) { _isInWorld = inWorld; }
-    // Note: IsInWorld() is virtual in Object, use carefully
+    // Set alive state (affects m_deathState)
+    void SetAlive(bool alive);
 
-    void SetAlive(bool alive) { _isAlive = alive; }
-    // Note: IsAlive() is virtual in Unit
+    // Set in-world state (affects m_inWorld)
+    void SetInWorld(bool inWorld);
 
-    void SetPhase(uint32 phase) { _phaseMask = phase; }
+    // Set phase mask for phase checks
+    void SetPhase(uint32 phase);
 
-    // Simplified faction/friendliness for testing
-    void SetFaction(uint32 faction) { m_faction = faction; }
-    uint32 GetFaction() const { return m_faction; }
+    // Set faction for friendliness checks
+    // Use hostile factions (14 = hostile monster) for combat tests
+    void SetHostileFaction() { SetFaction(14); }
+    void SetFriendlyFaction() { SetFaction(35); }
+    void SetFaction(uint32 faction);
 
+    // Complete setup for combat/threat testing
+    // Sets creature to be alive, in-world, hostile, and initializes managers
+    void SetupForCombatTest(Map* map, ObjectGuid::LowType guidLow, uint32 entry);
 
     // Initialize ThreatManager for testing
     void InitializeThreatManager();
@@ -69,12 +75,11 @@ public:
     ThreatManager& TestGetThreatMgr() { return m_threatManager; }
     CombatManager& TestGetCombatMgr() { return m_combatManager; }
 
+    // Clear all combat state for cleanup
+    void CleanupCombatState();
+
 private:
     Map* _testMap = nullptr;
-    bool _isInWorld = true;
-    bool _isAlive = true;
-    uint32 _phaseMask = 1;
-    uint32 m_faction = 35; // Friendly faction by default
 };
 
 #endif // TEST_CREATURE_H
