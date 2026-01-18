@@ -251,6 +251,7 @@ bool CombatManager::SetInCombatWith(Unit* who, bool addSecondUnitSuppressed)
         NotifyAICombat(_owner, who);
     if (needOtherAI)
         NotifyAICombat(who, _owner);
+
     return IsInCombatWith(who);
 }
 

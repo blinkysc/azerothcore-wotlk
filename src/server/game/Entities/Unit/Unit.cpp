@@ -14846,6 +14846,10 @@ void Unit::TauntFadeOut(Unit* taunter)
     if (creature->HasReactState(REACT_PASSIVE))
         return;
 
+    // Clear fixate if the fading taunter was the fixate target
+    if (m_threatManager.GetFixateTarget() == taunter)
+        m_threatManager.ClearFixate();
+
     Unit* target = GetVictim();
     if (!target || target != taunter)
         return;

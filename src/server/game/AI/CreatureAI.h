@@ -138,8 +138,8 @@ public:
     void EngagementStart(Unit* who);
     void EngagementOver();
 
-    // Called when combat ends - clears engagement state
-    void JustExitedCombat() override { EngagementOver(); }
+    // Called when combat ends - clears engagement state and triggers evade if needed
+    void JustExitedCombat() override;
 
     // Called when the creature is killed
     virtual void JustDied(Unit* /*killer*/) {}

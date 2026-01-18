@@ -272,6 +272,16 @@ void CreatureAI::EngagementOver()
     me->AtDisengage();
 }
 
+void CreatureAI::JustExitedCombat()
+{
+    EngagementOver();
+
+    // If creature is alive, in world, and not already evading, trigger evade to return home
+    // Check IsInWorld to avoid evade during server shutdown/cleanup
+    if (me->IsAlive() && me->IsInWorld() && !me->IsInEvadeMode())
+        EnterEvadeMode(EVADE_REASON_NO_HOSTILES);
+}
+
 /*void CreatureAI::AttackedBy(Unit* attacker)
 {
     if (!me->GetVictim())
@@ -338,6 +348,10 @@ bool CreatureAI::_EnterEvadeMode(EvadeReason /*why*/)
         EngagementOver();
         return false;
     }
+
+    // Set evade state early to prevent recursion when CombatStop triggers JustExitedCombat
+    // This will be cleared in MoveTargetedHome for pets/guardians following their owner
+    me->AddUnitState(UNIT_STATE_EVADE);
 
     // don't remove vehicle auras, passengers aren't supposed to drop off the vehicle
     // don't remove clone caster on evade (to be verified)
