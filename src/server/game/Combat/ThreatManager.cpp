@@ -163,7 +163,11 @@ void ThreatReference::UnregisterAndFree()
 class ThreatReferenceImpl : public ThreatReference
 {
 public:
-    explicit ThreatReferenceImpl(ThreatManager* mgr, Unit* victim) : ThreatReference(mgr, victim) { }
+    explicit ThreatReferenceImpl(ThreatManager* mgr, Unit* victim) : ThreatReference(mgr, victim)
+    {
+        // Only creatures can have threat lists (verified by CanHaveThreatList)
+        ASSERT(mgr->_owner->ToCreature());
+    }
 
     ThreatManager::Heap::handle_type _handle;
 };

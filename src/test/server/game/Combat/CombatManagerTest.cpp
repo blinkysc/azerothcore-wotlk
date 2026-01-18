@@ -63,12 +63,6 @@ TEST_F(CombatManagerTest, EvadeRegenDelay_Is5Seconds)
     EXPECT_EQ(delay, 5000u);
 }
 
-TEST_F(CombatManagerTest, DefaultPursuitTime_Is15Seconds)
-{
-    constexpr uint32 pursuitTime = CombatManager::DEFAULT_PURSUIT_TIME;
-    EXPECT_EQ(pursuitTime, 15000u);
-}
-
 TEST_F(CombatManagerTest, PvPCombatTimeout_Is5Seconds)
 {
     constexpr uint32 timeout = PvPCombatReference::PVP_COMBAT_TIMEOUT;
@@ -384,30 +378,6 @@ TEST_F(CombatManagerTest, CombatRef_SuppressFor_SetsSuppressionFlag)
 TEST_F(CombatManagerTest, CombatRef_IsSuppressedFor_ChecksSuppressionState)
 {
     // IsSuppressedFor(unit) returns true if suppressed for that unit
-}
-
-// ============================================================================
-// Leashing System Tests
-// ============================================================================
-
-TEST_F(CombatManagerTest, Leashing_IsLeashingDisabled_ChecksFlag)
-{
-    // IsLeashingDisabled() returns the current leashing state
-}
-
-TEST_F(CombatManagerTest, Leashing_SetLeashingDisabled_SetsFlag)
-{
-    // SetLeashingDisabled() enables/disables leashing
-}
-
-TEST_F(CombatManagerTest, Leashing_SetLeashingCheck_CustomValidator)
-{
-    // SetLeashingCheck() sets a custom leash check function
-}
-
-TEST_F(CombatManagerTest, Leashing_DisabledPreventsEvade)
-{
-    // When leashing is disabled, creatures don't evade based on distance
 }
 
 // ============================================================================

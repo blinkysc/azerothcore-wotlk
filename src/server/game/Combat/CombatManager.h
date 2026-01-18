@@ -21,7 +21,6 @@
 #include "Common.h"
 #include "ObjectGuid.h"
 #include "Position.h"
-#include <functional>
 #include <unordered_map>
 
 class Unit;
@@ -108,10 +107,8 @@ public:
 
     static constexpr uint32 EVADE_TIMER_DURATION = 10 * IN_MILLISECONDS;
     static constexpr uint32 EVADE_REGEN_DELAY = 5 * IN_MILLISECONDS;
-    static constexpr uint32 DEFAULT_PURSUIT_TIME = 15 * IN_MILLISECONDS;
 
-    CombatManager(Unit* owner) : _owner(owner), _evadeState(EVADE_STATE_NONE), _evadeTimer(0),
-        _leashingDisabled(false), _leashingCheck(nullptr) { }
+    CombatManager(Unit* owner) : _owner(owner), _evadeState(EVADE_STATE_NONE), _evadeTimer(0) { }
     ~CombatManager();
     void Update(uint32 tdiff); // called from Unit::Update
 
@@ -125,11 +122,6 @@ public:
     bool IsEvadeRegen() const { return (_evadeTimer > 0 && _evadeTimer <= EVADE_REGEN_DELAY) || _evadeState != EVADE_STATE_NONE; }
     void StartEvadeTimer() { _evadeTimer = EVADE_TIMER_DURATION; }
     void StopEvade();
-
-    // Leashing - prevents creatures from chasing too far
-    bool IsLeashingDisabled() const { return _leashingDisabled; }
-    void SetLeashingDisabled(bool disabled) { _leashingDisabled = disabled; }
-    void SetLeashingCheck(std::function<bool(Unit*, float, float, float)> check) { _leashingCheck = check; }
 
     bool HasCombat() const { return HasPvECombat() || HasPvPCombat(); }
     bool HasPvECombat() const;
@@ -164,8 +156,6 @@ private:
     Unit* const _owner;
     EvadeState _evadeState;
     uint32 _evadeTimer;
-    bool _leashingDisabled;
-    std::function<bool(Unit*, float, float, float)> _leashingCheck;
     std::unordered_map<ObjectGuid, CombatReference*> _pveRefs;
     std::unordered_map<ObjectGuid, PvPCombatReference*> _pvpRefs;
 
