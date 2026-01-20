@@ -36,6 +36,7 @@
 #include "SharedDefines.h"
 #include "Timer.h"
 #include "GridTerrainData.h"
+#include "LOSCache.h"
 #include <bitset>
 #include <list>
 #include <memory>
@@ -383,6 +384,7 @@ public:
     float GetWaterOrGroundLevel(uint32 phasemask, float x, float y, float z, float* ground = nullptr, bool swim = false, float collisionHeight = DEFAULT_COLLISION_HEIGHT) const;
     [[nodiscard]] float GetHeight(uint32 phasemask, float x, float y, float z, bool vmap = true, float maxSearchDist = DEFAULT_HEIGHT_SEARCH) const;
     [[nodiscard]] bool isInLineOfSight(float x1, float y1, float z1, float x2, float y2, float z2, uint32 phasemask, LineOfSightChecks checks, VMAP::ModelIgnoreFlags ignoreFlags) const;
+    LOSCache& GetLOSCache() { return _losCache; }
     bool CanReachPositionAndGetValidCoords(WorldObject const* source, PathGenerator *path, float &destX, float &destY, float &destZ, bool failOnCollision = true, bool failOnSlopes = true) const;
     bool CanReachPositionAndGetValidCoords(WorldObject const* source, float &destX, float &destY, float &destZ, bool failOnCollision = true, bool failOnSlopes = true) const;
     bool CanReachPositionAndGetValidCoords(WorldObject const* source, float startX, float startY, float startZ, float &destX, float &destY, float &destZ, bool failOnCollision = true, bool failOnSlopes = true) const;
@@ -558,6 +560,7 @@ protected:
     uint32 m_unloadTimer;
     float m_VisibleDistance;
     DynamicMapTree _dynamicTree;
+    mutable LOSCache _losCache;
     time_t _instanceResetPeriod; // pussywizard
 
     MapRefMgr m_mapRefMgr;

@@ -25,6 +25,7 @@
 #include "GameObjectAI.h"
 #include "GameTime.h"
 #include "GridNotifiers.h"
+#include "LOSCache.h"
 #include "Log.h"
 #include "MapMgr.h"
 #include "MiscPackets.h"
@@ -1393,7 +1394,23 @@ bool WorldObject::IsWithinLOSInMap(WorldObject const* obj, VMAP::ModelIgnoreFlag
     else
         GetHitSpherePointFor({ obj->GetPositionX(), obj->GetPositionY(), obj->GetPositionZ() + obj->GetCollisionHeight() }, x, y, z, collisionHeight, combatReach);
 
-    return GetMap()->isInLineOfSight(x, y, z, ox, oy, oz, GetPhaseMask(), checks, ignoreFlags);
+    // Try to use cached LOS result
+    LOSCache& cache = GetMap()->GetLOSCache();
+    uint32 currentTime = static_cast<uint32>(GameTime::GetGameTimeMS().count());
+    bool cachedResult;
+    uint8 checksU8 = static_cast<uint8>(checks);
+    uint8 ignoreFlagsU8 = static_cast<uint8>(ignoreFlags);
+
+    if (cache.TryGetCachedLOS(GetGUID(), obj->GetGUID(), x, y, z, ox, oy, oz, checksU8, ignoreFlagsU8, currentTime, cachedResult))
+    {
+        return cachedResult;
+    }
+
+    // Cache miss - perform actual LOS check and cache the result
+    bool result = GetMap()->isInLineOfSight(x, y, z, ox, oy, oz, GetPhaseMask(), checks, ignoreFlags);
+    cache.CacheLOSResult(GetGUID(), obj->GetGUID(), x, y, z, ox, oy, oz, checksU8, ignoreFlagsU8, currentTime, result);
+
+    return result;
 }
 
 void WorldObject::GetHitSpherePointFor(Position const& dest, float& x, float& y, float& z, Optional<float> collisionHeight, Optional<float> combatReach) const
