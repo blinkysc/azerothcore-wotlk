@@ -64,6 +64,7 @@ void StopDB();
 void SignalHandler(std::weak_ptr<Acore::Asio::IoContext> ioContextRef, boost::system::error_code const& error, int signalNumber);
 void KeepDatabaseAliveHandler(std::weak_ptr<boost::asio::steady_timer> dbPingTimerRef, int32 dbPingInterval, boost::system::error_code const& error);
 void BanExpiryHandler(std::weak_ptr<boost::asio::steady_timer> banExpiryCheckTimerRef, int32 banExpiryCheckInterval, boost::system::error_code const& error);
+void FloodProtectionCleanupHandler(std::weak_ptr<boost::asio::steady_timer> timerRef, boost::system::error_code const& error);
 variables_map GetConsoleArguments(int argc, char** argv, fs::path& configFile);
 
 /// Launch the auth server
@@ -200,9 +201,15 @@ int main(int argc, char** argv)
     banExpiryCheckTimer->expires_at(Acore::Asio::SteadyTimer::GetExpirationTime(banExpiryCheckInterval));
     banExpiryCheckTimer->async_wait(std::bind(&BanExpiryHandler, std::weak_ptr<boost::asio::steady_timer>(banExpiryCheckTimer), banExpiryCheckInterval, std::placeholders::_1));
 
+    // Flood protection cleanup timer (runs every 60 seconds)
+    std::shared_ptr<boost::asio::steady_timer> floodProtectionCleanupTimer = std::make_shared<boost::asio::steady_timer>(*ioContext);
+    floodProtectionCleanupTimer->expires_at(Acore::Asio::SteadyTimer::GetExpirationTime(60));
+    floodProtectionCleanupTimer->async_wait(std::bind(&FloodProtectionCleanupHandler, std::weak_ptr<boost::asio::steady_timer>(floodProtectionCleanupTimer), std::placeholders::_1));
+
     // Start the io service worker loop
     ioContext->run();
 
+    floodProtectionCleanupTimer->cancel();
     banExpiryCheckTimer->cancel();
     dbPingTimer->cancel();
 
@@ -277,6 +284,20 @@ void BanExpiryHandler(std::weak_ptr<boost::asio::steady_timer> banExpiryCheckTim
 
             banExpiryCheckTimer->expires_at(Acore::Asio::SteadyTimer::GetExpirationTime(banExpiryCheckInterval));
             banExpiryCheckTimer->async_wait(std::bind(&BanExpiryHandler, banExpiryCheckTimerRef, banExpiryCheckInterval, std::placeholders::_1));
+        }
+    }
+}
+
+void FloodProtectionCleanupHandler(std::weak_ptr<boost::asio::steady_timer> timerRef, boost::system::error_code const& error)
+{
+    if (!error)
+    {
+        if (std::shared_ptr<boost::asio::steady_timer> timer = timerRef.lock())
+        {
+            sConnectionFloodProtection.CleanupStaleEntries();
+
+            timer->expires_at(Acore::Asio::SteadyTimer::GetExpirationTime(60));
+            timer->async_wait(std::bind(&FloodProtectionCleanupHandler, timerRef, std::placeholders::_1));
         }
     }
 }

@@ -102,8 +102,9 @@ bool ConnectionFloodProtection::ShouldRejectConnection(boost::asio::ip::address 
         }
     }
 
-    // Connection accepted - increment active count
+    // Connection accepted - increment active count and update last activity
     info->activeConnections.fetch_add(1);
+    info->lastActivity = std::chrono::steady_clock::now();
     return false;
 }
 
@@ -120,5 +121,34 @@ void ConnectionFloodProtection::OnSocketClosed(boost::asio::ip::address const& i
         // Prevent underflow
         if (prev == 0)
             it->second->activeConnections.store(0);
+    }
+}
+
+void ConnectionFloodProtection::CleanupStaleEntries()
+{
+    if (!_enabled.load())
+        return;
+
+    auto now = std::chrono::steady_clock::now();
+    uint32 windowSecs = _rateLimitWindowSecs.load();
+    // Consider entry stale if no activity for 2x the rate limit window
+    std::chrono::seconds staleThreshold(windowSecs * 2);
+
+    std::unique_lock<std::shared_mutex> writeLock(_trackerMutex);
+
+    for (auto it = _ipTracker.begin(); it != _ipTracker.end(); )
+    {
+        auto& info = it->second;
+        // Only remove if no active connections and entry is stale
+        if (info->activeConnections.load() == 0)
+        {
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - info->lastActivity);
+            if (elapsed >= staleThreshold)
+            {
+                it = _ipTracker.erase(it);
+                continue;
+            }
+        }
+        ++it;
     }
 }

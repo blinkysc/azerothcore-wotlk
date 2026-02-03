@@ -40,6 +40,9 @@ public:
     // Set limits (called during server startup from config)
     void SetLimits(bool enabled, uint32 maxPerIp, uint32 rateLimit, uint32 rateLimitWindowSecs);
 
+    // Remove stale entries (IPs with no active connections and expired rate window)
+    void CleanupStaleEntries();
+
 private:
     ConnectionFloodProtection() = default;
     ~ConnectionFloodProtection() = default;
@@ -52,6 +55,7 @@ private:
         std::atomic<uint32> activeConnections{0};
         std::atomic<uint32> recentConnectionCount{0};
         std::chrono::steady_clock::time_point windowStart;
+        std::chrono::steady_clock::time_point lastActivity;
         std::mutex windowMutex;
     };
 

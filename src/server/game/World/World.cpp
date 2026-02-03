@@ -1129,6 +1129,9 @@ void World::Update(uint32 diff)
         // moved here from HandleCharEnumOpcode
         CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_EXPIRED_BANS);
         CharacterDatabase.Execute(stmt);
+
+        // Cleanup stale flood protection entries
+        sConnectionFloodProtection.CleanupStaleEntries();
     }
 
     ///- Update Who List Cache
