@@ -671,4 +671,10 @@ void WorldConfig::BuildConfigCache()
     SetConfigValue<uint32>(CONFIG_SCOURGEINVASION_COUNTER_THIRD, "ScourgeInvasion.CounterThird", 150);
 
     SetConfigValue<std::string>(CONFIG_NEW_CHAR_STRING, "PlayerStart.String", "");
+
+    // Connection Flood Protection
+    SetConfigValue<bool>(CONFIG_CONNECTION_FLOOD_PROTECTION_ENABLED, "Network.FloodProtection.Enabled", false);
+    SetConfigValue<uint32>(CONFIG_CONNECTION_MAX_PER_IP, "Network.FloodProtection.MaxConnectionsPerIP", 5);
+    SetConfigValue<uint32>(CONFIG_CONNECTION_RATE_LIMIT, "Network.FloodProtection.RateLimit", 20);
+    SetConfigValue<uint32>(CONFIG_CONNECTION_RATE_LIMIT_WINDOW, "Network.FloodProtection.RateLimitWindow", 60);
 }

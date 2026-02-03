@@ -457,4 +457,38 @@ Logger.root=4,Console Auth
 Network.UseSocketActivation = 0
 
 #
+#    Network.FloodProtection.Enabled
+#        Description: Enable connection flood protection to reject malicious connections
+#                     at the earliest possible point (before socket object allocation).
+#        Default:     0 - (Disabled)
+#                     1 - (Enabled)
+
+Network.FloodProtection.Enabled = 0
+
+#
+#    Network.FloodProtection.MaxConnectionsPerIP
+#        Description: Maximum number of concurrent connections allowed from a single IP address.
+#                     Connections exceeding this limit will be immediately rejected.
+#                     Set to 0 to disable this check.
+#        Default:     5
+
+Network.FloodProtection.MaxConnectionsPerIP = 5
+
+#
+#    Network.FloodProtection.RateLimit
+#        Description: Maximum number of connection attempts allowed per IP within the time window
+#                     defined by Network.FloodProtection.RateLimitWindow.
+#                     Set to 0 to disable this check.
+#        Default:     20
+
+Network.FloodProtection.RateLimit = 20
+
+#
+#    Network.FloodProtection.RateLimitWindow
+#        Description: Time window (in seconds) for the rate limit check.
+#        Default:     60
+
+Network.FloodProtection.RateLimitWindow = 60
+
+#
 ###################################################################################################

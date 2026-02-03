@@ -27,6 +27,7 @@
 #include "AuthSocketMgr.h"
 #include "Banner.h"
 #include "Config.h"
+#include "ConnectionFloodProtection.h"
 #include "DatabaseEnv.h"
 #include "DatabaseLoader.h"
 #include "GitRevision.h"
@@ -148,6 +149,15 @@ int main(int argc, char** argv)
         LOG_INFO("server.authserver", "Dry run completed, terminating.");
         return 0;
     }
+
+    // Initialize connection flood protection from config
+    bool floodProtectionEnabled = sConfigMgr->GetOption<bool>("Network.FloodProtection.Enabled", false);
+    uint32 maxPerIp = sConfigMgr->GetOption<uint32>("Network.FloodProtection.MaxConnectionsPerIP", 5);
+    uint32 rateLimit = sConfigMgr->GetOption<uint32>("Network.FloodProtection.RateLimit", 20);
+    uint32 rateLimitWindow = sConfigMgr->GetOption<uint32>("Network.FloodProtection.RateLimitWindow", 60);
+    sConnectionFloodProtection.SetLimits(floodProtectionEnabled, maxPerIp, rateLimit, rateLimitWindow);
+    LOG_INFO("server.authserver", "Connection flood protection: enabled={}, maxPerIp={}, rateLimit={}, window={}",
+        floodProtectionEnabled, maxPerIp, rateLimit, rateLimitWindow);
 
     // Start the listening port (acceptor) for auth connections
     int32 port = sConfigMgr->GetOption<int32>("RealmServerPort", 3724);

@@ -17,6 +17,7 @@
 
 #include "WorldSocketMgr.h"
 #include "Config.h"
+#include "ConnectionFloodProtection.h"
 #include "NetworkThread.h"
 #include "ScriptMgr.h"
 #include "WorldSocket.h"
@@ -33,6 +34,7 @@ public:
 
     void SocketRemoved(std::shared_ptr<WorldSocket> const& sock) override
     {
+        sConnectionFloodProtection.OnSocketClosed(sock->GetRemoteIpAddress());
         sScriptMgr->OnSocketClose(sock);
     }
 };
@@ -83,6 +85,18 @@ void WorldSocketMgr::StopNetwork()
 
 void WorldSocketMgr::OnSocketOpen(IoContextTcpSocket&& sock, uint32 threadIndex)
 {
+    // Check connection flood protection before creating socket object
+    boost::system::error_code ec;
+    auto endpoint = sock.remote_endpoint(ec);
+    if (!ec && sConnectionFloodProtection.ShouldRejectConnection(endpoint.address()))
+    {
+        LOG_WARN("network", "Connection flood protection: rejected connection from {}", endpoint.address().to_string());
+        boost::system::error_code shutdownEc;
+        sock.shutdown(boost::asio::socket_base::shutdown_both, shutdownEc);
+        sock.close(shutdownEc);
+        return;
+    }
+
     // set some options here
     if (_socketSystemSendBufferSize >= 0)
     {

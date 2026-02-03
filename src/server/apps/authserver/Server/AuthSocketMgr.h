@@ -20,7 +20,17 @@
 
 #include "AuthSession.h"
 #include "Config.h"
+#include "ConnectionFloodProtection.h"
 #include "SocketMgr.h"
+
+class AuthSocketThread : public NetworkThread<AuthSession>
+{
+public:
+    void SocketRemoved(std::shared_ptr<AuthSession> const& sock) override
+    {
+        sConnectionFloodProtection.OnSocketClosed(sock->GetRemoteIpAddress());
+    }
+};
 
 class AuthSocketMgr : public SocketMgr<AuthSession>
 {
@@ -42,10 +52,29 @@ public:
         return true;
     }
 
+    void OnSocketOpen(IoContextTcpSocket&& sock, uint32 threadIndex) override
+    {
+        boost::system::error_code ec;
+        auto endpoint = sock.remote_endpoint(ec);
+        if (!ec)
+        {
+            if (sConnectionFloodProtection.ShouldRejectConnection(endpoint.address()))
+            {
+                LOG_WARN("network", "Connection flood protection: rejected connection from {}", endpoint.address().to_string());
+                boost::system::error_code shutdownEc;
+                sock.shutdown(boost::asio::socket_base::shutdown_both, shutdownEc);
+                sock.close(shutdownEc);
+                return;
+            }
+        }
+
+        BaseSocketMgr::OnSocketOpen(std::move(sock), threadIndex);
+    }
+
 protected:
     NetworkThread<AuthSession>* CreateThreads() const override
     {
-        NetworkThread<AuthSession>* threads = new NetworkThread<AuthSession>[1];
+        AuthSocketThread* threads = new AuthSocketThread[1];
 
         bool proxyProtocolEnabled = sConfigMgr->GetOption<bool>("EnableProxyProtocol", false, true);
         if (proxyProtocolEnabled)

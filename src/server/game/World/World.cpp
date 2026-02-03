@@ -38,6 +38,7 @@
 #include "Common.h"
 #include "ConditionMgr.h"
 #include "Config.h"
+#include "ConnectionFloodProtection.h"
 #include "CreatureAIRegistry.h"
 #include "CreatureGroups.h"
 #include "CreatureTextMgr.h"
@@ -294,6 +295,13 @@ void World::LoadConfigSettings(bool reload)
     LOG_INFO("server.loading", "WORLD: VMap support included. LineOfSight:{}, getHeight:{}, indoorCheck:{} PetLOS:{}", enableLOS, enableHeight, enableIndoor, enablePetLOS);
 
     MMAP::MMapFactory::InitializeDisabledMaps();
+
+    // Initialize connection flood protection
+    sConnectionFloodProtection.SetLimits(
+        getBoolConfig(CONFIG_CONNECTION_FLOOD_PROTECTION_ENABLED),
+        getIntConfig(CONFIG_CONNECTION_MAX_PER_IP),
+        getIntConfig(CONFIG_CONNECTION_RATE_LIMIT),
+        getIntConfig(CONFIG_CONNECTION_RATE_LIMIT_WINDOW));
 
     // call ScriptMgr if we're reloading the configuration
     sScriptMgr->OnAfterConfigLoad(reload);
