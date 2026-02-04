@@ -1362,6 +1362,26 @@ MapUpdateInterval = 10
 MapUpdate.Threads = 1
 
 #
+#    GhostActorSystem.Enable
+#        Description: Enable parallel cell-based updates using the GhostActorSystem.
+#                     When enabled, creature AI, threat, and cross-cell interactions
+#                     use lock-free message passing for thread-safe parallel execution.
+#                     Requires MapUpdate.Threads > 1 to see benefits.
+#
+#                     Memory overhead: ~576 bytes per player (ghost projections)
+#                       - 1,000 players: ~550 KB
+#                       - 5,000 players: ~2.8 MB
+#                       - 15,000 players: ~8.2 MB (negligible vs ~286 MB player objects)
+#
+#                     CPU overhead: Minimal when idle. Under load, work-stealing
+#                     distributes updates across threads for better core utilization.
+#
+#        Default:     0 - (Disabled)
+#                     1 - (Enabled)
+
+GhostActorSystem.Enable = 0
+
+#
 #    MoveMaps.Enable
 #        Description: Enable/Disable pathfinding using mmaps - recommended.
 #        Default:     0 - (Disabled)
