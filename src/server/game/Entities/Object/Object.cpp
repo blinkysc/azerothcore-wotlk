@@ -479,7 +479,7 @@ void Object::BuildMovementUpdate(ByteBuffer* data, uint16 flags) const
     // 0x200
     if (flags & UPDATEFLAG_ROTATION)
     {
-        *data << int64(ToGameObject()->GetPackedLocalRotation());
+        *data << int64(ToGameObject()->GetPackedWorldRotation());
     }
 }
 
@@ -813,13 +813,6 @@ void Object::ApplyModSignedFloatValue(uint16 index, float  val, bool apply)
     float cur = GetFloatValue(index);
     cur += (apply ? val : -val);
     SetFloatValue(index, cur);
-}
-
-void Object::ApplyPercentModFloatValue(uint16 index, float val, bool apply)
-{
-    float value = GetFloatValue(index);
-    ApplyPercentModFloatVar(value, val, apply);
-    SetFloatValue(index, value);
 }
 
 void Object::ApplyModPositiveFloatValue(uint16 index, float  val, bool apply)
