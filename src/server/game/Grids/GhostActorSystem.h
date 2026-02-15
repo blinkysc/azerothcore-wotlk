@@ -15,19 +15,19 @@
 
 /**
  * @file GhostActorSystem.h
- * @brief Lock-free parallel entity update system using cell-based actors
+ * @brief Lock-free parallel entity update system using grid-based actors
  *
  * The GhostActorSystem enables multi-threaded entity updates without mutex locks
- * by partitioning the world into cells, each with exclusive ownership of its entities.
+ * by partitioning the world into grids, each with exclusive ownership of its entities.
  *
  * Key concepts:
- * - Cell Actors: Each 66-yard cell processes its entities independently
- * - Single-Writer: Only the owning cell can modify an entity's state
- * - Ghost Entities: Read-only projections of entities visible in neighboring cells
- * - Message Passing: Cross-cell interactions are asynchronous messages
+ * - Cell Actors: Each 533-yard grid processes its entities independently
+ * - Single-Writer: Only the owning grid can modify an entity's state
+ * - Ghost Entities: Read-only projections of entities visible in neighboring grids
+ * - Message Passing: Cross-grid interactions are asynchronous messages
  * - Work Stealing: Load balancing via Chase-Lev deque algorithm
  *
- * Memory overhead: ~576 bytes per player (ghost projections to 8 neighbors)
+ * Memory overhead: ~576 bytes per player (ghost projections to neighboring grids)
  */
 
 #ifndef GHOST_ACTOR_SYSTEM_H
@@ -329,8 +329,10 @@ private:
 // ---------------------------------------------------------------------------
 
 constexpr float GHOST_VISIBILITY_DISTANCE = 250.0f;
-constexpr float CELL_SIZE = 66.6666f;
-constexpr float CENTER_CELL_OFFSET = 256.0f;
+constexpr float GRID_SIZE = 533.3333f;
+constexpr uint32_t GRIDS_PER_DIMENSION = 64;
+constexpr uint32_t TOTAL_GRIDS = GRIDS_PER_DIMENSION * GRIDS_PER_DIMENSION;  // 4,096
+constexpr float MAP_HALF = GRID_SIZE * GRIDS_PER_DIMENSION / 2.0f;
 
 enum class NeighborFlags : uint8_t
 {
@@ -448,55 +450,108 @@ struct EntityGhostInfo
     GhostSnapshot lastSnapshot;
 };
 
-inline uint32_t CalculateCellId(float worldX, float worldY)
+inline uint32_t CalculateGridId(float worldX, float worldY)
 {
-    float cellFloatX = CENTER_CELL_OFFSET - (worldX / CELL_SIZE);
-    float cellFloatY = CENTER_CELL_OFFSET - (worldY / CELL_SIZE);
-    uint32_t cellX = static_cast<uint32_t>(std::floor(cellFloatX));
-    uint32_t cellY = static_cast<uint32_t>(std::floor(cellFloatY));
-    return (cellY << 16) | cellX;
+    constexpr int32_t CENTER = static_cast<int32_t>(GRIDS_PER_DIMENSION / 2);
+    int32_t gx = static_cast<int32_t>(CENTER - worldX / GRID_SIZE);
+    int32_t gy = static_cast<int32_t>(CENTER - worldY / GRID_SIZE);
+    uint32_t gridX = static_cast<uint32_t>(std::max(0, std::min(gx, static_cast<int32_t>(GRIDS_PER_DIMENSION - 1))));
+    uint32_t gridY = static_cast<uint32_t>(std::max(0, std::min(gy, static_cast<int32_t>(GRIDS_PER_DIMENSION - 1))));
+    return gridY * GRIDS_PER_DIMENSION + gridX;
 }
 
+// Backwards-compatible alias
+inline uint32_t CalculateCellId(float worldX, float worldY)
+{
+    return CalculateGridId(worldX, worldY);
+}
+
+inline void ExtractGridCoords(uint32_t gridId, uint32_t& gridX, uint32_t& gridY)
+{
+    gridX = gridId % GRIDS_PER_DIMENSION;
+    gridY = gridId / GRIDS_PER_DIMENSION;
+}
+
+// Backwards-compatible alias
 inline void ExtractCellCoords(uint32_t cellId, uint32_t& cellX, uint32_t& cellY)
 {
-    cellX = cellId & 0xFFFF;
-    cellY = cellId >> 16;
+    ExtractGridCoords(cellId, cellX, cellY);
 }
 
 namespace GhostBoundary
 {
-    inline void GetPositionInCell(float worldX, float worldY, float& cellLocalX, float& cellLocalY)
+    inline void GetPositionInGrid(float worldX, float worldY, float& gridLocalX, float& gridLocalY)
     {
-        float cellFloatX = CENTER_CELL_OFFSET - (worldX / CELL_SIZE);
-        float cellFloatY = CENTER_CELL_OFFSET - (worldY / CELL_SIZE);
-        cellLocalX = (cellFloatX - std::floor(cellFloatX)) * CELL_SIZE;
-        cellLocalY = (cellFloatY - std::floor(cellFloatY)) * CELL_SIZE;
+        constexpr float CENTER = GRIDS_PER_DIMENSION / 2.0f;
+        float gridFloatX = CENTER - (worldX / GRID_SIZE);
+        float gridFloatY = CENTER - (worldY / GRID_SIZE);
+        gridLocalX = (gridFloatX - std::floor(gridFloatX)) * GRID_SIZE;
+        gridLocalY = (gridFloatY - std::floor(gridFloatY)) * GRID_SIZE;
     }
 
-    inline NeighborFlags GetNeighborsNeedingGhosts([[maybe_unused]] float worldX, [[maybe_unused]] float worldY)
+    // Backwards-compatible alias
+    inline void GetPositionInCell(float worldX, float worldY, float& localX, float& localY)
     {
-        return NeighborFlags::ALL;
+        GetPositionInGrid(worldX, worldY, localX, localY);
     }
 
-    inline uint32_t GetNeighborCellId(uint32_t cellId, NeighborFlags direction)
+    inline NeighborFlags GetNeighborsNeedingGhosts(float worldX, float worldY)
     {
-        uint32_t cellX = cellId & 0xFFFF;
-        uint32_t cellY = cellId >> 16;
+        float localX, localY;
+        GetPositionInGrid(worldX, worldY, localX, localY);
 
+        NeighborFlags flags = NeighborFlags::NONE;
+        bool nearNorth = localY < GHOST_VISIBILITY_DISTANCE;
+        bool nearSouth = (GRID_SIZE - localY) < GHOST_VISIBILITY_DISTANCE;
+        bool nearWest  = localX < GHOST_VISIBILITY_DISTANCE;
+        bool nearEast  = (GRID_SIZE - localX) < GHOST_VISIBILITY_DISTANCE;
+
+        if (nearNorth) flags = flags | NeighborFlags::NORTH;
+        if (nearSouth) flags = flags | NeighborFlags::SOUTH;
+        if (nearEast)  flags = flags | NeighborFlags::EAST;
+        if (nearWest)  flags = flags | NeighborFlags::WEST;
+
+        if (nearNorth && nearEast) flags = flags | NeighborFlags::NORTH_EAST;
+        if (nearNorth && nearWest) flags = flags | NeighborFlags::NORTH_WEST;
+        if (nearSouth && nearEast) flags = flags | NeighborFlags::SOUTH_EAST;
+        if (nearSouth && nearWest) flags = flags | NeighborFlags::SOUTH_WEST;
+
+        return flags;
+    }
+
+    inline uint32_t GetNeighborGridId(uint32_t gridId, NeighborFlags direction)
+    {
+        uint32_t gridX = gridId % GRIDS_PER_DIMENSION;
+        uint32_t gridY = gridId / GRIDS_PER_DIMENSION;
+
+        int32_t dx = 0, dy = 0;
         switch (direction)
         {
-            case NeighborFlags::NORTH:      cellY++; break;
-            case NeighborFlags::SOUTH:      cellY--; break;
-            case NeighborFlags::EAST:       cellX++; break;
-            case NeighborFlags::WEST:       cellX--; break;
-            case NeighborFlags::NORTH_EAST: cellX++; cellY++; break;
-            case NeighborFlags::NORTH_WEST: cellX--; cellY++; break;
-            case NeighborFlags::SOUTH_EAST: cellX++; cellY--; break;
-            case NeighborFlags::SOUTH_WEST: cellX--; cellY--; break;
+            case NeighborFlags::NORTH:      dy = 1; break;
+            case NeighborFlags::SOUTH:      dy = -1; break;
+            case NeighborFlags::EAST:       dx = 1; break;
+            case NeighborFlags::WEST:       dx = -1; break;
+            case NeighborFlags::NORTH_EAST: dx = 1; dy = 1; break;
+            case NeighborFlags::NORTH_WEST: dx = -1; dy = 1; break;
+            case NeighborFlags::SOUTH_EAST: dx = 1; dy = -1; break;
+            case NeighborFlags::SOUTH_WEST: dx = -1; dy = -1; break;
             default: break;
         }
 
-        return (cellY << 16) | cellX;
+        int32_t nx = static_cast<int32_t>(gridX) + dx;
+        int32_t ny = static_cast<int32_t>(gridY) + dy;
+
+        if (nx < 0 || nx >= static_cast<int32_t>(GRIDS_PER_DIMENSION) ||
+            ny < 0 || ny >= static_cast<int32_t>(GRIDS_PER_DIMENSION))
+            return gridId;  // Out of bounds, return self
+
+        return static_cast<uint32_t>(ny) * GRIDS_PER_DIMENSION + static_cast<uint32_t>(nx);
+    }
+
+    // Backwards-compatible alias
+    inline uint32_t GetNeighborCellId(uint32_t cellId, NeighborFlags direction)
+    {
+        return GetNeighborGridId(cellId, direction);
     }
 }
 
@@ -1009,15 +1064,14 @@ public:
     [[gnu::hot]] [[gnu::always_inline]]
     inline CellActor* GetOrCreateCellActor(uint32_t gridX, uint32_t gridY) noexcept
     {
-        // O(1) lock-free array access - cells are pre-allocated
-        // No bounds check needed: cells pre-allocated for all 512x512
-        return _cellActors[(gridY << 9) + gridX];  // y*512 + x, using shift for speed
+        // O(1) lock-free array access - grids are pre-allocated (64x64 = 4,096)
+        return _cellActors[gridY * GRIDS_PER_DIMENSION + gridX];
     }
 
     [[gnu::hot]] [[gnu::always_inline]]
     inline CellActor* GetCellActor(uint32_t gridX, uint32_t gridY) noexcept
     {
-        return _cellActors[(gridY << 9) + gridX];
+        return _cellActors[gridY * GRIDS_PER_DIMENSION + gridX];
     }
 
     // Get CellActor for world coordinates
@@ -1238,7 +1292,7 @@ public:
     [[nodiscard]] size_t GetActiveCellCount() const
     {
         size_t count = 0;
-        for (uint32_t i = 0; i < TOTAL_CELLS; ++i)
+        for (uint32_t i = 0; i < TOTAL_GRIDS; ++i)
             if (_cellActors[i] && _cellActors[i]->IsActive())
                 ++count;
         return count;
@@ -1254,7 +1308,7 @@ public:
     [[nodiscard]] std::vector<std::pair<uint32_t, uint32_t>> GetHotspotCells(size_t count) const
     {
         std::vector<std::pair<uint32_t, uint32_t>> cells;
-        for (uint32_t i = 0; i < TOTAL_CELLS; ++i)
+        for (uint32_t i = 0; i < TOTAL_GRIDS; ++i)
         {
             if (_cellActors[i] && _cellActors[i]->IsActive())
                 cells.emplace_back(_cellActors[i]->GetCellId(), _cellActors[i]->GetMessagesProcessedLastTick());
@@ -1322,20 +1376,17 @@ public:
     }
 
     // Debug query methods
-    [[nodiscard]] CellActor* GetCell(uint32_t cellId) const
+    [[nodiscard]] CellActor* GetCell(uint32_t gridId) const
     {
-        uint32_t cellX, cellY;
-        ExtractCellCoords(cellId, cellX, cellY);
-        uint32_t index = CellIndex(cellX, cellY);
-        if (index < TOTAL_CELLS)
-            return _cellActors[index];
+        if (gridId < TOTAL_GRIDS)
+            return _cellActors[gridId];
         return nullptr;
     }
 
     [[nodiscard]] size_t GetTotalEntityCount() const
     {
         size_t total = 0;
-        for (uint32_t i = 0; i < TOTAL_CELLS; ++i)
+        for (uint32_t i = 0; i < TOTAL_GRIDS; ++i)
             if (_cellActors[i])
                 total += _cellActors[i]->GetEntityCount();
         return total;
@@ -1344,7 +1395,7 @@ public:
     [[nodiscard]] size_t GetTotalGhostCount() const
     {
         size_t total = 0;
-        for (uint32_t i = 0; i < TOTAL_CELLS; ++i)
+        for (uint32_t i = 0; i < TOTAL_GRIDS; ++i)
             if (_cellActors[i])
                 total += _cellActors[i]->GetGhostCount();
         return total;
@@ -1356,47 +1407,41 @@ public:
         return it != _entityGhostInfo.end() ? &it->second : nullptr;
     }
 
-    [[nodiscard]] std::vector<uint32_t> GetNeighborCellIds(uint32_t cellId) const
+    [[nodiscard]] std::vector<uint32_t> GetNeighborCellIds(uint32_t gridId) const
     {
         std::vector<uint32_t> neighbors;
         neighbors.reserve(8);
-        uint32_t cellX = cellId & 0xFFFF;
-        uint32_t cellY = cellId >> 16;
+        uint32_t gridX = gridId % GRIDS_PER_DIMENSION;
+        uint32_t gridY = gridId / GRIDS_PER_DIMENSION;
 
-        // All 8 neighbors
-        neighbors.push_back(((cellY + 1) << 16) | (cellX - 1));  // NW
-        neighbors.push_back(((cellY + 1) << 16) | cellX);        // N
-        neighbors.push_back(((cellY + 1) << 16) | (cellX + 1));  // NE
-        neighbors.push_back((cellY << 16) | (cellX - 1));        // W
-        neighbors.push_back((cellY << 16) | (cellX + 1));        // E
-        neighbors.push_back(((cellY - 1) << 16) | (cellX - 1));  // SW
-        neighbors.push_back(((cellY - 1) << 16) | cellX);        // S
-        neighbors.push_back(((cellY - 1) << 16) | (cellX + 1));  // SE
+        for (int32_t dy = -1; dy <= 1; ++dy)
+        {
+            for (int32_t dx = -1; dx <= 1; ++dx)
+            {
+                if (dx == 0 && dy == 0)
+                    continue;
+                int32_t nx = static_cast<int32_t>(gridX) + dx;
+                int32_t ny = static_cast<int32_t>(gridY) + dy;
+                if (nx >= 0 && nx < static_cast<int32_t>(GRIDS_PER_DIMENSION) &&
+                    ny >= 0 && ny < static_cast<int32_t>(GRIDS_PER_DIMENSION))
+                    neighbors.push_back(static_cast<uint32_t>(ny) * GRIDS_PER_DIMENSION + static_cast<uint32_t>(nx));
+            }
+        }
 
         return neighbors;
     }
 
-    // Grid dimension constants (64 grids × 8 cells = 512 cells per dimension)
-    static constexpr uint32_t CELLS_PER_DIMENSION = 512;
-    static constexpr uint32_t TOTAL_CELLS = CELLS_PER_DIMENSION * CELLS_PER_DIMENSION;  // 262,144
-
 private:
-    // Linear index for O(1) array access (0-262143)
-    static uint32_t CellIndex(uint32_t cellX, uint32_t cellY)
+    // Linear index for O(1) array access (0-4095)
+    static uint32_t GridIndex(uint32_t gridX, uint32_t gridY)
     {
-        return cellY * CELLS_PER_DIMENSION + cellX;
+        return gridY * GRIDS_PER_DIMENSION + gridX;
     }
 
-    // Packed ID for CellActor identity (y << 16 | x format)
-    static uint32_t MakeCellId(uint32_t cellX, uint32_t cellY)
+    // Grid ID is the same as the linear index for 64x64 grids
+    static uint32_t MakeGridId(uint32_t gridX, uint32_t gridY)
     {
-        return (cellY << 16) | cellX;
-    }
-
-    static void ExtractCellCoords(uint32_t cellId, uint32_t& cellX, uint32_t& cellY)
-    {
-        cellX = cellId & 0xFFFF;
-        cellY = cellId >> 16;
+        return gridY * GRIDS_PER_DIMENSION + gridX;
     }
 
     void CreateGhostInCell(uint32_t cellId, const GhostSnapshot& snapshot, uint32_t ownerCellId);

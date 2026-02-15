@@ -36,119 +36,104 @@ protected:
 // Cell ID Calculation Tests
 // ============================================================================
 
-// Test cell ID calculation from position
-TEST_F(GhostActorSystemTest, CellIdCalculation)
+// Test grid ID calculation from position
+TEST_F(GhostActorSystemTest, GridIdCalculation)
 {
-    // Cell ID is computed as: (cellY << 16) | cellX
-    // Where cellX/Y = floor(CENTER_CELL_OFFSET - (worldX/Y / CELL_SIZE))
+    // Grid ID = gridY * 64 + gridX
+    // Where gridX/Y = clamp(CENTER - worldX/Y / GRID_SIZE, 0, 63)
 
     // Test center of map (0, 0)
-    float worldX = 0.0f;
-    float worldY = 0.0f;
-    uint32_t cellX = static_cast<uint32_t>(CENTER_CELL_OFFSET - (worldX / CELL_SIZE));
-    uint32_t cellY = static_cast<uint32_t>(CENTER_CELL_OFFSET - (worldY / CELL_SIZE));
-    uint32_t cellId = (cellY << 16) | cellX;
+    uint32_t gridId = CalculateGridId(0.0f, 0.0f);
+    uint32_t gridX, gridY;
+    ExtractGridCoords(gridId, gridX, gridY);
 
-    EXPECT_EQ(cellX, 256u); // CENTER_CELL_OFFSET
-    EXPECT_EQ(cellY, 256u);
-    EXPECT_EQ(cellId, (256u << 16) | 256u);
+    EXPECT_EQ(gridX, 32u); // Center of 64-grid dimension
+    EXPECT_EQ(gridY, 32u);
+    EXPECT_EQ(gridId, 32u * GRIDS_PER_DIMENSION + 32u);
 }
 
-// Test cell ID extraction
-TEST_F(GhostActorSystemTest, CellIdExtraction)
+// Test grid ID extraction
+TEST_F(GhostActorSystemTest, GridIdExtraction)
 {
-    uint32_t cellX = 100;
-    uint32_t cellY = 200;
-    uint32_t cellId = (cellY << 16) | cellX;
+    uint32_t gridX = 10;
+    uint32_t gridY = 20;
+    uint32_t gridId = gridY * GRIDS_PER_DIMENSION + gridX;
 
-    uint32_t extractedX = cellId & 0xFFFF;
-    uint32_t extractedY = cellId >> 16;
+    uint32_t extractedX, extractedY;
+    ExtractGridCoords(gridId, extractedX, extractedY);
 
-    EXPECT_EQ(extractedX, cellX);
-    EXPECT_EQ(extractedY, cellY);
+    EXPECT_EQ(extractedX, gridX);
+    EXPECT_EQ(extractedY, gridY);
 }
 
-// Test position within cell calculation
-TEST_F(GhostActorSystemTest, PositionInCell)
+// Test position within grid calculation
+TEST_F(GhostActorSystemTest, PositionInGrid)
 {
     float worldX = 100.0f;
     float worldY = 200.0f;
-    float cellLocalX, cellLocalY;
+    float gridLocalX, gridLocalY;
 
-    GhostBoundary::GetPositionInCell(worldX, worldY, cellLocalX, cellLocalY);
+    GhostBoundary::GetPositionInGrid(worldX, worldY, gridLocalX, gridLocalY);
 
-    // Should be between 0 and CELL_SIZE
-    EXPECT_GE(cellLocalX, 0.0f);
-    EXPECT_LT(cellLocalX, CELL_SIZE);
-    EXPECT_GE(cellLocalY, 0.0f);
-    EXPECT_LT(cellLocalY, CELL_SIZE);
+    // Should be between 0 and GRID_SIZE
+    EXPECT_GE(gridLocalX, 0.0f);
+    EXPECT_LT(gridLocalX, GRID_SIZE);
+    EXPECT_GE(gridLocalY, 0.0f);
+    EXPECT_LT(gridLocalY, GRID_SIZE);
 }
 
 // ============================================================================
 // Neighbor Calculation Tests
 // ============================================================================
 
-// Test GetNeighborCellId for all directions
+// Test GetNeighborGridId for all directions
 TEST_F(GhostActorSystemTest, NeighborCalculation)
 {
-    uint32_t baseCellX = 100;
-    uint32_t baseCellY = 100;
-    uint32_t baseCellId = (baseCellY << 16) | baseCellX;
+    uint32_t baseGridX = 30;
+    uint32_t baseGridY = 30;
+    uint32_t baseGridId = baseGridY * GRIDS_PER_DIMENSION + baseGridX;
 
-    // North (+Y)
-    uint32_t north = GhostBoundary::GetNeighborCellId(baseCellId, NeighborFlags::NORTH);
-    EXPECT_EQ(north & 0xFFFF, baseCellX);
-    EXPECT_EQ(north >> 16, baseCellY + 1);
+    auto checkNeighbor = [](uint32_t neighborId, uint32_t expectX, uint32_t expectY)
+    {
+        uint32_t nx, ny;
+        ExtractGridCoords(neighborId, nx, ny);
+        EXPECT_EQ(nx, expectX);
+        EXPECT_EQ(ny, expectY);
+    };
 
-    // South (-Y)
-    uint32_t south = GhostBoundary::GetNeighborCellId(baseCellId, NeighborFlags::SOUTH);
-    EXPECT_EQ(south & 0xFFFF, baseCellX);
-    EXPECT_EQ(south >> 16, baseCellY - 1);
-
-    // East (+X)
-    uint32_t east = GhostBoundary::GetNeighborCellId(baseCellId, NeighborFlags::EAST);
-    EXPECT_EQ(east & 0xFFFF, baseCellX + 1);
-    EXPECT_EQ(east >> 16, baseCellY);
-
-    // West (-X)
-    uint32_t west = GhostBoundary::GetNeighborCellId(baseCellId, NeighborFlags::WEST);
-    EXPECT_EQ(west & 0xFFFF, baseCellX - 1);
-    EXPECT_EQ(west >> 16, baseCellY);
-
-    // NorthEast (+X+Y)
-    uint32_t ne = GhostBoundary::GetNeighborCellId(baseCellId, NeighborFlags::NORTH_EAST);
-    EXPECT_EQ(ne & 0xFFFF, baseCellX + 1);
-    EXPECT_EQ(ne >> 16, baseCellY + 1);
-
-    // NorthWest (-X+Y)
-    uint32_t nw = GhostBoundary::GetNeighborCellId(baseCellId, NeighborFlags::NORTH_WEST);
-    EXPECT_EQ(nw & 0xFFFF, baseCellX - 1);
-    EXPECT_EQ(nw >> 16, baseCellY + 1);
-
-    // SouthEast (+X-Y)
-    uint32_t se = GhostBoundary::GetNeighborCellId(baseCellId, NeighborFlags::SOUTH_EAST);
-    EXPECT_EQ(se & 0xFFFF, baseCellX + 1);
-    EXPECT_EQ(se >> 16, baseCellY - 1);
-
-    // SouthWest (-X-Y)
-    uint32_t sw = GhostBoundary::GetNeighborCellId(baseCellId, NeighborFlags::SOUTH_WEST);
-    EXPECT_EQ(sw & 0xFFFF, baseCellX - 1);
-    EXPECT_EQ(sw >> 16, baseCellY - 1);
+    checkNeighbor(GhostBoundary::GetNeighborGridId(baseGridId, NeighborFlags::NORTH),      baseGridX,     baseGridY + 1);
+    checkNeighbor(GhostBoundary::GetNeighborGridId(baseGridId, NeighborFlags::SOUTH),      baseGridX,     baseGridY - 1);
+    checkNeighbor(GhostBoundary::GetNeighborGridId(baseGridId, NeighborFlags::EAST),       baseGridX + 1, baseGridY);
+    checkNeighbor(GhostBoundary::GetNeighborGridId(baseGridId, NeighborFlags::WEST),       baseGridX - 1, baseGridY);
+    checkNeighbor(GhostBoundary::GetNeighborGridId(baseGridId, NeighborFlags::NORTH_EAST), baseGridX + 1, baseGridY + 1);
+    checkNeighbor(GhostBoundary::GetNeighborGridId(baseGridId, NeighborFlags::NORTH_WEST), baseGridX - 1, baseGridY + 1);
+    checkNeighbor(GhostBoundary::GetNeighborGridId(baseGridId, NeighborFlags::SOUTH_EAST), baseGridX + 1, baseGridY - 1);
+    checkNeighbor(GhostBoundary::GetNeighborGridId(baseGridId, NeighborFlags::SOUTH_WEST), baseGridX - 1, baseGridY - 1);
 }
 
 // ============================================================================
 // NeighborFlags Tests
 // ============================================================================
 
-// Test that GetNeighborsNeedingGhosts returns ALL
-// With 66-yard cells and 250-yard visibility, all neighbors always need ghosts
-TEST_F(GhostActorSystemTest, NeighborFlagsAlwaysAll)
+// Test that GetNeighborsNeedingGhosts uses edge-distance logic
+// With 533-yard grids and 250-yard visibility, ghosts only needed near edges
+TEST_F(GhostActorSystemTest, NeighborFlagsEdgeDistance)
 {
-    // Various positions should all return ALL
-    EXPECT_EQ(GhostBoundary::GetNeighborsNeedingGhosts(0.0f, 0.0f), NeighborFlags::ALL);
-    EXPECT_EQ(GhostBoundary::GetNeighborsNeedingGhosts(100.0f, 200.0f), NeighborFlags::ALL);
-    EXPECT_EQ(GhostBoundary::GetNeighborsNeedingGhosts(-500.0f, 1000.0f), NeighborFlags::ALL);
-    EXPECT_EQ(GhostBoundary::GetNeighborsNeedingGhosts(5000.0f, -5000.0f), NeighborFlags::ALL);
+    // Position at center of a grid should need NO ghosts
+    // (more than 250y from any edge of a 533y grid)
+    // Use grid center: offset by half grid size from boundary
+    float centerX = GRID_SIZE * 0.5f;  // Center of grid on X
+    float centerY = GRID_SIZE * 0.5f;  // Center of grid on Y
+    EXPECT_EQ(GhostBoundary::GetNeighborsNeedingGhosts(centerX, centerY), NeighborFlags::NONE);
+
+    // Position near north edge should have NORTH flag
+    // Near the edge means local Y < GHOST_VISIBILITY_DISTANCE
+    // A position at the very top of a grid cell has localY near 0
+    float nearNorthEdgeX = GRID_SIZE * 0.5f;  // center X
+    float nearNorthEdgeY = GRID_SIZE * 1.0f - 10.0f;  // very close to boundary on Y
+    NeighborFlags northFlags = GhostBoundary::GetNeighborsNeedingGhosts(nearNorthEdgeX, nearNorthEdgeY);
+    // localY will be small (near grid boundary), so NORTH should be set
+    EXPECT_TRUE(HasFlag(northFlags, NeighborFlags::NORTH) || HasFlag(northFlags, NeighborFlags::SOUTH));
 }
 
 // Test NeighborFlags bitwise operations
@@ -368,15 +353,18 @@ TEST_F(GhostActorSystemTest, MigrationSnapshotDefault)
 
 TEST_F(GhostActorSystemTest, ConstantsValid)
 {
-    // GHOST_VISIBILITY_DISTANCE should be greater than CELL_SIZE
-    // so ghosts are always needed in all neighbors
-    EXPECT_GT(GHOST_VISIBILITY_DISTANCE, CELL_SIZE);
+    // GRID_SIZE should be approximately 533.33 yards
+    EXPECT_NEAR(GRID_SIZE, 533.3333f, 0.01f);
 
-    // CELL_SIZE should be approximately 66.67 yards
-    EXPECT_NEAR(CELL_SIZE, 66.6666f, 0.01f);
+    // GRIDS_PER_DIMENSION should be 64
+    EXPECT_EQ(GRIDS_PER_DIMENSION, 64u);
 
-    // CENTER_CELL_OFFSET should be 256 (512/2)
-    EXPECT_EQ(CENTER_CELL_OFFSET, 256.0f);
+    // TOTAL_GRIDS should be 4096
+    EXPECT_EQ(TOTAL_GRIDS, 4096u);
+
+    // GHOST_VISIBILITY_DISTANCE should be less than GRID_SIZE
+    // (entities only need ghosts when near grid edges)
+    EXPECT_LT(GHOST_VISIBILITY_DISTANCE, GRID_SIZE);
 }
 
 // ============================================================================
@@ -393,7 +381,7 @@ TEST_F(GhostActorSystemTest, ManyGhostEntitiesPerCell)
     std::vector<GhostEntity> ghosts;
     ghosts.reserve(GHOSTS_PER_CELL);
 
-    uint32_t cellId = (100 << 16) | 100;
+    uint32_t cellId = 30 * GRIDS_PER_DIMENSION + 30;
 
     for (int i = 0; i < GHOSTS_PER_CELL; ++i)
     {
@@ -806,16 +794,8 @@ TEST_F(GhostActorSystemTest, MPSCQueueConcurrentPushPop)
 // Boundary and Corner Position Tests
 // ============================================================================
 
-// Helper to calculate cell ID from world coordinates
-static uint32_t CalcCellId(float worldX, float worldY)
-{
-    uint32_t cellX = static_cast<uint32_t>(CENTER_CELL_OFFSET - (worldX / CELL_SIZE));
-    uint32_t cellY = static_cast<uint32_t>(CENTER_CELL_OFFSET - (worldY / CELL_SIZE));
-    return (cellY << 16) | cellX;
-}
-
-// Helper to get all 8 neighbor cell IDs
-static std::set<uint32_t> GetAllNeighborCellIds(uint32_t cellId)
+// Helper to get all 8 neighbor grid IDs (skips out-of-bounds)
+static std::set<uint32_t> GetAllNeighborGridIds(uint32_t gridId)
 {
     std::set<uint32_t> neighbors;
     static const NeighborFlags directions[] = {
@@ -826,175 +806,162 @@ static std::set<uint32_t> GetAllNeighborCellIds(uint32_t cellId)
     };
     for (auto dir : directions)
     {
-        neighbors.insert(GhostBoundary::GetNeighborCellId(cellId, dir));
+        uint32_t neighbor = GhostBoundary::GetNeighborGridId(gridId, dir);
+        if (neighbor != gridId)  // Out-of-bounds returns self
+            neighbors.insert(neighbor);
     }
     return neighbors;
 }
 
-// Test: Entity exactly at cell boundary (edge) - which cell does it belong to?
-TEST_F(GhostActorSystemTest, BoundaryCellAssignment_Edge)
+// Test: Entity exactly at grid boundary (edge) - which grid does it belong to?
+TEST_F(GhostActorSystemTest, BoundaryGridAssignment_Edge)
 {
-    // Cell boundaries occur at multiples of CELL_SIZE
-    // Entity at exact boundary should deterministically belong to one cell
+    // Grid boundaries occur at multiples of GRID_SIZE
+    // Entity at exact boundary should deterministically belong to one grid
 
-    // Position exactly at a cell boundary on X axis
-    float boundaryX = CELL_SIZE * 2.0f;  // Exact boundary
-    float centerY = CELL_SIZE * 1.5f;     // Center of cell on Y
+    // Position exactly at a grid boundary on X axis
+    float boundaryX = GRID_SIZE * 2.0f;  // Exact boundary
+    float centerY = GRID_SIZE * 1.5f;     // Center of grid on Y
 
-    uint32_t cellAtBoundary = CalcCellId(boundaryX, centerY);
-    uint32_t cellJustBefore = CalcCellId(boundaryX - 0.001f, centerY);
-    uint32_t cellJustAfter = CalcCellId(boundaryX + 0.001f, centerY);
+    uint32_t gridAtBoundary = CalculateGridId(boundaryX, centerY);
+    uint32_t gridJustBefore = CalculateGridId(boundaryX - 0.1f, centerY);
+    uint32_t gridJustAfter = CalculateGridId(boundaryX + 0.1f, centerY);
 
-    // Boundary belongs to one cell, slightly before/after may differ
+    // Boundary belongs to one grid, slightly before/after may differ
     // Key assertion: calculation is deterministic
-    EXPECT_EQ(CalcCellId(boundaryX, centerY), cellAtBoundary);
+    EXPECT_EQ(CalculateGridId(boundaryX, centerY), gridAtBoundary);
 
-    // Positions on opposite sides of boundary should be in different cells
-    // (unless the epsilon is too small to matter)
-    // With our cell size of 66.666, positions 0.002 apart spanning boundary should differ
-    if (cellJustBefore != cellJustAfter)
+    // Positions on opposite sides of boundary should be in different grids
+    if (gridJustBefore != gridJustAfter)
     {
-        // Boundary is between these two cells
-        EXPECT_TRUE(cellAtBoundary == cellJustBefore || cellAtBoundary == cellJustAfter);
+        EXPECT_TRUE(gridAtBoundary == gridJustBefore || gridAtBoundary == gridJustAfter);
     }
 }
 
-// Test: Entity exactly at cell corner (4-cell junction)
-TEST_F(GhostActorSystemTest, BoundaryCellAssignment_Corner)
+// Test: Entity exactly at grid corner (4-grid junction)
+TEST_F(GhostActorSystemTest, BoundaryGridAssignment_Corner)
 {
-    // Corner position where 4 cells meet
-    float cornerX = CELL_SIZE * 3.0f;  // Exact corner on X
-    float cornerY = CELL_SIZE * 3.0f;  // Exact corner on Y
+    // Corner position where 4 grids meet
+    float cornerX = GRID_SIZE * 3.0f;  // Exact corner on X
+    float cornerY = GRID_SIZE * 3.0f;  // Exact corner on Y
 
-    uint32_t cellAtCorner = CalcCellId(cornerX, cornerY);
+    uint32_t gridAtCorner = CalculateGridId(cornerX, cornerY);
 
     // Positions in each of the 4 quadrants around the corner
-    float epsilon = 0.01f;
-    uint32_t cellNE = CalcCellId(cornerX + epsilon, cornerY + epsilon);
-    uint32_t cellNW = CalcCellId(cornerX - epsilon, cornerY + epsilon);
-    uint32_t cellSE = CalcCellId(cornerX + epsilon, cornerY - epsilon);
-    uint32_t cellSW = CalcCellId(cornerX - epsilon, cornerY - epsilon);
+    float epsilon = 1.0f;
+    uint32_t gridNE = CalculateGridId(cornerX + epsilon, cornerY + epsilon);
+    uint32_t gridNW = CalculateGridId(cornerX - epsilon, cornerY + epsilon);
+    uint32_t gridSE = CalculateGridId(cornerX + epsilon, cornerY - epsilon);
+    uint32_t gridSW = CalculateGridId(cornerX - epsilon, cornerY - epsilon);
 
-    // All 4 quadrants should be in different cells
-    std::set<uint32_t> quadrantCells = {cellNE, cellNW, cellSE, cellSW};
-    EXPECT_EQ(quadrantCells.size(), 4u) << "Corner should touch exactly 4 different cells";
+    // All 4 quadrants should be in different grids
+    std::set<uint32_t> quadrantGrids = {gridNE, gridNW, gridSE, gridSW};
+    EXPECT_EQ(quadrantGrids.size(), 4u) << "Corner should touch exactly 4 different grids";
 
-    // The corner itself should belong to one of these 4 cells
-    EXPECT_TRUE(quadrantCells.count(cellAtCorner) == 1)
-        << "Corner position should belong to one of the 4 adjacent cells";
+    // The corner itself should belong to one of these 4 grids
+    EXPECT_TRUE(quadrantGrids.count(gridAtCorner) == 1)
+        << "Corner position should belong to one of the 4 adjacent grids";
 }
 
-// Test: Neighbors of corner cells are correct
-TEST_F(GhostActorSystemTest, CornerCellNeighbors)
+// Test: Neighbors of corner grids are correct
+TEST_F(GhostActorSystemTest, CornerGridNeighbors)
 {
-    // At a corner, entity needs ghosts in at least 3 other cells (the other quadrants)
-    float cornerX = CELL_SIZE * 5.0f;
-    float cornerY = CELL_SIZE * 5.0f;
+    // At a corner, entity needs ghosts in at least 3 other grids
+    float cornerX = GRID_SIZE * 5.0f;
+    float cornerY = GRID_SIZE * 5.0f;
 
-    float epsilon = 0.01f;
-    uint32_t cellNE = CalcCellId(cornerX + epsilon, cornerY + epsilon);
-    uint32_t cellNW = CalcCellId(cornerX - epsilon, cornerY + epsilon);
-    uint32_t cellSE = CalcCellId(cornerX + epsilon, cornerY - epsilon);
-    uint32_t cellSW = CalcCellId(cornerX - epsilon, cornerY - epsilon);
+    float epsilon = 1.0f;
+    uint32_t gridNE = CalculateGridId(cornerX + epsilon, cornerY + epsilon);
+    uint32_t gridNW = CalculateGridId(cornerX - epsilon, cornerY + epsilon);
+    uint32_t gridSE = CalculateGridId(cornerX + epsilon, cornerY - epsilon);
+    uint32_t gridSW = CalculateGridId(cornerX - epsilon, cornerY - epsilon);
 
-    // Verify that each cell can reach the others as neighbors
-    auto neighborsNE = GetAllNeighborCellIds(cellNE);
-    auto neighborsNW = GetAllNeighborCellIds(cellNW);
-    auto neighborsSE = GetAllNeighborCellIds(cellSE);
-    auto neighborsSW = GetAllNeighborCellIds(cellSW);
+    auto neighborsNE = GetAllNeighborGridIds(gridNE);
+    auto neighborsNW = GetAllNeighborGridIds(gridNW);
+    auto neighborsSE = GetAllNeighborGridIds(gridSE);
+    auto neighborsSW = GetAllNeighborGridIds(gridSW);
 
-    // NE cell should have SW, NW, SE as neighbors
-    EXPECT_TRUE(neighborsNE.count(cellSW) == 1) << "NE should neighbor SW (diagonal)";
-    EXPECT_TRUE(neighborsNE.count(cellNW) == 1) << "NE should neighbor NW (west)";
-    EXPECT_TRUE(neighborsNE.count(cellSE) == 1) << "NE should neighbor SE (south)";
+    EXPECT_TRUE(neighborsNE.count(gridSW) == 1) << "NE should neighbor SW (diagonal)";
+    EXPECT_TRUE(neighborsNE.count(gridNW) == 1) << "NE should neighbor NW (west)";
+    EXPECT_TRUE(neighborsNE.count(gridSE) == 1) << "NE should neighbor SE (south)";
 
-    // SW cell should have NE, NW, SE as neighbors
-    EXPECT_TRUE(neighborsSW.count(cellNE) == 1) << "SW should neighbor NE (diagonal)";
-    EXPECT_TRUE(neighborsSW.count(cellNW) == 1) << "SW should neighbor NW (north)";
-    EXPECT_TRUE(neighborsSW.count(cellSE) == 1) << "SW should neighbor SE (east)";
+    EXPECT_TRUE(neighborsSW.count(gridNE) == 1) << "SW should neighbor NE (diagonal)";
+    EXPECT_TRUE(neighborsSW.count(gridNW) == 1) << "SW should neighbor NW (north)";
+    EXPECT_TRUE(neighborsSW.count(gridSE) == 1) << "SW should neighbor SE (east)";
 }
 
-// Test: Entity at edge has correct adjacent cells
-TEST_F(GhostActorSystemTest, EdgeCellNeighbors)
+// Test: Entity at edge has correct adjacent grids
+TEST_F(GhostActorSystemTest, EdgeGridNeighbors)
 {
-    // Entity at east edge of cell (but not at corner)
-    float edgeX = CELL_SIZE * 4.0f;       // Exact edge
-    float centerY = CELL_SIZE * 4.5f;     // Middle of cell on Y axis
+    // Entity at east edge of grid (but not at corner)
+    float edgeX = GRID_SIZE * 4.0f;       // Exact edge
+    float centerY = GRID_SIZE * 4.5f;     // Middle of grid on Y axis
 
-    float epsilon = 0.01f;
-    uint32_t cellWest = CalcCellId(edgeX - epsilon, centerY);  // West of edge
-    uint32_t cellEast = CalcCellId(edgeX + epsilon, centerY);  // East of edge
+    float epsilon = 1.0f;
+    uint32_t gridWest = CalculateGridId(edgeX - epsilon, centerY);
+    uint32_t gridEast = CalculateGridId(edgeX + epsilon, centerY);
 
-    // These should be different cells
-    EXPECT_NE(cellWest, cellEast) << "Cells on opposite sides of edge should differ";
+    EXPECT_NE(gridWest, gridEast) << "Grids on opposite sides of edge should differ";
 
-    // They should be neighbors
-    auto neighborsWest = GetAllNeighborCellIds(cellWest);
-    auto neighborsEast = GetAllNeighborCellIds(cellEast);
+    auto neighborsWest = GetAllNeighborGridIds(gridWest);
+    auto neighborsEast = GetAllNeighborGridIds(gridEast);
 
-    EXPECT_TRUE(neighborsWest.count(cellEast) == 1) << "West cell should have East as neighbor";
-    EXPECT_TRUE(neighborsEast.count(cellWest) == 1) << "East cell should have West as neighbor";
+    EXPECT_TRUE(neighborsWest.count(gridEast) == 1) << "West grid should have East as neighbor";
+    EXPECT_TRUE(neighborsEast.count(gridWest) == 1) << "East grid should have West as neighbor";
 }
 
 // Test: Cross-boundary message routing simulation
-// Simulates player at corner attacking entities in each of the 4 corner cells
+// Simulates player at corner attacking entities in each of the 4 corner grids
 TEST_F(GhostActorSystemTest, CrossBoundaryInteraction_CornerAttack)
 {
     // Player exactly at a corner
-    float cornerX = CELL_SIZE * 6.0f;
-    float cornerY = CELL_SIZE * 6.0f;
+    float cornerX = GRID_SIZE * 6.0f;
+    float cornerY = GRID_SIZE * 6.0f;
 
-    // Player is in one cell (deterministic based on floor())
-    uint32_t playerCellId = CalcCellId(cornerX, cornerY);
+    uint32_t playerGridId = CalculateGridId(cornerX, cornerY);
 
     // Targets in each of the 4 corner quadrants
-    float epsilon = 5.0f;  // 5 yards into each quadrant
-    uint32_t targetCellNE = CalcCellId(cornerX + epsilon, cornerY + epsilon);
-    uint32_t targetCellNW = CalcCellId(cornerX - epsilon, cornerY + epsilon);
-    uint32_t targetCellSE = CalcCellId(cornerX + epsilon, cornerY - epsilon);
-    uint32_t targetCellSW = CalcCellId(cornerX - epsilon, cornerY - epsilon);
+    float epsilon = 5.0f;
+    uint32_t targetGridNE = CalculateGridId(cornerX + epsilon, cornerY + epsilon);
+    uint32_t targetGridNW = CalculateGridId(cornerX - epsilon, cornerY + epsilon);
+    uint32_t targetGridSE = CalculateGridId(cornerX + epsilon, cornerY - epsilon);
+    uint32_t targetGridSW = CalculateGridId(cornerX - epsilon, cornerY - epsilon);
 
-    std::set<uint32_t> targetCells = {targetCellNE, targetCellNW, targetCellSE, targetCellSW};
+    std::set<uint32_t> targetGrids = {targetGridNE, targetGridNW, targetGridSE, targetGridSW};
 
-    // Player's neighbors should include all cells they might interact with
-    auto playerNeighbors = GetAllNeighborCellIds(playerCellId);
+    auto playerNeighbors = GetAllNeighborGridIds(playerGridId);
 
-    // Count how many target cells are reachable as neighbors
     int reachableTargets = 0;
-    for (uint32_t targetCell : targetCells)
+    for (uint32_t targetGrid : targetGrids)
     {
-        if (targetCell == playerCellId || playerNeighbors.count(targetCell) == 1)
-        {
+        if (targetGrid == playerGridId || playerNeighbors.count(targetGrid) == 1)
             ++reachableTargets;
-        }
     }
 
-    // All 4 targets should be reachable (same cell or neighbor)
     EXPECT_EQ(reachableTargets, 4)
-        << "Player at corner should be able to reach all 4 adjacent cells";
+        << "Player at corner should be able to reach all 4 adjacent grids";
 }
 
-// Test: Entity position gives valid local coordinates within cell
-TEST_F(GhostActorSystemTest, LocalPositionWithinCell)
+// Test: Entity position gives valid local coordinates within grid
+TEST_F(GhostActorSystemTest, LocalPositionWithinGrid)
 {
-    // Test that local positions are always within [0, CELL_SIZE)
+    // Test that local positions are always within [0, GRID_SIZE)
     std::vector<std::pair<float, float>> testPositions = {
         {0.0f, 0.0f},
-        {CELL_SIZE * 3.0f - 1.0f, CELL_SIZE * 3.0f - 1.0f},  // Near boundary
-        {CELL_SIZE * 3.0f + 1.0f, CELL_SIZE * 3.0f + 1.0f},  // Just past boundary
+        {GRID_SIZE * 3.0f - 1.0f, GRID_SIZE * 3.0f - 1.0f},  // Near boundary
+        {GRID_SIZE * 3.0f + 1.0f, GRID_SIZE * 3.0f + 1.0f},  // Just past boundary
         {1000.0f, -500.0f},
     };
 
     for (const auto& [worldX, worldY] : testPositions)
     {
         float localX, localY;
-        GhostBoundary::GetPositionInCell(worldX, worldY, localX, localY);
+        GhostBoundary::GetPositionInGrid(worldX, worldY, localX, localY);
 
-        // Local position must be within cell bounds
         EXPECT_GE(localX, 0.0f) << "Local X must be >= 0 for world pos (" << worldX << ", " << worldY << ")";
-        EXPECT_LT(localX, CELL_SIZE) << "Local X must be < CELL_SIZE for world pos (" << worldX << ", " << worldY << ")";
+        EXPECT_LT(localX, GRID_SIZE) << "Local X must be < GRID_SIZE for world pos (" << worldX << ", " << worldY << ")";
         EXPECT_GE(localY, 0.0f) << "Local Y must be >= 0 for world pos (" << worldX << ", " << worldY << ")";
-        EXPECT_LT(localY, CELL_SIZE) << "Local Y must be < CELL_SIZE for world pos (" << worldX << ", " << worldY << ")";
+        EXPECT_LT(localY, GRID_SIZE) << "Local Y must be < GRID_SIZE for world pos (" << worldX << ", " << worldY << ")";
     }
 }
 
@@ -1003,57 +970,59 @@ TEST_F(GhostActorSystemTest, LocalPositionWithinCell)
 TEST_F(GhostActorSystemTest, BoundaryInteractionDistance)
 {
     // Entity A: 2 yards west of boundary
-    float entityAX = CELL_SIZE * 4.0f - 2.0f;
-    float entityAY = CELL_SIZE * 4.5f;
+    float entityAX = GRID_SIZE * 4.0f - 2.0f;
+    float entityAY = GRID_SIZE * 4.5f;
 
     // Entity B: 2 yards east of boundary
-    float entityBX = CELL_SIZE * 4.0f + 2.0f;
-    float entityBY = CELL_SIZE * 4.5f;
+    float entityBX = GRID_SIZE * 4.0f + 2.0f;
+    float entityBY = GRID_SIZE * 4.5f;
 
-    uint32_t cellA = CalcCellId(entityAX, entityAY);
-    uint32_t cellB = CalcCellId(entityBX, entityBY);
+    uint32_t gridA = CalculateGridId(entityAX, entityAY);
+    uint32_t gridB = CalculateGridId(entityBX, entityBY);
 
-    // Should be in different cells
-    EXPECT_NE(cellA, cellB) << "Entities should be in different cells";
+    EXPECT_NE(gridA, gridB) << "Entities should be in different grids";
 
-    // Distance between them is only 4 yards (well within melee range)
     float dx = entityBX - entityAX;
     float dy = entityBY - entityAY;
     float distance = std::sqrt(dx * dx + dy * dy);
     EXPECT_LT(distance, 5.0f) << "Entities should be within melee range";
 
-    // They should be neighbors
-    auto neighborsA = GetAllNeighborCellIds(cellA);
-    EXPECT_TRUE(neighborsA.count(cellB) == 1)
-        << "Cross-boundary entities within melee range must be in neighbor cells";
+    auto neighborsA = GetAllNeighborGridIds(gridA);
+    EXPECT_TRUE(neighborsA.count(gridB) == 1)
+        << "Cross-boundary entities within melee range must be in neighbor grids";
 }
 
-// Test: 8-way neighbor coverage from any position
+// Test: 8-way neighbor coverage from interior positions
 TEST_F(GhostActorSystemTest, AllNeighborsCovered)
 {
-    // From any valid cell, all 8 neighbors should be calculated correctly
-    // Test with various positions across the map
+    // From any interior grid, all 8 neighbors should be calculated correctly
+    // Edge grids may have fewer than 8 neighbors (bounds clamping)
 
     std::vector<std::pair<float, float>> testPositions = {
         {0.0f, 0.0f},           // Map center
         {1000.0f, 1000.0f},     // Positive quadrant
         {-1000.0f, -1000.0f},   // Negative quadrant
         {5000.0f, -3000.0f},    // Mixed
-        {CELL_SIZE * 10.5f, CELL_SIZE * 10.5f},  // Center of a cell
-        {CELL_SIZE * 10.0f, CELL_SIZE * 10.0f},  // At a corner
+        {GRID_SIZE * 10.5f, GRID_SIZE * 10.5f},  // Center of a grid
+        {GRID_SIZE * 10.0f, GRID_SIZE * 10.0f},  // At a corner
     };
 
     for (const auto& [x, y] : testPositions)
     {
-        uint32_t cellId = CalcCellId(x, y);
-        auto neighbors = GetAllNeighborCellIds(cellId);
+        uint32_t gridId = CalculateGridId(x, y);
+        auto neighbors = GetAllNeighborGridIds(gridId);
 
-        // Should always have exactly 8 unique neighbors
-        EXPECT_EQ(neighbors.size(), 8u)
-            << "Position (" << x << ", " << y << ") should have 8 neighbors";
+        // Interior grids should have exactly 8 unique neighbors
+        uint32_t gx, gy;
+        ExtractGridCoords(gridId, gx, gy);
+        if (gx > 0 && gx < GRIDS_PER_DIMENSION - 1 && gy > 0 && gy < GRIDS_PER_DIMENSION - 1)
+        {
+            EXPECT_EQ(neighbors.size(), 8u)
+                << "Interior grid (" << gx << ", " << gy << ") should have 8 neighbors";
+        }
 
-        // No neighbor should be the same as the home cell
-        EXPECT_EQ(neighbors.count(cellId), 0u)
-            << "Home cell should not be in neighbor list";
+        // No neighbor should be the same as the home grid
+        EXPECT_EQ(neighbors.count(gridId), 0u)
+            << "Home grid should not be in neighbor list";
     }
 }

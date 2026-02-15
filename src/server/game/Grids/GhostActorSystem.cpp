@@ -2034,25 +2034,25 @@ void GhostEntity::RecalculateAuraState()
 
 CellActorManager::CellActorManager(Map* map)
     : _map(map)
-    , _cellActors(new CellActor*[TOTAL_CELLS])
+    , _cellActors(new CellActor*[TOTAL_GRIDS])
 {
-    // Pre-allocate all cells for lock-free O(1) access
+    // Pre-allocate all grids for lock-free O(1) access (64x64 = 4,096)
     // Using raw pointers eliminates unique_ptr::get() overhead on hot path
-    for (uint32_t y = 0; y < CELLS_PER_DIMENSION; ++y)
+    for (uint32_t y = 0; y < GRIDS_PER_DIMENSION; ++y)
     {
-        for (uint32_t x = 0; x < CELLS_PER_DIMENSION; ++x)
+        for (uint32_t x = 0; x < GRIDS_PER_DIMENSION; ++x)
         {
-            uint32_t index = (y << 9) + x;  // y * 512 + x using shift
-            uint32_t cellId = MakeCellId(x, y);
-            _cellActors[index] = new CellActor(cellId, map);
+            uint32_t index = y * GRIDS_PER_DIMENSION + x;
+            uint32_t gridId = MakeGridId(x, y);
+            _cellActors[index] = new CellActor(gridId, map);
         }
     }
 }
 
 CellActorManager::~CellActorManager()
 {
-    // Clean up all allocated cells
-    for (uint32_t i = 0; i < TOTAL_CELLS; ++i)
+    // Clean up all allocated grids
+    for (uint32_t i = 0; i < TOTAL_GRIDS; ++i)
     {
         delete _cellActors[i];
     }
@@ -2063,13 +2063,8 @@ CellActorManager::~CellActorManager()
 
 CellActor* CellActorManager::GetCellActorForPosition(float x, float y)
 {
-    constexpr float kCellSize = 66.6666f;
-    constexpr float kCenterCellOffset = 256.0f;
-
-    uint32_t cellX = static_cast<uint32_t>((kCenterCellOffset - (x / kCellSize)));
-    uint32_t cellY = static_cast<uint32_t>((kCenterCellOffset - (y / kCellSize)));
-
-    return GetCellActor(cellX, cellY);
+    uint32_t gridId = CalculateGridId(x, y);
+    return _cellActors[gridId];
 }
 
 void CellActorManager::Update(uint32_t diff)
@@ -2082,7 +2077,7 @@ void CellActorManager::Update(uint32_t diff)
     if (!_workPool)
     {
         // Single-threaded path: iterate all cells, skip inactive
-        for (uint32_t i = 0; i < TOTAL_CELLS; ++i)
+        for (uint32_t i = 0; i < TOTAL_GRIDS; ++i)
         {
             CellActor* cell = _cellActors[i];
             if (cell && cell->IsActive() && cell->HasWork())
@@ -2092,7 +2087,7 @@ void CellActorManager::Update(uint32_t diff)
     else
     {
         // Parallel path: submit active cells to work pool
-        for (uint32_t i = 0; i < TOTAL_CELLS; ++i)
+        for (uint32_t i = 0; i < TOTAL_GRIDS; ++i)
         {
             CellActor* cell = _cellActors[i];
             if (cell && cell->IsActive() && cell->HasWork())
@@ -2121,12 +2116,9 @@ void CellActorManager::Update(uint32_t diff)
 
 void CellActorManager::SendMessage(uint32_t targetCellId, ActorMessage msg)
 {
-    uint32_t cellX, cellY;
-    ExtractCellCoords(targetCellId, cellX, cellY);
-    uint32_t index = CellIndex(cellX, cellY);
-    if (index < TOTAL_CELLS && _cellActors[index])
+    if (targetCellId < TOTAL_GRIDS && _cellActors[targetCellId])
     {
-        _cellActors[index]->SendMessage(std::move(msg));
+        _cellActors[targetCellId]->SendMessage(std::move(msg));
     }
 }
 
@@ -2135,16 +2127,7 @@ void CellActorManager::OnEntityAdded(WorldObject* obj)
     if (!obj)
         return;
 
-    float x = obj->GetPositionX();
-    float y = obj->GetPositionY();
-
-    constexpr float kCellSize = 66.6666f;
-    constexpr float kCenterCellOffset = 256.0f;
-
-    uint32_t cellX = static_cast<uint32_t>((kCenterCellOffset - (x / kCellSize)));
-    uint32_t cellY = static_cast<uint32_t>((kCenterCellOffset - (y / kCellSize)));
-
-    CellActor* cell = GetOrCreateCellActor(cellX, cellY);
+    CellActor* cell = GetCellActorForPosition(obj->GetPositionX(), obj->GetPositionY());
     cell->AddEntity(obj);
 
     if (obj->IsGameObject())
@@ -2177,23 +2160,18 @@ void CellActorManager::OnEntityMoved(WorldObject* obj, float oldX, float oldY)
     if (!obj)
         return;
 
-    constexpr float kCellSize = 66.6666f;
-    constexpr float kCenterCellOffset = 256.0f;
-
-    // Calculate old and new cell positions
-    uint32_t oldCellX = static_cast<uint32_t>((kCenterCellOffset - (oldX / kCellSize)));
-    uint32_t oldCellY = static_cast<uint32_t>((kCenterCellOffset - (oldY / kCellSize)));
+    // Calculate old and new grid IDs
+    uint32_t oldGridId = CalculateGridId(oldX, oldY);
 
     float newX = obj->GetPositionX();
     float newY = obj->GetPositionY();
-    uint32_t newCellX = static_cast<uint32_t>((kCenterCellOffset - (newX / kCellSize)));
-    uint32_t newCellY = static_cast<uint32_t>((kCenterCellOffset - (newY / kCellSize)));
+    uint32_t newGridId = CalculateGridId(newX, newY);
 
-    // If cell changed, transfer entity
-    if (oldCellX != newCellX || oldCellY != newCellY)
+    // If grid changed, transfer entity
+    if (oldGridId != newGridId)
     {
-        CellActor* oldCell = GetCellActor(oldCellX, oldCellY);
-        CellActor* newCell = GetOrCreateCellActor(newCellX, newCellY);
+        CellActor* oldCell = _cellActors[oldGridId];
+        CellActor* newCell = _cellActors[newGridId];
 
         if (oldCell)
         {
@@ -2203,8 +2181,8 @@ void CellActorManager::OnEntityMoved(WorldObject* obj, float oldX, float oldY)
             ActorMessage msg;
             msg.type = MessageType::ENTITY_LEAVING;
             msg.sourceGuid = obj->GetGUID().GetRawValue();
-            msg.sourceCellId = MakeCellId(oldCellX, oldCellY);
-            msg.targetCellId = MakeCellId(newCellX, newCellY);
+            msg.sourceCellId = oldGridId;
+            msg.targetCellId = newGridId;
             oldCell->SendMessage(std::move(msg));
         }
 
@@ -2214,8 +2192,8 @@ void CellActorManager::OnEntityMoved(WorldObject* obj, float oldX, float oldY)
         ActorMessage enterMsg;
         enterMsg.type = MessageType::ENTITY_ENTERING;
         enterMsg.sourceGuid = obj->GetGUID().GetRawValue();
-        enterMsg.sourceCellId = MakeCellId(oldCellX, oldCellY);
-        enterMsg.targetCellId = MakeCellId(newCellX, newCellY);
+        enterMsg.sourceCellId = oldGridId;
+        enterMsg.targetCellId = newGridId;
         enterMsg.floatParam1 = newX;
         enterMsg.floatParam2 = newY;
         enterMsg.floatParam3 = obj->GetPositionZ();
@@ -2266,11 +2244,7 @@ void CellActorManager::UpdateEntityGhosts(WorldObject* obj)
     float x = obj->GetPositionX();
     float y = obj->GetPositionY();
 
-    constexpr float kCellSize = 66.6666f;
-    constexpr float kCenterCellOffset = 256.0f;
-    uint32_t cellX = static_cast<uint32_t>((kCenterCellOffset - (x / kCellSize)));
-    uint32_t cellY = static_cast<uint32_t>((kCenterCellOffset - (y / kCellSize)));
-    uint32_t homeCellId = MakeCellId(cellX, cellY);
+    uint32_t homeCellId = CalculateGridId(x, y);
 
     // Determine which neighbors need ghosts
     NeighborFlags neededGhosts = GhostBoundary::GetNeighborsNeedingGhosts(x, y);
@@ -2547,10 +2521,8 @@ void CellActorManager::BroadcastToGhosts(uint64_t guid, const ActorMessage& msg)
 
 void CellActorManager::CreateGhostInCell(uint32_t cellId, const GhostSnapshot& snapshot, uint32_t ownerCellId)
 {
-    // Ensure target cell exists (ghosts need somewhere to live)
-    uint32_t cellX, cellY;
-    ExtractCellCoords(cellId, cellX, cellY);
-    GetOrCreateCellActor(cellX, cellY);
+    // Ensure target grid exists (ghosts need somewhere to live)
+    // Grid ID is the array index directly for 64x64 grids
 
     ActorMessage msg;
     msg.type = MessageType::GHOST_CREATE;
@@ -2679,24 +2651,17 @@ void CellActorManager::CheckAndInitiateMigration(WorldObject* obj, float oldX, f
     if (IsEntityMigrating(guid))
         return;
 
-    constexpr float kCellSize = 66.6666f;
-    constexpr float kCenterCellOffset = 256.0f;
-
-    // Calculate old and new cell IDs
-    uint32_t oldCellX = static_cast<uint32_t>((kCenterCellOffset - (oldX / kCellSize)));
-    uint32_t oldCellY = static_cast<uint32_t>((kCenterCellOffset - (oldY / kCellSize)));
-    uint32_t oldCellId = MakeCellId(oldCellX, oldCellY);
+    // Calculate old and new grid IDs
+    uint32_t oldGridId = CalculateGridId(oldX, oldY);
 
     float newX = obj->GetPositionX();
     float newY = obj->GetPositionY();
-    uint32_t newCellX = static_cast<uint32_t>((kCenterCellOffset - (newX / kCellSize)));
-    uint32_t newCellY = static_cast<uint32_t>((kCenterCellOffset - (newY / kCellSize)));
-    uint32_t newCellId = MakeCellId(newCellX, newCellY);
+    uint32_t newGridId = CalculateGridId(newX, newY);
 
-    // Check if cell boundary was crossed
-    if (oldCellId != newCellId)
+    // Check if grid boundary was crossed
+    if (oldGridId != newGridId)
     {
-        InitiateMigration(obj, oldCellId, newCellId);
+        InitiateMigration(obj, oldGridId, newGridId);
     }
 }
 
@@ -2750,10 +2715,8 @@ void CellActorManager::ProcessMigrationRequest(const ActorMessage& msg)
     uint32_t oldCellId = msg.sourceCellId;
     uint32_t newCellId = msg.targetCellId;
 
-    // Create the cell actor for the new cell if needed
-    uint32_t gridX, gridY;
-    ExtractCellCoords(newCellId, gridX, gridY);
-    CellActor* newCell = GetOrCreateCellActor(gridX, gridY);
+    // Grid ID is the array index directly — cell is already pre-allocated
+    CellActor* newCell = _cellActors[newCellId];
 
     // Accept the migration - entity will be added here
     // In a full implementation, we'd reconstruct the entity from the snapshot
@@ -2940,13 +2903,7 @@ void CellActorManager::UpdateMigrations(uint32_t /*diff*/)
 
 uint32_t CellActorManager::GetCellIdForPosition(float x, float y) const
 {
-    constexpr float kCellSize = 66.6666f;
-    constexpr float kCenterCellOffset = 256.0f;
-
-    uint32_t cellX = static_cast<uint32_t>((kCenterCellOffset - (x / kCellSize)));
-    uint32_t cellY = static_cast<uint32_t>((kCenterCellOffset - (y / kCellSize)));
-
-    return MakeCellId(cellX, cellY);
+    return CalculateGridId(x, y);
 }
 
 uint32_t CellActorManager::GetCellIdForEntity(WorldObject* obj) const
@@ -2978,47 +2935,49 @@ std::vector<uint32_t> CellActorManager::GetCellsInRadius(float x, float y, float
 {
     std::vector<uint32_t> cells;
 
-    // Convert center position to cell coordinates
-    constexpr float kCellSize = 66.6666f;
-    constexpr float kCenterCellOffset = 256.0f;
-
-    // Calculate how many cells the radius spans
+    // Calculate how many grids the radius spans
     // +1 to be conservative and catch edge cases
-    int32_t cellRadius = static_cast<int32_t>(std::ceil(radius / kCellSize)) + 1;
+    int32_t gridRadius = static_cast<int32_t>(std::ceil(radius / GRID_SIZE)) + 1;
 
-    // Get center cell coordinates
-    int32_t centerCellX = static_cast<int32_t>((kCenterCellOffset - (x / kCellSize)));
-    int32_t centerCellY = static_cast<int32_t>((kCenterCellOffset - (y / kCellSize)));
+    // Get center grid coordinates
+    uint32_t centerGridId = CalculateGridId(x, y);
+    uint32_t centerGridX, centerGridY;
+    ExtractGridCoords(centerGridId, centerGridX, centerGridY);
+    int32_t cx = static_cast<int32_t>(centerGridX);
+    int32_t cy = static_cast<int32_t>(centerGridY);
 
-    // Iterate through potential cells in a square around center
-    for (int32_t dy = -cellRadius; dy <= cellRadius; ++dy)
+    constexpr float CENTER = GRIDS_PER_DIMENSION / 2.0f;
+
+    // Iterate through potential grids in a square around center
+    for (int32_t dy = -gridRadius; dy <= gridRadius; ++dy)
     {
-        for (int32_t dx = -cellRadius; dx <= cellRadius; ++dx)
+        for (int32_t dx = -gridRadius; dx <= gridRadius; ++dx)
         {
-            int32_t cellX = centerCellX + dx;
-            int32_t cellY = centerCellY + dy;
+            int32_t gx = cx + dx;
+            int32_t gy = cy + dy;
 
-            // Skip invalid cell coordinates
-            if (cellX < 0 || cellY < 0 || cellX >= 512 || cellY >= 512)
+            // Skip invalid grid coordinates
+            if (gx < 0 || gy < 0 || gx >= static_cast<int32_t>(GRIDS_PER_DIMENSION) ||
+                gy >= static_cast<int32_t>(GRIDS_PER_DIMENSION))
                 continue;
 
-            // Calculate center of this cell in world coords
-            float cellCenterX = (kCenterCellOffset - cellX - 0.5f) * kCellSize;
-            float cellCenterY = (kCenterCellOffset - cellY - 0.5f) * kCellSize;
+            // Calculate center of this grid in world coords
+            float gridCenterX = (CENTER - gx - 0.5f) * GRID_SIZE;
+            float gridCenterY = (CENTER - gy - 0.5f) * GRID_SIZE;
 
-            // Check if any part of the cell is within radius
-            // Use distance to closest point in cell (clamped)
-            float closestX = std::max(cellCenterX - kCellSize / 2.0f,
-                             std::min(x, cellCenterX + kCellSize / 2.0f));
-            float closestY = std::max(cellCenterY - kCellSize / 2.0f,
-                             std::min(y, cellCenterY + kCellSize / 2.0f));
+            // Check if any part of the grid is within radius
+            // Use distance to closest point in grid (clamped)
+            float closestX = std::max(gridCenterX - GRID_SIZE / 2.0f,
+                             std::min(x, gridCenterX + GRID_SIZE / 2.0f));
+            float closestY = std::max(gridCenterY - GRID_SIZE / 2.0f,
+                             std::min(y, gridCenterY + GRID_SIZE / 2.0f));
 
             float distSq = (closestX - x) * (closestX - x) + (closestY - y) * (closestY - y);
 
             if (distSq <= radius * radius)
             {
-                cells.push_back(MakeCellId(static_cast<uint32_t>(cellX),
-                                          static_cast<uint32_t>(cellY)));
+                cells.push_back(static_cast<uint32_t>(gy) * GRIDS_PER_DIMENSION +
+                                static_cast<uint32_t>(gx));
             }
         }
     }

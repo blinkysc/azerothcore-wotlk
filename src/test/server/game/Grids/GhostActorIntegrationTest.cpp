@@ -3242,22 +3242,14 @@ TEST_F(GhostActorIntegrationTest, SpellCastInterruptSequence)
 TEST_F(GhostActorIntegrationTest, RemoveEntityDuringIteration)
 {
     // Test: Removing an entity while iterating _entities doesn't crash
-    constexpr uint64_t CREATURE1_GUID = 1001;
-    constexpr uint64_t CREATURE2_GUID = 1002;
-    constexpr uint64_t CREATURE3_GUID = 1003;
-
-    HarnessA().AddCreature(CREATURE1_GUID, 100);
-    HarnessA().AddCreature(CREATURE2_GUID, 100);
-    HarnessA().AddCreature(CREATURE3_GUID, 100);
+    HarnessA().AddCreature(1001, 100);
+    TestCreature* creature2 = HarnessA().AddCreature(1002, 100);
+    HarnessA().AddCreature(1003, 100);
 
     EXPECT_EQ(GetCellA()->GetEntityCount(), 3u);
 
-    // Simulate removal during update (deferred)
-    WorldObject* entity2 = GetCellA()->FindEntityByGuid(CREATURE2_GUID);
-    ASSERT_NE(entity2, nullptr);
-
     // Remove while not updating - should be immediate
-    GetCellA()->RemoveEntity(entity2);
+    GetCellA()->RemoveEntity(creature2);
     EXPECT_EQ(GetCellA()->GetEntityCount(), 2u);
 
     // THEN: No crash and entity count is correct
@@ -3305,33 +3297,27 @@ TEST_F(GhostActorIntegrationTest, MultipleEntitiesRemovedDuringUpdate)
 TEST_F(GhostActorIntegrationTest, EntityRemovedThenAddedBack)
 {
     // Test: Entity can be removed and re-added
-    constexpr uint64_t CREATURE_GUID = 1001;
-
-    HarnessA().AddCreature(CREATURE_GUID, 100);
-    WorldObject* entity = GetCellA()->FindEntityByGuid(CREATURE_GUID);
-    ASSERT_NE(entity, nullptr);
+    TestCreature* creature = HarnessA().AddCreature(1001, 100);
+    uint64_t rawGuid = creature->GetGUID().GetRawValue();
 
     // Remove
-    GetCellA()->RemoveEntity(entity);
+    GetCellA()->RemoveEntity(creature);
     EXPECT_EQ(GetCellA()->GetEntityCount(), 0u);
-    EXPECT_EQ(GetCellA()->FindEntityByGuid(CREATURE_GUID), nullptr);
+    EXPECT_EQ(GetCellA()->FindEntityByGuid(rawGuid), nullptr);
 
     // Add back
-    GetCellA()->AddEntity(entity);
+    GetCellA()->AddEntity(creature);
     EXPECT_EQ(GetCellA()->GetEntityCount(), 1u);
-    EXPECT_NE(GetCellA()->FindEntityByGuid(CREATURE_GUID), nullptr);
+    EXPECT_NE(GetCellA()->FindEntityByGuid(rawGuid), nullptr);
 }
 
 TEST_F(GhostActorIntegrationTest, CellBecomesInactiveWhenEmpty)
 {
     // Test: Cell active flag is cleared when last entity is removed
-    constexpr uint64_t CREATURE_GUID = 1001;
-
-    HarnessA().AddCreature(CREATURE_GUID, 100);
+    TestCreature* creature = HarnessA().AddCreature(1001, 100);
     EXPECT_TRUE(GetCellA()->IsActive());
 
-    WorldObject* entity = GetCellA()->FindEntityByGuid(CREATURE_GUID);
-    GetCellA()->RemoveEntity(entity);
+    GetCellA()->RemoveEntity(creature);
 
     EXPECT_EQ(GetCellA()->GetEntityCount(), 0u);
     EXPECT_FALSE(GetCellA()->IsActive());
@@ -3340,27 +3326,29 @@ TEST_F(GhostActorIntegrationTest, CellBecomesInactiveWhenEmpty)
 TEST_F(GhostActorIntegrationTest, FindEntityByGuidReturnsCorrectEntity)
 {
     // Test: FindEntityByGuid works correctly with multiple entities
-    constexpr uint64_t GUID1 = 1001;
-    constexpr uint64_t GUID2 = 1002;
-    constexpr uint64_t GUID3 = 1003;
+    // Note: FindEntityByGuid matches on the full packed ObjectGuid raw value,
+    // not just the counter. Use GetGUID().GetRawValue() for lookups.
+    TestCreature* c1 = HarnessA().AddCreature(1001, 100);
+    TestCreature* c2 = HarnessA().AddCreature(1002, 200);
+    TestCreature* c3 = HarnessA().AddCreature(1003, 300);
 
-    HarnessA().AddCreature(GUID1, 100);
-    HarnessA().AddCreature(GUID2, 200);
-    HarnessA().AddCreature(GUID3, 300);
+    uint64_t rawGuid1 = c1->GetGUID().GetRawValue();
+    uint64_t rawGuid2 = c2->GetGUID().GetRawValue();
+    uint64_t rawGuid3 = c3->GetGUID().GetRawValue();
 
-    WorldObject* found1 = GetCellA()->FindEntityByGuid(GUID1);
-    WorldObject* found2 = GetCellA()->FindEntityByGuid(GUID2);
-    WorldObject* found3 = GetCellA()->FindEntityByGuid(GUID3);
+    WorldObject* found1 = GetCellA()->FindEntityByGuid(rawGuid1);
+    WorldObject* found2 = GetCellA()->FindEntityByGuid(rawGuid2);
+    WorldObject* found3 = GetCellA()->FindEntityByGuid(rawGuid3);
     WorldObject* notFound = GetCellA()->FindEntityByGuid(9999);
 
-    EXPECT_NE(found1, nullptr);
-    EXPECT_NE(found2, nullptr);
-    EXPECT_NE(found3, nullptr);
+    ASSERT_NE(found1, nullptr);
+    ASSERT_NE(found2, nullptr);
+    ASSERT_NE(found3, nullptr);
     EXPECT_EQ(notFound, nullptr);
 
-    EXPECT_EQ(found1->GetGUID().GetRawValue(), GUID1);
-    EXPECT_EQ(found2->GetGUID().GetRawValue(), GUID2);
-    EXPECT_EQ(found3->GetGUID().GetRawValue(), GUID3);
+    EXPECT_EQ(found1, c1);
+    EXPECT_EQ(found2, c2);
+    EXPECT_EQ(found3, c3);
 }
 
 // =============================================================================

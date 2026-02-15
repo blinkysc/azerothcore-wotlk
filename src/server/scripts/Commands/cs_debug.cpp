@@ -1504,26 +1504,26 @@ public:
             return false;
         }
 
-        uint32_t playerCellId = GhostActor::CalculateCellId(player->GetPositionX(), player->GetPositionY());
-        uint32_t targetCellId = GhostActor::CalculateCellId(target->GetPositionX(), target->GetPositionY());
-        uint32_t cellX, cellY;
-        GhostActor::ExtractCellCoords(targetCellId, cellX, cellY);
+        uint32_t playerGridId = GhostActor::CalculateGridId(player->GetPositionX(), player->GetPositionY());
+        uint32_t targetGridId = GhostActor::CalculateGridId(target->GetPositionX(), target->GetPositionY());
+        uint32_t gridX, gridY;
+        GhostActor::ExtractGridCoords(targetGridId, gridX, gridY);
 
-        handler->SendSysMessage("=== Cell Info ===");
+        handler->SendSysMessage("=== Grid Info ===");
         handler->PSendSysMessage("Target: {} (GUID: 0x{:016X})",
             target->GetName(), target->GetGUID().GetRawValue());
         handler->PSendSysMessage("Position: ({:.2f}, {:.2f}, {:.2f})",
             target->GetPositionX(), target->GetPositionY(), target->GetPositionZ());
-        handler->PSendSysMessage("Cell ID: 0x{:08X} ({}, {})", targetCellId, cellX, cellY);
+        handler->PSendSysMessage("Grid ID: {} ({}, {})", targetGridId, gridX, gridY);
         handler->PSendSysMessage("Map: {} ({})", map->GetMapName(), map->GetId());
 
         if (target != player)
-            handler->PSendSysMessage("Same Cell as You: {}", playerCellId == targetCellId ? "Yes" : "No");
+            handler->PSendSysMessage("Same Grid as You: {}", playerGridId == targetGridId ? "Yes" : "No");
 
         GhostActor::CellActorManager* cellMgr = map->GetCellActorManager();
         if (cellMgr)
         {
-            GhostActor::CellActor* cell = cellMgr->GetCell(targetCellId);
+            GhostActor::CellActor* cell = cellMgr->GetCell(targetGridId);
             if (cell)
             {
                 handler->PSendSysMessage("Entity Count: {}", cell->GetEntityCount());
@@ -1566,8 +1566,8 @@ public:
             return false;
         }
 
-        uint32_t playerCellId = GhostActor::CalculateCellId(player->GetPositionX(), player->GetPositionY());
-        uint32_t targetCellId = GhostActor::CalculateCellId(target->GetPositionX(), target->GetPositionY());
+        uint32_t playerGridId = GhostActor::CalculateGridId(player->GetPositionX(), player->GetPositionY());
+        uint32_t targetGridId = GhostActor::CalculateGridId(target->GetPositionX(), target->GetPositionY());
 
         GhostActor::CellActorManager* cellMgr = map->GetCellActorManager();
         if (!cellMgr)
@@ -1576,14 +1576,14 @@ public:
             return true;
         }
 
-        // Check if the entity appears as a ghost in the player's cell
-        GhostActor::CellActor* playerCell = cellMgr->GetCell(playerCellId);
+        // Check if the entity appears as a ghost in the player's grid
+        GhostActor::CellActor* playerCell = cellMgr->GetCell(playerGridId);
         GhostActor::GhostEntity* ghost = playerCell ? playerCell->GetGhost(target->GetGUID().GetRawValue()) : nullptr;
 
         handler->SendSysMessage("=== Ghost Entity Info ===");
         handler->PSendSysMessage("Entity: {} (GUID: 0x{:016X})",
             target->GetName(), target->GetGUID().GetRawValue());
-        handler->PSendSysMessage("Cell ID: 0x{:08X}", targetCellId);
+        handler->PSendSysMessage("Grid ID: {}", targetGridId);
         handler->PSendSysMessage("Health: {}/{}", target->GetHealth(), target->GetMaxHealth());
 
         if (ghost)
@@ -1596,8 +1596,8 @@ public:
             handler->SendSysMessage("Viewing As: Real entity");
         }
 
-        // Count actual ghosts in neighbor cells
-        std::vector<uint32_t> neighbors = cellMgr->GetNeighborCellIds(targetCellId);
+        // Count actual ghosts in neighbor grids
+        std::vector<uint32_t> neighbors = cellMgr->GetNeighborCellIds(targetGridId);
         size_t actualGhostCount = 0;
         size_t existingCellCount = 0;
         for (uint32_t neighborId : neighbors)
@@ -1676,9 +1676,9 @@ public:
             return false;
         }
 
-        uint32_t cellId = GhostActor::CalculateCellId(player->GetPositionX(), player->GetPositionY());
-        uint32_t cellX, cellY;
-        GhostActor::ExtractCellCoords(cellId, cellX, cellY);
+        uint32_t gridId = GhostActor::CalculateGridId(player->GetPositionX(), player->GetPositionY());
+        uint32_t gridX, gridY;
+        GhostActor::ExtractGridCoords(gridId, gridX, gridY);
 
         GhostActor::CellActorManager* cellMgr = map->GetCellActorManager();
         if (!cellMgr)
@@ -1687,7 +1687,7 @@ public:
             return true;
         }
 
-        handler->PSendSysMessage("=== Neighbor Cells for ({}, {}) ===", cellX, cellY);
+        handler->PSendSysMessage("=== Neighbor Grids for ({}, {}) ===", gridX, gridY);
 
         // Direction labels for the 8 neighbors
         static const char* directions[] = { "NW", "N ", "NE", "W ", "E ", "SW", "S ", "SE" };
@@ -1699,9 +1699,15 @@ public:
 
         for (int i = 0; i < 8; ++i)
         {
-            uint32_t nx = cellX + offsets[i][0];
-            uint32_t ny = cellY + offsets[i][1];
-            uint32_t neighborId = (ny << 16) | nx;
+            int32_t nx = static_cast<int32_t>(gridX) + offsets[i][0];
+            int32_t ny = static_cast<int32_t>(gridY) + offsets[i][1];
+
+            if (nx < 0 || nx >= static_cast<int32_t>(GhostActor::GRIDS_PER_DIMENSION) ||
+                ny < 0 || ny >= static_cast<int32_t>(GhostActor::GRIDS_PER_DIMENSION))
+                continue;
+
+            uint32_t neighborId = static_cast<uint32_t>(ny) * GhostActor::GRIDS_PER_DIMENSION +
+                                  static_cast<uint32_t>(nx);
 
             GhostActor::CellActor* neighborCell = cellMgr->GetCell(neighborId);
             if (neighborCell)
@@ -1785,21 +1791,21 @@ public:
 
         auto hotspots = cellMgr->GetHotspotCells(5);
 
-        handler->SendSysMessage("=== Hotspot Cells ===");
+        handler->SendSysMessage("=== Hotspot Grids ===");
         int rank = 1;
-        for (const auto& [cellId, msgCount] : hotspots)
+        for (const auto& [gridId, msgCount] : hotspots)
         {
-            uint32_t cellX = cellId & 0xFFFF;
-            uint32_t cellY = cellId >> 16;
-            GhostActor::CellActor* cell = cellMgr->GetCell(cellId);
+            uint32_t gx = gridId % GhostActor::GRIDS_PER_DIMENSION;
+            uint32_t gy = gridId / GhostActor::GRIDS_PER_DIMENSION;
+            GhostActor::CellActor* cell = cellMgr->GetCell(gridId);
             size_t entities = cell ? cell->GetEntityCount() : 0;
 
             handler->PSendSysMessage("{}. ({}, {}): {} entities, {} msgs/tick",
-                rank++, cellX, cellY, entities, msgCount);
+                rank++, gx, gy, entities, msgCount);
         }
 
         if (hotspots.empty())
-            handler->SendSysMessage("No active cells.");
+            handler->SendSysMessage("No active grids.");
 
         return true;
     }
