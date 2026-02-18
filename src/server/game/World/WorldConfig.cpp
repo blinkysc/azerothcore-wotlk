@@ -674,4 +674,8 @@ void WorldConfig::BuildConfigCache()
     SetConfigValue<uint32>(CONFIG_SCOURGEINVASION_COUNTER_THIRD, "ScourgeInvasion.CounterThird", 150);
 
     SetConfigValue<std::string>(CONFIG_NEW_CHAR_STRING, "PlayerStart.String", "");
+
+    // Ghost Actor System: Parallel entity updates
+    // Enables cell-aware threat, parallel AI, and message-based cross-cell operations.
+    SetConfigValue<bool>(CONFIG_PARALLEL_UPDATES_ENABLED, "GhostActorSystem.Enable", false);
 }

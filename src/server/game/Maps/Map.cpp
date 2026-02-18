@@ -23,6 +23,7 @@
 #include "DynamicTree.h"
 #include "GameTime.h"
 #include "Geometry.h"
+#include "GhostActorSystem.h"
 #include "GridNotifiers.h"
 #include "Group.h"
 #include "InstanceScript.h"
@@ -30,6 +31,8 @@
 #include "LFGMgr.h"
 #include "MapGrid.h"
 #include "MapInstanced.h"
+#include "MapMgr.h"
+#include "MapUpdater.h"
 #include "Metric.h"
 #include "MiscPackets.h"
 #include "MMapFactory.h"
@@ -81,16 +84,39 @@ Map::Map(uint32 id, uint32 InstanceId, uint8 SpawnMode, Map* _parent) :
 
     _weatherUpdateTimer.SetInterval(1 * IN_MILLISECONDS);
     _corpseUpdateTimer.SetInterval(20 * MINUTE * IN_MILLISECONDS);
+
+    // Ghost Actor System - initialized in OnCreateMap() after map is fully set up
 }
 
 // Hook called after map is created AND after added to map list
 void Map::OnCreateMap()
 {
+    // Initialize Ghost Actor System now that map is fully constructed
+    _cellActorManager = std::make_unique<GhostActor::CellActorManager>(this);
+
+    // Phase 7C: Connect to WorkStealingPool for parallel cell updates
+    if (MapUpdater* updater = sMapMgr->GetMapUpdater())
+    {
+        if (WorkStealingPool* pool = updater->GetPool())
+        {
+            _cellActorManager->SetWorkPool(pool);
+        }
+    }
+
     // Instances load all grids by default (both base map and child maps)
     if (GetInstanceId())
         LoadAllGrids();
 
     sScriptMgr->OnCreateMap(this);
+}
+
+void Map::InitCellActorManager()
+{
+    // Simplified init for derived classes (e.g., TestMap) without MapUpdater/pool dependency
+    if (!_cellActorManager)
+    {
+        _cellActorManager = std::make_unique<GhostActor::CellActorManager>(this);
+    }
 }
 
 void Map::InitVisibilityDistance()
@@ -139,6 +165,10 @@ void Map::AddToGrid(GameObject* obj, Cell const& cell)
         grid->AddFarVisibleObject(cell.CellX(), cell.CellY(), obj);
 
     obj->SetCurrentCell(cell);
+
+    // Phase 7A: Add to cell actor manager for cell-based updates
+    if (_cellActorManager)
+        _cellActorManager->OnEntityAdded(obj);
 }
 
 template<>
@@ -446,7 +476,8 @@ void Map::Update(const uint32 t_diff, const uint32 s_diff, bool  /*thread*/)
             session->Update(s_diff, updater);
 
             // update players at tick
-            if (!t_diff)
+            // Phase 7H: Skip cell-managed players (they update in CellActorManager)
+            if (!t_diff && !player->IsCellManaged())
                 player->Update(s_diff);
         }
     }
@@ -470,7 +501,9 @@ void Map::Update(const uint32 t_diff, const uint32 s_diff, bool  /*thread*/)
         if (!player || !player->IsInWorld())
             continue;
 
-        player->Update(s_diff);
+        // Phase 7H: Skip cell-managed players (they update in CellActorManager)
+        if (!player->IsCellManaged())
+            player->Update(s_diff);
 
         if (_updatableObjectListRecheckTimer.Passed())
         {
@@ -488,6 +521,10 @@ void Map::Update(const uint32 t_diff, const uint32 s_diff, bool  /*thread*/)
     }
 
     UpdateNonPlayerObjects(t_diff);
+
+    // Process cell actor messages
+    if (_cellActorManager)
+        _cellActorManager->Update(t_diff);
 
     SendObjectUpdates();
 
@@ -536,6 +573,14 @@ void Map::UpdateNonPlayerObjects(uint32 const diff)
                 continue;
             }
 
+            // Phase 7A/7F: Skip cell-managed objects (updated by CellActor)
+            // GameObjects always, Creatures when parallel updates enabled
+            if (_cellActorManager && _cellActorManager->IsCellManaged(obj))
+            {
+                ++i;
+                continue;
+            }
+
             obj->Update(diff);
 
             if (!obj->IsUpdateNeeded())
@@ -555,6 +600,10 @@ void Map::UpdateNonPlayerObjects(uint32 const diff)
         {
             WorldObject* obj = _updatableObjectList[i];
             if (!obj->IsInWorld())
+                continue;
+
+            // Phase 7A/7F: Skip cell-managed objects (updated by CellActor)
+            if (_cellActorManager && _cellActorManager->IsCellManaged(obj))
                 continue;
 
             obj->Update(diff);
@@ -726,6 +775,10 @@ void Map::AfterPlayerUnlinkFromMap()
 template<class T>
 void Map::RemoveFromMap(T* obj, bool remove)
 {
+    // Phase 7A: Remove from cell actor manager (only affects GameObjects)
+    if (_cellActorManager)
+        _cellActorManager->OnEntityRemoved(obj);
+
     obj->RemoveFromWorld();
 
     obj->RemoveFromGrid();
@@ -783,7 +836,10 @@ void Map::RemoveFromMap(Transport* obj, bool remove)
 
 void Map::PlayerRelocation(Player* player, float x, float y, float z, float o)
 {
-    Cell old_cell(player->GetPositionX(), player->GetPositionY());
+    float oldX = player->GetPositionX();
+    float oldY = player->GetPositionY();
+
+    Cell old_cell(oldX, oldY);
     Cell new_cell(x, y);
 
     if (old_cell.DiffGrid(new_cell) || old_cell.DiffCell(new_cell))
@@ -801,10 +857,21 @@ void Map::PlayerRelocation(Player* player, float x, float y, float z, float o)
         player->GetVehicleKit()->RelocatePassengers();
     player->UpdatePositionData();
     player->UpdateObjectVisibility(false);
+
+    // Update ghost projections in neighboring cells
+    if (_cellActorManager)
+    {
+        _cellActorManager->UpdateEntityGhosts(player);
+        // Check if player crossed cell boundary and needs migration
+        _cellActorManager->CheckAndInitiateMigration(player, oldX, oldY);
+    }
 }
 
 void Map::CreatureRelocation(Creature* creature, float x, float y, float z, float o)
 {
+    float oldX = creature->GetPositionX();
+    float oldY = creature->GetPositionY();
+
     Cell old_cell = creature->GetCurrentCell();
     Cell new_cell(x, y);
 
@@ -823,6 +890,14 @@ void Map::CreatureRelocation(Creature* creature, float x, float y, float z, floa
         creature->GetVehicleKit()->RelocatePassengers();
     creature->UpdatePositionData();
     creature->UpdateObjectVisibility(false);
+
+    // Update ghost projections in neighboring cells
+    if (_cellActorManager)
+    {
+        _cellActorManager->UpdateEntityGhosts(creature);
+        // Check if creature crossed cell boundary and needs migration
+        _cellActorManager->CheckAndInitiateMigration(creature, oldX, oldY);
+    }
 }
 
 void Map::GameObjectRelocation(GameObject* go, float x, float y, float z, float o)

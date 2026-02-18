@@ -1156,6 +1156,9 @@ void WorldObject::UpdatePositionData()
 {
     _updatePositionData = false;
 
+    // Phase 10B: Invalidate LoS cache on position change
+    InvalidateLoSCache();
+
     PositionFullTerrainStatus data;
     GetMap()->GetFullTerrainStatusForPosition(GetPhaseMask(), GetPositionX(), GetPositionY(), GetPositionZ(), GetCollisionHeight(), data);
     ProcessPositionDataChanged(data);
@@ -1375,6 +1378,13 @@ bool WorldObject::IsWithinLOSInMap(WorldObject const* obj, VMAP::ModelIgnoreFlag
    if (!IsInMap(obj))
         return false;
 
+    // Phase 10B: Check LoS cache first (500ms TTL)
+    uint32 targetKey = obj->GetGUID().GetCounter();
+    uint32 now = static_cast<uint32>(GameTime::GetGameTimeMS().count());
+    auto it = _losCache.find(targetKey);
+    if (it != _losCache.end() && it->second.expireTimeMs > now)
+        return it->second.hasLoS;
+
     float ox, oy, oz;
     if (obj->IsPlayer())
     {
@@ -1393,7 +1403,12 @@ bool WorldObject::IsWithinLOSInMap(WorldObject const* obj, VMAP::ModelIgnoreFlag
     else
         GetHitSpherePointFor({ obj->GetPositionX(), obj->GetPositionY(), obj->GetPositionZ() + obj->GetCollisionHeight() }, x, y, z, collisionHeight, combatReach);
 
-    return GetMap()->isInLineOfSight(x, y, z, ox, oy, oz, GetPhaseMask(), checks, ignoreFlags);
+    bool result = GetMap()->isInLineOfSight(x, y, z, ox, oy, oz, GetPhaseMask(), checks, ignoreFlags);
+
+    // Phase 10B: Cache result with 500ms TTL
+    _losCache[targetKey] = { result, now + 500 };
+
+    return result;
 }
 
 void WorldObject::GetHitSpherePointFor(Position const& dest, float& x, float& y, float& z, Optional<float> collisionHeight, Optional<float> combatReach) const
@@ -2911,6 +2926,18 @@ void WorldObject::SetPhaseMask(uint32 newPhaseMask, bool update)
 {
     sScriptMgr->OnBeforeWorldObjectSetPhaseMask(this, m_phaseMask, newPhaseMask, m_useCombinedPhases, update);
     m_phaseMask = newPhaseMask;
+
+    // Phase 7E: Notify ghost system of phase change
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
+    {
+        if (Map* map = GetMap())
+        {
+            if (auto* cellMgr = map->GetCellActorManager())
+            {
+                cellMgr->OnEntityPhaseChanged(this, newPhaseMask);
+            }
+        }
+    }
 
     if (update && IsInWorld())
         UpdateObjectVisibility();

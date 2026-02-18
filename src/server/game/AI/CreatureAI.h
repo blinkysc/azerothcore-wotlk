@@ -154,6 +154,33 @@ public:
     virtual void AttackedBy(Unit* /*attacker*/) {}
     virtual bool IsEscorted() { return false; }
 
+    // Called when creature's attack is dodged by target (cross-cell notification)
+    virtual void AttackDodged(ObjectGuid /*targetGuid*/) {}
+
+    // Called when creature's attack is parried by target (cross-cell notification)
+    virtual void AttackParried(ObjectGuid /*targetGuid*/) {}
+
+    // Called when creature's attack is blocked by target (cross-cell notification)
+    virtual void AttackBlocked(ObjectGuid /*targetGuid*/, int32 /*blockedAmount*/) {}
+
+    // Called when creature's attack misses target (cross-cell notification)
+    virtual void AttackMissed(ObjectGuid /*targetGuid*/) {}
+
+    // Called when target is immune to creature's spell (cross-cell notification)
+    virtual void SpellImmune(ObjectGuid /*targetGuid*/, uint32 /*spellId*/) {}
+
+    // Called when creature's damage is absorbed by target's shield (cross-cell notification)
+    virtual void DamageAbsorbed(ObjectGuid /*targetGuid*/, int32 /*absorbedAmount*/) {}
+
+    // Called when a unit in range starts casting a spell (cross-cell notification for interrupt AI)
+    virtual void OnNearbyCastStarted(ObjectGuid /*casterGuid*/, uint32 /*spellId*/, int32 /*castTime*/, uint32 /*schoolMask*/) {}
+
+    // Called when a unit in range finishes casting a spell (cross-cell notification)
+    virtual void OnNearbyCastSuccess(ObjectGuid /*casterGuid*/, uint32 /*spellId*/) {}
+
+    // Called when a unit in range has their cast interrupted/failed (cross-cell notification)
+    virtual void OnNearbyCastFailed(ObjectGuid /*casterGuid*/, uint32 /*spellId*/, uint8 /*failReason*/) {}
+
     // Called when creature is spawned or respawned (for reseting variables)
     virtual void JustRespawned() { Reset(); }
 

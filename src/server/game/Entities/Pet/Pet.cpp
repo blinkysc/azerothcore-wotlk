@@ -22,9 +22,11 @@
 #include "Common.h"
 #include "DatabaseEnv.h"
 #include "GameTime.h"
+#include "GhostActorSystem.h"
 #include "Group.h"
 #include "InstanceScript.h"
 #include "Log.h"
+#include "Map.h"
 #include "ObjectMgr.h"
 #include "PetPackets.h"
 #include "Player.h"
@@ -880,6 +882,19 @@ HappinessState Pet::GetHappinessState()
 
 void Pet::Remove(PetSaveMode mode, bool returnreagent)
 {
+    // Phase 9: During parallel updates, defer pet removal to avoid race with owner
+    if (IsDeferringCrossCellEffects())
+    {
+        if (Map* map = GetMap())
+        {
+            if (GhostActor::CellActorManager* cellMgr = map->GetCellActorManager())
+            {
+                cellMgr->QueuePetRemoval(this, static_cast<uint8_t>(mode), returnreagent);
+                return;
+            }
+        }
+    }
+
     GetOwner()->RemovePet(this, mode, returnreagent);
 }
 

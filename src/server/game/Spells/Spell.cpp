@@ -4741,6 +4741,20 @@ void Spell::SendSpellStart()
 
     if (!m_spellInfo->IsChanneled() && m_caster->IsPlayer() && m_caster->ToPlayer()->NeedSendSpectatorData())
         ArenaSpectator::SendCommand_Spell(m_caster->FindMap(), m_caster->GetGUID(), "SPE", m_spellInfo->Id, m_timer);
+
+    // Phase 6D: Cross-cell spell cast notification for AI interrupt logic
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
+    {
+        if (Map* map = m_caster->GetMap())
+        {
+            if (auto* cellMgr = map->GetCellActorManager())
+            {
+                // Get primary target for notification
+                Unit* target = m_targets.GetUnitTarget();
+                cellMgr->SendSpellCastStartMessage(m_caster, target, m_spellInfo->Id, m_timer);
+            }
+        }
+    }
 }
 
 void Spell::SendSpellGo()
@@ -4872,6 +4886,19 @@ void Spell::SendSpellGo()
     }
 
     m_caster->SendMessageToSet(&data, true);
+
+    // Phase 6D: Cross-cell spell cast success notification for AI reactions
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
+    {
+        if (Map* map = m_caster->GetMap())
+        {
+            if (auto* cellMgr = map->GetCellActorManager())
+            {
+                Unit* target = m_targets.GetUnitTarget();
+                cellMgr->SendSpellCastSuccessMessage(m_caster, target, m_spellInfo->Id);
+            }
+        }
+    }
 }
 
 void Spell::WriteAmmoToPacket(WorldPacket* data)
@@ -5135,6 +5162,18 @@ void Spell::SendInterrupted(uint8 result)
     data << uint32(m_spellInfo->Id);
     data << uint8(result);
     m_caster->SendMessageToSet(&data, true);
+
+    // Phase 6D: Cross-cell spell cast failure notification for AI reactions
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
+    {
+        if (Map* map = m_caster->GetMap())
+        {
+            if (auto* cellMgr = map->GetCellActorManager())
+            {
+                cellMgr->SendSpellCastFailedMessage(m_caster, m_spellInfo->Id, result);
+            }
+        }
+    }
 }
 
 void Spell::SendChannelUpdate(uint32 time)

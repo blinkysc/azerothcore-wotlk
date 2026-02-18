@@ -490,6 +490,9 @@ enum ServerConfigs
     CONFIG_NEW_CHAR_STRING,
     CONFIG_VALIDATE_SKILL_LEARNED_BY_SPELLS,
 
+    // Ghost Actor System: Parallel entity updates
+    CONFIG_PARALLEL_UPDATES_ENABLED,
+
     MAX_NUM_SERVER_CONFIGS
 };
 

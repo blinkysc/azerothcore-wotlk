@@ -36,6 +36,7 @@
 #include "SharedDefines.h"
 #include "Timer.h"
 #include "GridTerrainData.h"
+#include "GhostActorSystem.h"
 #include <bitset>
 #include <list>
 #include <memory>
@@ -632,6 +633,18 @@ private:
     PendingAddUpdatableObjectList _pendingAddUpdatableObjectList;
     IntervalTimer _updatableObjectListRecheckTimer;
     ZoneWideVisibleWorldObjectsMap _zoneWideVisibleWorldObjectsMap;
+
+    // Ghost Actor System - Cell-based parallel processing
+    std::unique_ptr<GhostActor::CellActorManager> _cellActorManager;
+
+protected:
+    // Allow derived classes (e.g., TestMap) to initialize CellActorManager
+    void InitCellActorManager();
+
+public:
+    // Cell Actor System access
+    GhostActor::CellActorManager* GetCellActorManager() { return _cellActorManager.get(); }
+    GhostActor::CellActorManager const* GetCellActorManager() const { return _cellActorManager.get(); }
 };
 
 enum InstanceResetMethod

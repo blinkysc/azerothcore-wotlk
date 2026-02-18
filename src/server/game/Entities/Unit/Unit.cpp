@@ -37,6 +37,7 @@
 #include "Errors.h"
 #include "GameObjectAI.h"
 #include "GameTime.h"
+#include "GhostActorSystem.h"
 #include "GridNotifiersImpl.h"
 #include "Group.h"
 #include "Log.h"
@@ -485,29 +486,33 @@ void Unit::Update(uint32 p_time)
         }
     }
 
-    if (!suspendAttackTimer)
+    // Phase 7D: Skip attack timer updates for cell-managed creatures (already done in UpdateAttackTimersParallel)
+    if (!IsCellManaged())
     {
-        if (int32 base_attack = getAttackTimer(BASE_ATTACK))
+        if (!suspendAttackTimer)
         {
-            setAttackTimer(BASE_ATTACK, base_attack > 0 ? base_attack - (int32) p_time : 0);
+            if (int32 base_attack = getAttackTimer(BASE_ATTACK))
+            {
+                setAttackTimer(BASE_ATTACK, base_attack > 0 ? base_attack - (int32) p_time : 0);
+            }
+
+            if (int32 off_attack = getAttackTimer(OFF_ATTACK))
+            {
+                setAttackTimer(OFF_ATTACK, off_attack > 0 ? off_attack - (int32) p_time : 0);
+            }
         }
 
-        if (int32 off_attack = getAttackTimer(OFF_ATTACK))
+        if (!suspendRangedAttackTimer)
         {
-            setAttackTimer(OFF_ATTACK, off_attack > 0 ? off_attack - (int32) p_time : 0);
+            if (int32 ranged_attack = getAttackTimer(RANGED_ATTACK))
+            {
+                setAttackTimer(RANGED_ATTACK, ranged_attack > 0 ? ranged_attack - (int32)p_time : 0);
+            }
         }
+
+        // update abilities available only for fraction of time
+        UpdateReactives(p_time);
     }
-
-    if (!suspendRangedAttackTimer)
-    {
-        if (int32 ranged_attack = getAttackTimer(RANGED_ATTACK))
-        {
-            setAttackTimer(RANGED_ATTACK, ranged_attack > 0 ? ranged_attack - (int32)p_time : 0);
-        }
-    }
-
-    // update abilities available only for fraction of time
-    UpdateReactives(p_time);
 
     ModifyAuraState(AURA_STATE_HEALTHLESS_20_PERCENT, IsAlive() ? HealthBelowPct(20) : false);
     ModifyAuraState(AURA_STATE_HEALTHLESS_35_PERCENT, IsAlive() ? HealthBelowPct(35) : false);
@@ -517,6 +522,27 @@ void Unit::Update(uint32 p_time)
     GetMotionMaster()->UpdateMotion(p_time);
 
     InvalidateValuesUpdateCache();
+}
+
+void Unit::UpdateAttackTimersParallel(uint32 diff)
+{
+    // Phase 7D: Parallel-safe attack timer updates
+    // Called from Creature::UpdateTimersParallel for cell-managed creatures
+    //
+    // Note: Player-specific suspendAttackTimer logic is not applied here
+    // since this is only called for creatures via cell updates
+
+    if (int32 base_attack = getAttackTimer(BASE_ATTACK))
+        setAttackTimer(BASE_ATTACK, base_attack > (int32)diff ? base_attack - (int32)diff : 0);
+
+    if (int32 off_attack = getAttackTimer(OFF_ATTACK))
+        setAttackTimer(OFF_ATTACK, off_attack > (int32)diff ? off_attack - (int32)diff : 0);
+
+    if (int32 ranged_attack = getAttackTimer(RANGED_ATTACK))
+        setAttackTimer(RANGED_ATTACK, ranged_attack > (int32)diff ? ranged_attack - (int32)diff : 0);
+
+    // Reactive timer updates (parry, dodge, etc.)
+    UpdateReactives(diff);
 }
 
 bool Unit::haveOffhandWeapon() const
@@ -1487,6 +1513,21 @@ void Unit::DealSpellDamage(SpellNonMeleeDamage* damageInfo, bool durabilityLoss,
         return;
     }
 
+    // Phase 6C: Route cross-cell spell damage through message system
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
+    {
+        Map* map = GetMap();
+        if (map)
+        {
+            auto* cellMgr = map->GetCellActorManager();
+            if (cellMgr && !cellMgr->AreInSameCell(this, victim))
+            {
+                cellMgr->SendSpellHitMessage(this, victim, spellProto->Id, damageInfo->damage, 0);
+                return;  // Message will apply damage in target's cell
+            }
+        }
+    }
+
     // Call default DealDamage
     CleanDamage cleanDamage(damageInfo->cleanDamage, damageInfo->absorb, BASE_ATTACK, MELEE_HIT_NORMAL);
     Unit::DealDamage(this, victim, damageInfo->damage, &cleanDamage, SPELL_DIRECT_DAMAGE, SpellSchoolMask(damageInfo->schoolMask), spellProto, durabilityLoss, false, spell);
@@ -1870,6 +1911,28 @@ void Unit::DealMeleeDamage(CalcDamageInfo* damageInfo, bool durabilityLoss)
     if (!canTakeMeleeDamage())
     {
         return;
+    }
+
+    // Phase 6C: Route cross-cell melee damage through message system
+    // Note: Melee is typically close-range so cross-cell is rare
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
+    {
+        Map* map = GetMap();
+        if (map)
+        {
+            auto* cellMgr = map->GetCellActorManager();
+            if (cellMgr && !cellMgr->AreInSameCell(this, victim))
+            {
+                // Sum all damage types
+                int32_t totalDamage = 0;
+                for (uint8 i = 0; i < MAX_ITEM_PROTO_DAMAGES; ++i)
+                    totalDamage += damageInfo->damages[i].damage;
+
+                bool isCrit = (damageInfo->HitInfo & HITINFO_CRITICALHIT) != 0;
+                cellMgr->SendMeleeDamageMessage(this, victim, totalDamage, isCrit);
+                return;  // Message will apply damage in target's cell
+            }
+        }
     }
 
     // Hmmmm dont like this emotes client must by self do all animations
@@ -4670,6 +4733,18 @@ void Unit::_ApplyAura(AuraApplication* aurApp, uint8 effMask)
     }
 
     sScriptMgr->OnAuraApply(this, aura);
+
+    // Phase 7E: Notify ghost system of aura application
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
+    {
+        if (Map* map = GetMap())
+        {
+            if (auto* cellMgr = map->GetCellActorManager())
+            {
+                cellMgr->OnEntityAuraApplied(this, aurApp->GetBase()->GetId(), effMask);
+            }
+        }
+    }
 }
 
 // removes aura application from lists and unapplies effects
@@ -4766,6 +4841,18 @@ void Unit::_UnapplyAura(AuraApplicationMap::iterator& i, AuraRemoveMode removeMo
 
     if (this->ToCreature() && this->ToCreature()->IsAIEnabled)
         this->ToCreature()->AI()->OnAuraRemove(aurApp, removeMode);
+
+    // Phase 7E: Notify ghost system of aura removal
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
+    {
+        if (Map* map = GetMap())
+        {
+            if (auto* cellMgr = map->GetCellActorManager())
+            {
+                cellMgr->OnEntityAuraRemoved(this, aurApp->GetBase()->GetId());
+            }
+        }
+    }
 }
 
 void Unit::_UnapplyAura(AuraApplication* aurApp, AuraRemoveMode removeMode)
@@ -10741,6 +10828,18 @@ void Unit::ModifyAuraState(AuraStateType flag, bool apply)
             }
         }
     }
+
+    // Phase 7E: Notify ghost system of aura state change
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
+    {
+        if (Map* map = GetMap())
+        {
+            if (auto* cellMgr = map->GetCellActorManager())
+            {
+                cellMgr->OnEntityAuraStateChanged(this, GetUInt32Value(UNIT_FIELD_AURASTATE));
+            }
+        }
+    }
 }
 
 uint32 Unit::BuildAuraStateUpdateForTarget(Unit* target) const
@@ -11463,7 +11562,29 @@ int32 Unit::HealBySpell(HealInfo& healInfo, bool critical)
     // calculate heal absorb and reduce healing
     CalcHealAbsorb(healInfo);
 
-    int32 gain = Unit::DealHeal(healInfo.GetHealer(), healInfo.GetTarget(), healInfo.GetHeal());
+    Unit* healer = healInfo.GetHealer();
+    Unit* target = healInfo.GetTarget();
+
+    // Phase 6C: Route cross-cell healing through message system
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED) && healer && target)
+    {
+        Map* map = healer->GetMap();
+        if (map)
+        {
+            auto* cellMgr = map->GetCellActorManager();
+            if (cellMgr && !cellMgr->AreInSameCell(healer, target))
+            {
+                SpellInfo const* spellInfo = healInfo.GetSpellInfo();
+                uint32 spellId = spellInfo ? spellInfo->Id : 0;
+                cellMgr->SendHealMessage(healer, target, spellId, healInfo.GetHeal());
+                healInfo.SetEffectiveHeal(healInfo.GetHeal());
+                SendHealSpellLog(healInfo, critical);
+                return healInfo.GetHeal();  // Approximate - actual applied in target's cell
+            }
+        }
+    }
+
+    int32 gain = Unit::DealHeal(healer, target, healInfo.GetHeal());
     healInfo.SetEffectiveHeal(gain);
 
     SendHealSpellLog(healInfo, critical);
@@ -13919,6 +14040,15 @@ void Unit::SetInCombatState(bool PvP, Unit* enemy, uint32 duration)
 
     SetUnitFlag(UNIT_FLAG_IN_COMBAT);
 
+    // Phase 7G: Notify ghost system of combat state change
+    if (Map* map = GetMap())
+    {
+        if (GhostActor::CellActorManager* cellMgr = map->GetCellActorManager())
+        {
+            cellMgr->OnEntityCombatStateChanged(this, true);
+        }
+    }
+
     if (Creature* creature = ToCreature())
     {
         // Set home position at place of engaging combat for escorted creatures
@@ -13977,6 +14107,15 @@ void Unit::ClearInCombat()
 {
     m_CombatTimer = 0;
     RemoveUnitFlag(UNIT_FLAG_IN_COMBAT);
+
+    // Phase 7G: Notify ghost system of combat state change
+    if (Map* map = GetMap())
+    {
+        if (GhostActor::CellActorManager* cellMgr = map->GetCellActorManager())
+        {
+            cellMgr->OnEntityCombatStateChanged(this, false);
+        }
+    }
 
     // Player's state will be cleared in Player::UpdateContestedPvP
     if (Creature* creature = ToCreature())
@@ -14297,6 +14436,18 @@ int32 Unit::ModifyHealth(int32 dVal)
     {
         SetHealth(maxHealth);
         gain = maxHealth - curHealth;
+    }
+
+    // Phase 7G: Notify ghost system of health changes
+    if (gain != 0)
+    {
+        if (Map* map = FindMap())  // FindMap() is null-safe for unit tests
+        {
+            if (GhostActor::CellActorManager* cellMgr = map->GetCellActorManager())
+            {
+                cellMgr->OnEntityHealthChanged(this, GetHealth(), GetMaxHealth());
+            }
+        }
     }
 
     return gain;
@@ -14790,6 +14941,19 @@ void Unit::TauntApply(Unit* taunter)
     if (creature->HasReactState(REACT_PASSIVE))
         return;
 
+    // Cross-cell taunt routing - if taunter is in a different cell, route through GhostActor
+    if (Map* map = GetMap())
+    {
+        if (auto* cellMgr = map->GetCellActorManager())
+        {
+            if (!cellMgr->AreInSameCell(taunter, this))
+            {
+                cellMgr->SendTauntMessage(taunter, this, 0, 0);
+                return;
+            }
+        }
+    }
+
     Unit* target = GetVictim();
     if (target && target == taunter)
         return;
@@ -14819,6 +14983,20 @@ void Unit::TauntFadeOut(Unit* taunter)
 
     if (creature->HasReactState(REACT_PASSIVE))
         return;
+
+    // Cross-cell detaunt routing - if taunter is in a different cell, route through GhostActor
+    if (Map* map = GetMap())
+    {
+        if (auto* cellMgr = map->GetCellActorManager())
+        {
+            if (!cellMgr->AreInSameCell(taunter, this))
+            {
+                // Detaunt with removeTaunt=true (no threat reduction, just taunt fadeout)
+                cellMgr->SendDetauntMessage(taunter, this, 0, 0.0f);
+                return;
+            }
+        }
+    }
 
     Unit* target = GetVictim();
     if (!target || target != taunter)
@@ -15855,6 +16033,18 @@ void Unit::SetPower(Powers power, uint32 val, bool withPowerUpdate /*= true*/, b
         // Update the pet's character sheet with happiness damage bonus
         if (pet->getPetType() == HUNTER_PET && power == POWER_HAPPINESS)
             pet->UpdateDamagePhysical(BASE_ATTACK);
+    }
+
+    // Phase 7E: Notify ghost system of power change
+    if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
+    {
+        if (Map* map = GetMap())
+        {
+            if (auto* cellMgr = map->GetCellActorManager())
+            {
+                cellMgr->OnEntityPowerChanged(this, static_cast<uint8_t>(power), val, GetMaxPower(power));
+            }
+        }
     }
 }
 
@@ -18343,6 +18533,16 @@ void Unit::SetControlled(bool apply, UnitState state, Unit* source /*= nullptr*/
         {
             sScriptMgr->AnticheatSetRootACKUpd(ToPlayer());
         }
+
+        // Notify ghost actor system of control state change
+        if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
+        {
+            if (Map* map = GetMap())
+            {
+                if (auto* cellMgr = map->GetCellActorManager())
+                    cellMgr->OnEntityControlStateChanged(this, state, true);
+            }
+        }
     }
     else
     {
@@ -18415,6 +18615,16 @@ void Unit::SetControlled(bool apply, UnitState state, Unit* source /*= nullptr*/
                 }
 
                 SetFeared(true, source, isFear);
+            }
+        }
+
+        // Notify ghost actor system of control state removal
+        if (sWorld->getBoolConfig(CONFIG_PARALLEL_UPDATES_ENABLED))
+        {
+            if (Map* map = GetMap())
+            {
+                if (auto* cellMgr = map->GetCellActorManager())
+                    cellMgr->OnEntityControlStateChanged(this, state, false);
             }
         }
     }
