@@ -1314,9 +1314,29 @@ class spell_hun_thrill_of_the_hunt : public AuraScript
 {
     PrepareAuraScript(spell_hun_thrill_of_the_hunt);
 
+    // Track Multi-Shot casts to allow only one proc per cast
+    Spell const* _lastMultiShotProc = nullptr;
+
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
         return ValidateSpellInfo({ SPELL_HUNTER_THRILL_OF_THE_HUNT_MANA });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        SpellInfo const* procSpell = eventInfo.GetSpellInfo();
+        if (!procSpell)
+            return false;
+
+        // Multi-Shot hits multiple targets but should only refund once per cast
+        if (procSpell->SpellFamilyFlags[0] & 0x1000)
+        {
+            if (eventInfo.GetProcSpell() == _lastMultiShotProc)
+                return false;
+            _lastMultiShotProc = eventInfo.GetProcSpell();
+        }
+
+        return true;
     }
 
     void HandleProc(AuraEffect const* aurEff, ProcEventInfo& eventInfo)
@@ -1365,6 +1385,7 @@ class spell_hun_thrill_of_the_hunt : public AuraScript
 
     void Register() override
     {
+        DoCheckProc += AuraCheckProcFn(spell_hun_thrill_of_the_hunt::CheckProc);
         OnEffectProc += AuraEffectProcFn(spell_hun_thrill_of_the_hunt::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
