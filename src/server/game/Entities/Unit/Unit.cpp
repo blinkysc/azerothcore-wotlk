@@ -1074,6 +1074,9 @@ uint32 Unit::DealDamage(Unit* attacker, Unit* victim, uint32 damage, CleanDamage
         }
     }
 
+    if (damagetype != NODAMAGE && spellProto && attacker && attacker != victim && victim->IsPlayer())
+        attacker->CombatStart(victim, !(spellProto->AttributesEx3 & SPELL_ATTR3_SUPPRESS_TARGET_PROCS));
+
     if (!damage)
     {
         // Rage from absorbed damage
