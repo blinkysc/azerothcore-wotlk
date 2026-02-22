@@ -18,6 +18,7 @@
 #include "SpellAuraEffects.h"
 #include "AreaDefines.h"
 #include "BattlefieldMgr.h"
+#include "Group.h"
 #include "Battleground.h"
 #include "CellImpl.h"
 #include "CharmInfo.h"
@@ -7342,47 +7343,101 @@ void AuraEffect::HandleRaidProcFromChargeAuraProc(AuraApplication* aurApp, ProcE
 
 void AuraEffect::HandleRaidProcFromChargeWithValueAuraProc(AuraApplication* aurApp, ProcEventInfo& /*eventInfo*/)
 {
+    enum
+    {
+        SPELL_PRAYER_OF_MENDING_HEAL   = 33110,
+        SPELL_PRAYER_OF_MENDING_VISUAL = 41637
+    };
+
     Unit* target = aurApp->GetTarget();
 
     // Currently only Prayer of Mending
-    if (!(GetSpellInfo()->SpellFamilyName == SPELLFAMILY_PRIEST && GetSpellInfo()->SpellFamilyFlags[1] & 0x20))
+    if (!(GetSpellInfo()->SpellFamilyName == SPELLFAMILY_PRIEST
+        && GetSpellInfo()->SpellFamilyFlags[1] & 0x20))
     {
-        LOG_DEBUG("spells.aura", "AuraEffect::HandleRaidProcFromChargeWithValueAuraProc: received not handled spell: {}", GetId());
+        LOG_DEBUG("spells.aura",
+            "AuraEffect::HandleRaidProcFromChargeWithValueAuraProc:"
+            " received not handled spell: {}", GetId());
         return;
     }
-    uint32 triggerSpellId = 33110;
 
     int32 value = GetAmount();
+    ObjectGuid casterGUID = GetCasterGUID();
 
     int32 jumps = GetBase()->GetCharges();
 
-    // current aura expire on proc finish
+    // Current aura expires on proc finish
     GetBase()->SetCharges(0);
     GetBase()->SetUsingCharges(true);
 
-    // next target selection
+    // Next target selection
     if (jumps > 0)
     {
         if (Unit* caster = GetCaster())
         {
             float radius = GetSpellInfo()->Effects[GetEffIndex()].CalcRadius(caster);
 
-            Unit*                                                         triggerTarget = nullptr;
-            Acore::MostHPMissingGroupInRange                              u_check(target, radius, 0);
-            Acore::UnitLastSearcher<Acore::MostHPMissingGroupInRange>     searcher(target, triggerTarget, u_check);
-            Cell::VisitObjects(target, searcher, radius);
+            // AC uses a unified grid (AllMapGridStoredObjectTypes includes
+            // Player) so MostHPMissingGroupInRange's grid searcher can
+            // find players, but it also requires IsInCombat() and missing
+            // HP > 0 which prevents bouncing to full-HP or out-of-combat
+            // group members. Use direct group iteration instead.
+            std::list<Unit*> nearMembers;
 
-            if (triggerTarget)
+            Player* player = nullptr;
+            if (target->IsPlayer())
+                player = target->ToPlayer();
+            else if (target->GetOwner())
+                player = target->GetOwner()->ToPlayer();
+
+            if (player)
             {
-                target->CastCustomSpell(triggerTarget, GetId(), &value, nullptr, nullptr, true, nullptr, this, GetCasterGUID());
-                if (Aura* aura = triggerTarget->GetAura(GetId(), GetCasterGUID()))
-                    aura->SetCharges(jumps);
+                Group* group = player->GetGroup();
+                if (!group)
+                {
+                    // Solo: bounce between player and pet
+                    if (player != target)
+                    {
+                        if (player->IsAlive() && target->IsWithinDistInMap(player, radius))
+                            nearMembers.push_back(player);
+                    }
+                    else if (Unit* pet = player->GetGuardianPet())
+                    {
+                        if (pet->IsAlive() && target->IsWithinDistInMap(pet, radius))
+                            nearMembers.push_back(pet);
+                    }
+                }
+                else
+                {
+                    for (GroupReference* itr = group->GetFirstMember(); itr != nullptr; itr = itr->next())
+                    {
+                        if (Player* member = itr->GetSource())
+                        {
+                            if (member != target && member->IsAlive() && !target->IsHostileTo(member) && target->IsWithinDistInMap(member, radius))
+                                nearMembers.push_back(member);
+
+                            if (Unit* pet = member->GetGuardianPet())
+                                if (pet != target && pet->IsAlive() && !target->IsHostileTo(pet) && target->IsWithinDistInMap(pet, radius))
+                                    nearMembers.push_back(pet);
+                        }
+                    }
+                }
+
+                if (!nearMembers.empty())
+                {
+                    nearMembers.sort(Acore::HealthPctOrderPred());
+                    Unit* triggerTarget = nearMembers.front();
+
+                    target->CastSpell(triggerTarget, SPELL_PRAYER_OF_MENDING_VISUAL, true);
+                    target->CastCustomSpell(triggerTarget, GetId(), &value, nullptr, nullptr, true, nullptr, this, casterGUID);
+                    if (Aura* aura = triggerTarget->GetAura(GetId(), casterGUID))
+                        aura->SetCharges(jumps);
+                }
             }
         }
     }
 
-    LOG_DEBUG("spells.aura", "AuraEffect::HandleRaidProcFromChargeWithValueAuraProc: Triggering spell {} from aura {} proc", triggerSpellId, GetId());
-    target->CastCustomSpell(target, triggerSpellId, &value, nullptr, nullptr, true, nullptr, this, GetCasterGUID());
+    target->CastCustomSpell(target, SPELL_PRAYER_OF_MENDING_HEAL, &value, nullptr, nullptr, true, nullptr, this, casterGUID);
 }
 
 int32 AuraEffect::GetTotalTicks() const
