@@ -365,8 +365,6 @@ Unit::Unit() : WorldObject(),
     for (uint8 i = 0; i < MAX_GAMEOBJECT_SLOT; ++i)
         m_ObjectSlot[i].Clear();
 
-    m_auraUpdateIterator = m_ownedAuras.end();
-
     m_interruptMask = 0;
     m_transform = 0;
     m_canModifyStats = false;
@@ -3973,13 +3971,14 @@ void Unit::_UpdateSpells(uint32 time)
         }
     }
 
-    // m_auraUpdateIterator can be updated in indirect called code at aura remove to skip next planned to update but removed auras
-    for (m_auraUpdateIterator = m_ownedAuras.begin(); m_auraUpdateIterator != m_ownedAuras.end();)
-    {
-        Aura* i_aura = m_auraUpdateIterator->second;
-        ++m_auraUpdateIterator;                            // need shift to next for allow update if need into aura update
-        i_aura->UpdateOwner(time, this);
-    }
+    std::vector<Aura*> aurasToUpdate;
+    aurasToUpdate.reserve(m_ownedAuras.size());
+    for (auto& [id, aura] : m_ownedAuras)
+        aurasToUpdate.push_back(aura);
+
+    for (Aura* aura : aurasToUpdate)
+        if (!aura->IsRemoved())
+            aura->UpdateOwner(time, this);
 
     // remove expired auras - do that after updates(used in scripts?)
     for (AuraMap::iterator i = m_ownedAuras.begin(); i != m_ownedAuras.end();)
@@ -4792,6 +4791,7 @@ void Unit::_UnapplyAura(AuraApplicationMap::iterator& i, AuraRemoveMode removeMo
 
     // Remove all pointers from lists here to prevent possible pointer invalidation on spellcast/auraapply/auraremove
     m_appliedAuras.erase(i);
+    i = m_appliedAuras.begin();
 
     // xinef: do not insert our application to interruptible list if application target is not the owner (area auras)
     // xinef: event if it gets removed, it will be reapplied in a second
@@ -4924,10 +4924,6 @@ void Unit::RemoveOwnedAura(AuraMap::iterator& i, AuraRemoveMode removeMode)
 {
     Aura* aura = i->second;
     ASSERT(!aura->IsRemoved());
-
-    // if unit currently update aura list then make safe update iterator shift to next
-    if (m_auraUpdateIterator == i && m_auraUpdateIterator != m_ownedAuras.end())
-        ++m_auraUpdateIterator;
 
     m_ownedAuras.erase(i);
     m_removedAuras.push_back(aura);
@@ -5118,6 +5114,7 @@ void Unit::RemoveAppliedAuras(uint32 spellId, std::function<bool(AuraApplication
         if (check(iter->second))
         {
             RemoveAura(iter);
+            iter = m_appliedAuras.lower_bound(spellId);
             continue;
         }
         ++iter;
