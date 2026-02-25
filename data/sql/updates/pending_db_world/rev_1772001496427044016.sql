@@ -2,3 +2,4 @@
 -- Entry 67 already guarantees 1 Void Crystal (GroupId=0, 100% chance)
 -- The reference to table 44012 (GroupId=1, 67% chance) added a second Void Crystal
 DELETE FROM `disenchant_loot_template` WHERE `Entry` = 67 AND `Item` = 44012;
+DELETE FROM `reference_loot_template` WHERE (`Entry` = 44012);
