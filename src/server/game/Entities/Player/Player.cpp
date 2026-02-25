@@ -13074,7 +13074,10 @@ void Player::SetBattlegroundOrBattlefieldRaid(Group* group, int8 subgroup)
 {
     //we must move references from m_group to m_originalGroup
     if (GetGroup() && (GetGroup()->isBGGroup() || GetGroup()->isBFGroup()))
-        ABORT(); // pussywizard: origanal group can never be bf/bg group
+    {
+        LOG_INFO("misc", "Player::SetBattlegroundOrBattlefieldRaid - current group is {} group!", (GetGroup()->isBGGroup() ? "BG" : "BF"));
+        //ABORT(); // pussywizard: origanal group can never be bf/bg group
+    }
 
     SetOriginalGroup(GetGroup(), GetSubGroup());
 
