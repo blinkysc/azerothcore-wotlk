@@ -25,9 +25,9 @@
  * reaches zero.
  *
  * The threshold is calculated as:
- *   BaseHealth(casterLevel, CLASS_WARRIOR) / 4.75
+ *   10% of the target's max health
  *
- * This gives level 80 a threshold of ~2648 HP (12588 / 4.75).
+ * This means a target with 20000 HP has a threshold of 2000.
  */
 
 #include "AuraStub.h"
@@ -65,31 +65,11 @@ static bool SimulateBreakableCCProc(AuraEffectStub* effect, int32_t damage)
  *
  * Mirrors AuraEffect::CalculateAmount from SpellAuraEffects.cpp for
  * MOD_FEAR/MOD_CONFUSE/MOD_STUN/MOD_ROOT/TRANSFORM:
- *   amount = BaseHealth(casterLevel, CLASS_WARRIOR) / 4.75
- *
- * Uses known Warrior base health values from CreatureBaseStats DBC.
+ *   amount = 10% of target's max health
  */
-static int32_t SimulateCCThreshold(uint8_t casterLevel)
+static int32_t SimulateCCThreshold(uint32_t targetMaxHealth)
 {
-    // Warrior base health at key levels (EXPANSION_WRATH_OF_THE_LICH_KING)
-    // From creature_classlevelstats for CLASS_WARRIOR
-    struct LevelHealth { uint8_t level; int32_t health; };
-    static constexpr LevelHealth table[] = {
-        {1, 60}, {10, 424}, {20, 1128}, {30, 2078}, {40, 3228},
-        {50, 4978}, {60, 7361}, {70, 9940}, {80, 12588},
-    };
-
-    int32_t baseHealth = 12588; // default to level 80
-    for (auto const& entry : table)
-    {
-        if (entry.level == casterLevel)
-        {
-            baseHealth = entry.health;
-            break;
-        }
-    }
-
-    return static_cast<int32_t>(baseHealth / 4.75f);
+    return static_cast<int32_t>(targetMaxHealth / 10);
 }
 
 // =============================================================================
@@ -199,54 +179,51 @@ TEST_F(BreakableCCProcTest, OneDamage_ReducesThreshold)
 // Threshold Calculation Tests (CalculateAmount for CC auras)
 // =============================================================================
 
-TEST_F(BreakableCCProcTest, Level80Threshold_IsReasonable)
+TEST_F(BreakableCCProcTest, TargetWith20kHP_Threshold2000)
 {
-    int32_t threshold = SimulateCCThreshold(80);
+    int32_t threshold = SimulateCCThreshold(20000);
 
-    // Level 80 warrior base health = 12588
-    // Threshold = 12588 / 4.75 ≈ 2650
-    EXPECT_GT(threshold, 2600);
-    EXPECT_LT(threshold, 2700);
+    // 10% of 20000 = 2000
+    EXPECT_EQ(threshold, 2000);
 }
 
-TEST_F(BreakableCCProcTest, LowerLevelCaster_LowerThreshold)
+TEST_F(BreakableCCProcTest, HigherHP_HigherThreshold)
 {
-    int32_t threshold60 = SimulateCCThreshold(60);
-    int32_t threshold80 = SimulateCCThreshold(80);
+    int32_t threshold20k = SimulateCCThreshold(20000);
+    int32_t threshold30k = SimulateCCThreshold(30000);
 
-    EXPECT_LT(threshold60, threshold80);
+    EXPECT_LT(threshold20k, threshold30k);
 }
 
-TEST_F(BreakableCCProcTest, Level80Fear_BreaksOnModerateDamage)
+TEST_F(BreakableCCProcTest, TargetWith20kHP_Fear_BreaksOnModerateDamage)
 {
-    // Simulate a level 80 warlock's Fear
-    int32_t threshold = SimulateCCThreshold(80); // ~2650
+    // 10% of 20000 = 2000 threshold
+    int32_t threshold = SimulateCCThreshold(20000);
     auto effect = CreateCCEffect(threshold);
 
     // A 3000 damage hit should break it
     EXPECT_TRUE(SimulateBreakableCCProc(&effect, 3000));
 }
 
-TEST_F(BreakableCCProcTest, Level80Fear_SurvivesSmallDots)
+TEST_F(BreakableCCProcTest, TargetWith20kHP_Fear_SurvivesSmallDots)
 {
-    // Simulate a level 80 warlock's Fear
-    int32_t threshold = SimulateCCThreshold(80); // ~2650
+    // 10% of 20000 = 2000 threshold
+    int32_t threshold = SimulateCCThreshold(20000);
     auto effect = CreateCCEffect(threshold);
 
     // Small DoT ticks of 200 each - Fear should survive multiple ticks
     for (int i = 0; i < 10; ++i)
     {
         bool removed = SimulateBreakableCCProc(&effect, 200);
-        if (i < 12) // Should survive at least 12 ticks (200*13 = 2600 < 2650)
+        if (i < 9) // Should survive first 9 ticks (200*10 = 2000)
         {
-            // We expect it to survive for ~13 ticks
             if (!removed)
                 continue;
         }
         if (removed)
         {
-            // Should break around tick 13-14
-            EXPECT_GE(i, 12);
+            // Should break on tick 10 (200*10 = 2000)
+            EXPECT_GE(i, 9);
             return;
         }
     }
@@ -358,7 +335,7 @@ TEST_F(BreakableCCProcTest, FearProcChance_Is100Percent)
 TEST_F(BreakableCCProcTest, GlyphOfFear_IncreasesThreshold)
 {
     // Glyph of Fear adds +100% to the damage threshold (MiscValue 7801)
-    int32_t baseThreshold = SimulateCCThreshold(80); // ~2650
+    int32_t baseThreshold = SimulateCCThreshold(20000); // 2000
     int32_t glyphedThreshold = baseThreshold + (baseThreshold * 100 / 100); // +100%
 
     auto effect = CreateCCEffect(glyphedThreshold);
