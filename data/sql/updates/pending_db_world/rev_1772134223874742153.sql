@@ -17,10 +17,12 @@ UPDATE `spell_proc` SET `ProcFlags` = 0x15400, `SpellPhaseMask` = 1 WHERE `Spell
 
 -- [32980] Arcane Might - "2% chance on successful spellcast to increase spell power"
 -- No spell_proc entry existed. Add with NONE flags and CAST phase.
+DELETE FROM `spell_proc` WHERE `SpellId` = 32980;
 INSERT INTO `spell_proc` (`SpellId`, `ProcFlags`, `SpellPhaseMask`) VALUES (32980, 0x15400, 1);
 
 -- [32981] Verdant Flame - "Chance on successful spellcast to restore Mana"
 -- No spell_proc entry existed. Add with NONE flags and CAST phase.
+DELETE FROM `spell_proc` WHERE `SpellId` = 32981;
 INSERT INTO `spell_proc` (`SpellId`, `ProcFlags`, `SpellPhaseMask`) VALUES (32981, 0x15400, 1);
 
 -- [34584] Love Struck - "Chance on spell cast to increase your Spirit"
