@@ -38,6 +38,7 @@
 #include "Unit.h"
 #include "Util.h"
 #include "Vehicle.h"
+#include "World.h"
 #include "WorldPacket.h"
 
 /// @todo: this import is not necessary for compilation and marked as unused by the IDE
@@ -7389,7 +7390,8 @@ void AuraEffect::HandleRaidProcFromChargeWithValueAuraProc(AuraApplication* aurA
             float radius = GetSpellInfo()->Effects[GetEffIndex()].CalcRadius(caster);
 
             Unit*                                                         triggerTarget = nullptr;
-            Acore::MostHPMissingGroupInRange                              u_check(target, radius, 0);
+            bool playerBias = sWorld->getBoolConfig(CONFIG_POM_PLAYER_BIAS);
+            Acore::MostHPMissingGroupInRange                              u_check(target, radius, 0, playerBias);
             Acore::UnitLastSearcher<Acore::MostHPMissingGroupInRange>     searcher(target, triggerTarget, u_check);
             Cell::VisitObjects(target, searcher, radius);
 

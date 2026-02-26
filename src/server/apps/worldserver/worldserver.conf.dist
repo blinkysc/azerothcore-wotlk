@@ -4632,6 +4632,17 @@ DailyRBGArenaPoints.MinLevel = 71
 MunchingBlizzlike.Enabled = 1
 
 #
+#    PrayerOfMendingPlayerBias.Enabled
+#        Description: When enabled, Prayer of Mending bounce target selection uses
+#                     percentage-based HP comparison with a 1.5x weight for players,
+#                     biasing bounces towards players over pets.
+#                     When disabled, uses raw HP missing (3.3.5a Blizzlike).
+#        Default: 0 - (3.3.5a Blizzlike, raw HP missing)
+#                 1 - (WotLK Classic style, percentage-based with player weight)
+
+PrayerOfMendingPlayerBias.Enabled = 0
+
+#
 #    Daze.Enabled
 #        Description: Enable or disable the chance for mob melee attacks to daze the victim.
 #        Default: 1 - (Blizzlike)

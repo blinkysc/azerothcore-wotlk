@@ -1511,41 +1511,51 @@ namespace Acore
     class MostHPMissingGroupInRange
     {
     public:
-        MostHPMissingGroupInRange(Unit const* obj, float range, uint32 hp) : i_obj(obj), i_range(range), i_hp(hp) {}
+        MostHPMissingGroupInRange(Unit const* obj, float range, uint32 hp, bool playerBias = false)
+            : i_obj(obj), i_range(range), i_hp(hp), i_score(0.f), i_playerBias(playerBias) {}
 
         bool operator()(Unit* u)
         {
             if (i_obj == u)
-            {
                 return false;
-            }
 
             Player* player = nullptr;
             if (u->IsPlayer())
-            {
                 player = u->ToPlayer();
-            }
-
             else if (u->IsPet() && u->GetOwner())
-            {
                 player = u->GetOwner()->ToPlayer();
-            }
 
             if (!player)
-            {
                 return false;
-            }
 
             Group* group = player->GetGroup();
             if (!group || !group->IsMember(i_obj->IsPet() ? i_obj->GetOwnerGUID() : i_obj->GetGUID()))
-            {
                 return false;
-            }
 
-            if (u->IsAlive() && !i_obj->IsHostileTo(u) && i_obj->IsWithinDistInMap(u, i_range) && u->GetMaxHealth() - u->GetHealth() >= i_hp)
+            if (!u->IsAlive() || i_obj->IsHostileTo(u) || !i_obj->IsWithinDistInMap(u, i_range))
+                return false;
+
+            uint32 hpMissing = u->GetMaxHealth() - u->GetHealth();
+
+            if (i_playerBias)
             {
-                i_hp = u->GetMaxHealth() - u->GetHealth();
-                return true;
+                float score = float(hpMissing) / float(u->GetMaxHealth());
+                // Exact weight is a guess; actual WotLK Classic formula is unknown
+                if (u->IsPlayer())
+                    score *= 1.5f;
+                if (score > i_score)
+                {
+                    i_score = score;
+                    return true;
+                }
+            }
+            else
+            {
+                if (hpMissing >= i_hp)
+                {
+                    i_hp = hpMissing;
+                    return true;
+                }
             }
 
             return false;
@@ -1555,6 +1565,8 @@ namespace Acore
         Unit const* i_obj;
         float       i_range;
         uint32      i_hp;
+        float       i_score;
+        bool        i_playerBias;
     };
 
     class AllDeadCreaturesInRange

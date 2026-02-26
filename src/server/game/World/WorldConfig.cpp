@@ -511,6 +511,8 @@ void WorldConfig::BuildConfigCache()
 
     SetConfigValue<bool>(CONFIG_MUNCHING_BLIZZLIKE, "MunchingBlizzlike.Enabled", true);
 
+    SetConfigValue<bool>(CONFIG_POM_PLAYER_BIAS, "PrayerOfMendingPlayerBias.Enabled", false);
+
     SetConfigValue<bool>(CONFIG_ENABLE_DAZE, "Daze.Enabled", true);
 
     SetConfigValue<bool>(CONFIG_ENABLE_INFINITEAMMO, "InfiniteAmmo.Enabled", false);
