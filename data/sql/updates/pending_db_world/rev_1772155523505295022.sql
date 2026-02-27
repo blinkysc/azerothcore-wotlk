@@ -1,4 +1,4 @@
--- Mutilate sub-spells: skip independent hit rolls, parent spell is the single gate.
+-- Mutilate sub-spells: remove Cold Blood on OH miss so the charge doesn't leak.
 -- Negative spell_id applies to all ranks in the spell chain.
 DELETE FROM `spell_script_names` WHERE `ScriptName` = 'spell_rog_mutilate_strike';
 INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES

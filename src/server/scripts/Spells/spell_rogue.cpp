@@ -1087,50 +1087,18 @@ class spell_rog_focused_attacks : public AuraScript
     }
 };
 
-// 5374, 27576 - Mutilate (MH/OH sub-spells, all ranks)
-// Parent Mutilate already rolls hit/miss/dodge/parry — sub-spells share that single roll
-class spell_rog_mutilate_strike : public SpellScript
-{
-    PrepareSpellScript(spell_rog_mutilate_strike);
-
-    void HandleBeforeCast()
-    {
-        GetSpell()->m_skipCheck = true;
-    }
-
-    // Hypothetical: if sub-spells had independent rolls (no m_skipCheck), Cold Blood
-    // scenarios with the CheckProc blocking MH consumption:
-    //   A) MH hit, OH hit   -> both crit, OH consumes charge           (correct)
-    //   B) MH hit, OH miss  -> MH crits, proc never fires on OH miss,
-    //                          charge leaks to next ability             (broken)
-    //   C) MH miss, OH hit  -> OH crits, consumes charge               (correct)
-    //   D) both miss         -> charge preserved                        (correct)
-    //
-    // This would fix scenario B by force-removing Cold Blood when OH misses.
-    // Only checks OH sub-spells (flags[1] & 0x4) — MH miss must not touch Cold Blood
-    // so OH can still use it in scenario C.
-    // Not needed with m_skipCheck since both sub-spells always hit when parent hits.
-    //
-    // void HandleBeforeHit(SpellMissInfo missInfo)
-    // {
-    //     if (missInfo != SPELL_MISS_NONE
-    //         && (GetSpellInfo()->SpellFamilyFlags[1] & 0x4))
-    //         if (Aura* coldBlood = GetCaster()->GetAura(SPELL_ROGUE_COLD_BLOOD))
-    //             coldBlood->Remove();
-    // }
-
-    void Register() override
-    {
-        BeforeCast += SpellCastFn(spell_rog_mutilate_strike::HandleBeforeCast);
-        // BeforeHit += BeforeSpellHitFn(spell_rog_mutilate_strike::HandleBeforeHit);
-    }
-};
-
 // 14177 - Cold Blood
-// Prevent charge consumption on Mutilate MH sub-spell so OH also crits
+// Prevent charge consumption on Mutilate MH sub-spell so OH also crits.
+// Tracks whether MH hit was blocked so the strike script can detect
+// a leaked charge when OH misses.
 class spell_rog_cold_blood : public AuraScript
 {
     PrepareAuraScript(spell_rog_cold_blood);
+
+    bool _mutilMhBlocked = false;
+
+public:
+    bool WasMutilMhBlocked() const { return _mutilMhBlocked; }
 
     bool CheckProc(ProcEventInfo& eventInfo)
     {
@@ -1142,7 +1110,10 @@ class spell_rog_cold_blood : public AuraScript
         // OH sub-spell will consume it
         if (spellInfo->SpellFamilyName == SPELLFAMILY_ROGUE
             && (spellInfo->SpellFamilyFlags[1] & 0x2))
+        {
+            _mutilMhBlocked = true;
             return false;
+        }
 
         return true;
     }
@@ -1150,6 +1121,45 @@ class spell_rog_cold_blood : public AuraScript
     void Register() override
     {
         DoCheckProc += AuraCheckProcFn(spell_rog_cold_blood::CheckProc);
+    }
+};
+
+// 5374, 27576 - Mutilate (MH/OH sub-spells, all ranks)
+// When OH misses and MH had hit (Cold Blood charge was blocked),
+// force-remove Cold Blood so it doesn't leak to the next ability.
+class spell_rog_mutilate_strike : public SpellScript
+{
+    PrepareSpellScript(spell_rog_mutilate_strike);
+
+    void HandleBeforeHit(SpellMissInfo missInfo)
+    {
+        // Only handle OH sub-spell
+        if (!(GetSpellInfo()->SpellFamilyFlags[1] & 0x4))
+            return;
+
+        if (missInfo == SPELL_MISS_NONE)
+            return;
+
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        Aura* cb = caster->GetAura(SPELL_ROGUE_COLD_BLOOD);
+        if (!cb)
+            return;
+
+        // Check if MH hit was blocked by CheckProc
+        if (auto* script = dynamic_cast<spell_rog_cold_blood*>(
+                cb->GetScriptByName("spell_rog_cold_blood")))
+        {
+            if (script->WasMutilMhBlocked())
+                cb->Remove();
+        }
+    }
+
+    void Register() override
+    {
+        BeforeHit += BeforeSpellHitFn(spell_rog_mutilate_strike::HandleBeforeHit);
     }
 };
 
