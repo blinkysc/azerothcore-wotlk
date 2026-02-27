@@ -1098,9 +1098,31 @@ class spell_rog_mutilate_strike : public SpellScript
         GetSpell()->m_skipCheck = true;
     }
 
+    // Hypothetical: if sub-spells had independent rolls (no m_skipCheck), Cold Blood
+    // scenarios with the CheckProc blocking MH consumption:
+    //   A) MH hit, OH hit   -> both crit, OH consumes charge           (correct)
+    //   B) MH hit, OH miss  -> MH crits, proc never fires on OH miss,
+    //                          charge leaks to next ability             (broken)
+    //   C) MH miss, OH hit  -> OH crits, consumes charge               (correct)
+    //   D) both miss         -> charge preserved                        (correct)
+    //
+    // This would fix scenario B by force-removing Cold Blood when OH misses.
+    // Only checks OH sub-spells (flags[1] & 0x4) — MH miss must not touch Cold Blood
+    // so OH can still use it in scenario C.
+    // Not needed with m_skipCheck since both sub-spells always hit when parent hits.
+    //
+    // void HandleBeforeHit(SpellMissInfo missInfo)
+    // {
+    //     if (missInfo != SPELL_MISS_NONE
+    //         && (GetSpellInfo()->SpellFamilyFlags[1] & 0x4))
+    //         if (Aura* coldBlood = GetCaster()->GetAura(SPELL_ROGUE_COLD_BLOOD))
+    //             coldBlood->Remove();
+    // }
+
     void Register() override
     {
         BeforeCast += SpellCastFn(spell_rog_mutilate_strike::HandleBeforeCast);
+        // BeforeHit += BeforeSpellHitFn(spell_rog_mutilate_strike::HandleBeforeHit);
     }
 };
 
