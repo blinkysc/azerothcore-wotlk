@@ -7459,6 +7459,15 @@ void Player::CastItemUseSpell(Item* item, SpellCastTargets const& targets, uint8
 
         if (HasSpellCooldown(spellInfo->Id))
         {
+            // Client-side bug: silently skipping here orphans a pending spell cast that
+            // permanently blocks melee auto-attack. The client's SMSG_CAST_FAILED handler
+            // won't clean it up (broken lookup), so send a no-op SMSG_SPELL_GO instead.
+            if (cast_count
+                && (spellInfo->InterruptFlags
+                    & SPELL_INTERRUPT_FLAG_INTERRUPT))
+                Spell::SendEmptySpellGo(item->GetGUID(),
+                    GetGUID(), cast_count,
+                    spellInfo->Id, this);
             continue;
         }
 

@@ -4879,6 +4879,21 @@ void Spell::SendSpellGo()
     m_caster->SendMessageToSet(&data, true);
 }
 
+void Spell::SendEmptySpellGo(ObjectGuid castItemGuid, ObjectGuid casterGuid, uint8 castCount, uint32 spellId, Player* target)
+{
+    WorldPacket data(SMSG_SPELL_GO, 50);
+    data << castItemGuid.WriteAsPacked();
+    data << casterGuid.WriteAsPacked();
+    data << uint8(castCount);
+    data << uint32(spellId);
+    data << uint32(CAST_FLAG_UNKNOWN_9);
+    data << uint32(GameTime::GetGameTimeMS().count());
+    data << uint8(0);  // hit count
+    data << uint8(0);  // miss count
+    data << uint32(0); // target flags
+    target->SendDirectMessage(&data);
+}
+
 void Spell::WriteAmmoToPacket(WorldPacket* data)
 {
     uint32 ammoInventoryType = 0;
