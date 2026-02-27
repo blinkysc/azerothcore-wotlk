@@ -1088,9 +1088,6 @@ class spell_rog_focused_attacks : public AuraScript
 };
 
 // 14177 - Cold Blood
-// Prevent charge consumption on Mutilate MH sub-spell so OH also crits.
-// Tracks whether MH hit was blocked so the strike script can detect
-// a leaked charge when OH misses.
 class spell_rog_cold_blood : public AuraScript
 {
     PrepareAuraScript(spell_rog_cold_blood);
@@ -1106,8 +1103,7 @@ public:
         if (!spellInfo)
             return true;
 
-        // Mutilate MH sub-spell: don't consume charge yet,
-        // OH sub-spell will consume it
+        // Block MH consumption so OH also crits
         if (spellInfo->SpellFamilyName == SPELLFAMILY_ROGUE
             && (spellInfo->SpellFamilyFlags[1] & 0x2))
         {
@@ -1125,15 +1121,13 @@ public:
 };
 
 // 5374, 27576 - Mutilate (MH/OH sub-spells, all ranks)
-// When OH misses and MH had hit (Cold Blood charge was blocked),
-// force-remove Cold Blood so it doesn't leak to the next ability.
 class spell_rog_mutilate_strike : public SpellScript
 {
     PrepareSpellScript(spell_rog_mutilate_strike);
 
+    // If OH misses and MH had hit, remove Cold Blood to prevent leak
     void HandleBeforeHit(SpellMissInfo missInfo)
     {
-        // Only handle OH sub-spell
         if (!(GetSpellInfo()->SpellFamilyFlags[1] & 0x4))
             return;
 
@@ -1148,7 +1142,6 @@ class spell_rog_mutilate_strike : public SpellScript
         if (!cb)
             return;
 
-        // Check if MH hit was blocked by CheckProc
         if (auto* script = dynamic_cast<spell_rog_cold_blood*>(
                 cb->GetScriptByName("spell_rog_cold_blood")))
         {
