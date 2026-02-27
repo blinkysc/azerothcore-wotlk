@@ -53,7 +53,8 @@ enum RogueSpells
     SPELL_ROGUE_TURN_THE_TABLES_R3              = 52915,
     SPELL_ROGUE_OVERKILL_TRIGGERED              = 58427,
     SPELL_ROGUE_HONOR_AMONG_THIEVES_PROC        = 52916,
-    SPELL_ROGUE_HONOR_AMONG_THIEVES_TRIGGERED   = 51699
+    SPELL_ROGUE_HONOR_AMONG_THIEVES_TRIGGERED   = 51699,
+    SPELL_ROGUE_COLD_BLOOD                      = 14177
 };
 
 enum RogueSpellIcons
@@ -1086,6 +1087,33 @@ class spell_rog_focused_attacks : public AuraScript
     }
 };
 
+// 14177 - Cold Blood
+// Prevent charge consumption on Mutilate MH sub-spell so OH also crits
+class spell_rog_cold_blood : public AuraScript
+{
+    PrepareAuraScript(spell_rog_cold_blood);
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
+        if (!spellInfo)
+            return true;
+
+        // Mutilate MH sub-spell: don't consume charge yet,
+        // OH sub-spell will consume it
+        if (spellInfo->SpellFamilyName == SPELLFAMILY_ROGUE
+            && (spellInfo->SpellFamilyFlags[1] & 0x2))
+            return false;
+
+        return true;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_rog_cold_blood::CheckProc);
+    }
+};
+
 void AddSC_rogue_spell_scripts()
 {
     RegisterSpellScript(spell_rog_savage_combat);
@@ -1117,4 +1145,5 @@ void AddSC_rogue_spell_scripts()
     RegisterSpellScript(spell_rog_turn_the_tables);
     RegisterSpellScript(spell_rog_turn_the_tables_proc);
     RegisterSpellScript(spell_rog_focused_attacks);
+    RegisterSpellScript(spell_rog_cold_blood);
 }
