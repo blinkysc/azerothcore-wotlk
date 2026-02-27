@@ -1087,6 +1087,23 @@ class spell_rog_focused_attacks : public AuraScript
     }
 };
 
+// 5374, 27576 - Mutilate (MH/OH sub-spells, all ranks)
+// Parent Mutilate already rolls hit/miss/dodge/parry — sub-spells share that single roll
+class spell_rog_mutilate_strike : public SpellScript
+{
+    PrepareSpellScript(spell_rog_mutilate_strike);
+
+    void HandleBeforeCast()
+    {
+        GetSpell()->m_skipCheck = true;
+    }
+
+    void Register() override
+    {
+        BeforeCast += SpellCastFn(spell_rog_mutilate_strike::HandleBeforeCast);
+    }
+};
+
 // 14177 - Cold Blood
 // Prevent charge consumption on Mutilate MH sub-spell so OH also crits
 class spell_rog_cold_blood : public AuraScript
@@ -1145,5 +1162,6 @@ void AddSC_rogue_spell_scripts()
     RegisterSpellScript(spell_rog_turn_the_tables);
     RegisterSpellScript(spell_rog_turn_the_tables_proc);
     RegisterSpellScript(spell_rog_focused_attacks);
+    RegisterSpellScript(spell_rog_mutilate_strike);
     RegisterSpellScript(spell_rog_cold_blood);
 }
