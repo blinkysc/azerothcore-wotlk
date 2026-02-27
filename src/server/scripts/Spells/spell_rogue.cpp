@@ -1088,14 +1088,16 @@ class spell_rog_focused_attacks : public AuraScript
 };
 
 // 14177 - Cold Blood
+// Blocks proc consumption from Mutilate sub-spells so both hits get the
+// guaranteed crit. The parent Mutilate spell consumes the charge in AfterCast.
 class spell_rog_cold_blood : public AuraScript
 {
     PrepareAuraScript(spell_rog_cold_blood);
 
-    bool _mutilMhBlocked = false;
+    bool _usedByMutilate = false;
 
 public:
-    bool WasMutilMhBlocked() const { return _mutilMhBlocked; }
+    bool WasUsedByMutilate() const { return _usedByMutilate; }
 
     bool CheckProc(ProcEventInfo& eventInfo)
     {
@@ -1103,11 +1105,11 @@ public:
         if (!spellInfo)
             return true;
 
-        // Block MH consumption so OH also crits
+        // Block Mutilate MH (0x2) and OH (0x4) from consuming the charge
         if (spellInfo->SpellFamilyName == SPELLFAMILY_ROGUE
-            && (spellInfo->SpellFamilyFlags[1] & 0x2))
+            && (spellInfo->SpellFamilyFlags[1] & 0x6))
         {
-            _mutilMhBlocked = true;
+            _usedByMutilate = true;
             return false;
         }
 
@@ -1120,20 +1122,15 @@ public:
     }
 };
 
-// 5374, 27576 - Mutilate (MH/OH sub-spells, all ranks)
-class spell_rog_mutilate_strike : public SpellScript
+// 1329 - Mutilate (parent spell, all ranks)
+// Consumes Cold Blood after both sub-spells have executed their crit rolls.
+// Preserves Cold Blood if both sub-spells missed/dodged/parried.
+class spell_rog_mutilate : public SpellScript
 {
-    PrepareSpellScript(spell_rog_mutilate_strike);
+    PrepareSpellScript(spell_rog_mutilate);
 
-    // If OH misses and MH had hit, remove Cold Blood to prevent leak
-    void HandleBeforeHit(SpellMissInfo missInfo)
+    void HandleAfterCast()
     {
-        if (!(GetSpellInfo()->SpellFamilyFlags[1] & 0x4))
-            return;
-
-        if (missInfo == SPELL_MISS_NONE)
-            return;
-
         Unit* caster = GetCaster();
         if (!caster)
             return;
@@ -1142,17 +1139,17 @@ class spell_rog_mutilate_strike : public SpellScript
         if (!cb)
             return;
 
-        if (auto* script = dynamic_cast<spell_rog_cold_blood*>(
-                cb->GetScriptByName("spell_rog_cold_blood")))
-        {
-            if (script->WasMutilMhBlocked())
-                cb->Remove();
-        }
+        auto* script = dynamic_cast<spell_rog_cold_blood*>(
+            cb->GetScriptByName("spell_rog_cold_blood"));
+        if (!script || !script->WasUsedByMutilate())
+            return;
+
+        cb->Remove();
     }
 
     void Register() override
     {
-        BeforeHit += BeforeSpellHitFn(spell_rog_mutilate_strike::HandleBeforeHit);
+        AfterCast += SpellCastFn(spell_rog_mutilate::HandleAfterCast);
     }
 };
 
@@ -1187,6 +1184,6 @@ void AddSC_rogue_spell_scripts()
     RegisterSpellScript(spell_rog_turn_the_tables);
     RegisterSpellScript(spell_rog_turn_the_tables_proc);
     RegisterSpellScript(spell_rog_focused_attacks);
-    RegisterSpellScript(spell_rog_mutilate_strike);
+    RegisterSpellScript(spell_rog_mutilate);
     RegisterSpellScript(spell_rog_cold_blood);
 }
