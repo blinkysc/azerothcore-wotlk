@@ -1088,8 +1088,6 @@ class spell_rog_focused_attacks : public AuraScript
 };
 
 // 14177 - Cold Blood
-// Blocks proc consumption from Mutilate sub-spells so both hits get the
-// guaranteed crit. The parent Mutilate spell consumes the charge in AfterCast.
 class spell_rog_cold_blood : public AuraScript
 {
     PrepareAuraScript(spell_rog_cold_blood);
@@ -1123,8 +1121,6 @@ public:
 };
 
 // 1329 - Mutilate (parent spell, all ranks)
-// Consumes Cold Blood after both sub-spells have executed their crit rolls.
-// Preserves Cold Blood if both sub-spells missed/dodged/parried.
 class spell_rog_mutilate : public SpellScript
 {
     PrepareSpellScript(spell_rog_mutilate);
