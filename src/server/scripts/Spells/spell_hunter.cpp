@@ -1533,12 +1533,6 @@ class spell_hun_kill_command : public SpellScript
         if (!pet)
             return SPELL_FAILED_NO_PET;
 
-        if (!pet->IsAlive())
-        {
-            SetCustomCastResultMessage(SPELL_CUSTOM_ERROR_PET_IS_DEAD);
-            return SPELL_FAILED_CUSTOM_ERROR;
-        }
-
         return SPELL_CAST_OK;
     }
 
