@@ -4768,11 +4768,6 @@ void Unit::_ApplyAura(AuraApplication* aurApp, uint8 effMask)
             aurApp->_HandleEffect(i, true);
     }
 
-    // Prevent the aura from being consumed by proc events during the
-    // same spell execution that created it (e.g. Arcane Potency buff
-    // should not be consumed by the AoE spell whose procs created it).
-    // The aura is marked as "not ready for proc" and added to a delayed
-    // list. The flag is cleared at the end of the originating spell cast.
     if (SpellProcEntry const* procEntry = sSpellMgr->GetSpellProcEntry(aura->GetId()))
     {
         if (procEntry->AttributesMask & PROC_ATTR_DISALLOW_PROC_ON_APPLY)

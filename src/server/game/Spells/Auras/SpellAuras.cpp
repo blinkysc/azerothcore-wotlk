@@ -2196,7 +2196,6 @@ uint8 Aura::GetProcEffectMask(AuraApplication* aurApp, ProcEventInfo& eventInfo,
     if (IsProcOnCooldown(now))
         return 0;
 
-    // Block proc if aura was created during the current spell execution
     if (m_disallowProc)
         return 0;
 
