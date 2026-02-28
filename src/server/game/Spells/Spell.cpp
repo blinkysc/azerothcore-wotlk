@@ -4051,6 +4051,12 @@ void Spell::_cast(bool skipCheck)
 
     sScriptMgr->OnSpellCast(this, m_caster, m_spellInfo, skipCheck);
 
+    // Mark auras created during this spell cast (with DISALLOW_PROC_ON_APPLY)
+    // as ready for proc. They were blocked during the cast to prevent same-cast
+    // consumption (e.g. Arcane Potency created by Clearcasting during AoE).
+    if (!IsTriggered())
+        m_caster->ActivateDelayedProcOnApplyAuras();
+
     SetExecutedCurrently(false);
 
     // Call CreatureAI hook OnSpellCastFinished

@@ -1571,6 +1571,9 @@ public:
     [[nodiscard]] Player* GetSpellModOwner() const;
     [[nodiscard]] Spell* GetCurrentSpell(CurrentSpellTypes spellType) const { return m_currentSpells[spellType]; }
     [[nodiscard]] Spell* GetCurrentSpell(uint32 spellType) const { return m_currentSpells[spellType]; }
+
+    void AddDelayedProcOnApplyAura(Aura* aura) { m_delayedProcOnApplyAuras.push_back(aura); }
+    void ActivateDelayedProcOnApplyAuras();
     [[nodiscard]] Spell* GetFirstCurrentCastingSpell() const;
     [[nodiscard]] Spell* FindCurrentSpellBySpellId(uint32 spell_id) const;
     [[nodiscard]] int32 GetCurrentSpellCastTime(uint32 spell_id) const;
@@ -2155,6 +2158,7 @@ protected:
     uint32 m_transform;
 
     Spell* m_currentSpells[CURRENT_MAX_SPELL];
+    std::vector<Aura*> m_delayedProcOnApplyAuras;
 
     AuraMap m_ownedAuras;
     AuraApplicationMap m_appliedAuras;

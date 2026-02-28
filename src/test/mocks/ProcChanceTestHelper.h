@@ -168,6 +168,19 @@ public:
     }
 
     /**
+     * @brief Check if aura is blocked by DISALLOW_PROC_ON_APPLY state
+     *
+     * @param aura The aura stub
+     * @return true if proc is blocked (aura not yet activated)
+     */
+    static bool IsBlockedByDisallowProcOnApply(AuraStub const* aura)
+    {
+        if (!aura)
+            return false;
+        return aura->IsDisallowedProc();
+    }
+
+    /**
      * @brief Check if spell has mana cost (for PROC_ATTR_REQ_MANA_COST)
      *
      * @param spellInfo The spell info to check

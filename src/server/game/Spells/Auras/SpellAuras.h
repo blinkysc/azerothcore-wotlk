@@ -197,6 +197,8 @@ public:
     void AddProcCooldown(TimePoint cooldownEnd);
     void AddProcCooldown(SpellProcEntry const* procEntry, TimePoint now);
     void ResetProcCooldown();
+    void SetDisallowProc(bool disallow) { m_disallowProc = disallow; }
+    [[nodiscard]] bool IsDisallowedProc() const { return m_disallowProc; }
     bool IsUsingCharges() const { return m_isUsingCharges; }
     void SetUsingCharges(bool val) { m_isUsingCharges = val; }
     void PrepareProcToTrigger(AuraApplication* aurApp, ProcEventInfo& eventInfo, TimePoint now);
@@ -272,6 +274,7 @@ protected:
     bool m_isUsingCharges: 1;
 
     TimePoint m_procCooldown;
+    bool m_disallowProc{false};
 
 private:
     Unit::AuraApplicationList m_removedApplications;

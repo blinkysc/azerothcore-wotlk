@@ -198,6 +198,10 @@ public:
         _procCooldown = TimePoint::min();
     }
 
+    // Disallow proc flag (for PROC_ATTR_DISALLOW_PROC_ON_APPLY)
+    [[nodiscard]] bool IsDisallowedProc() const { return _disallowProc; }
+    void SetDisallowProc(bool disallow) { _disallowProc = disallow; }
+
     // Stack amount
     [[nodiscard]] uint8_t GetStackAmount() const { return _stackAmount; }
     void SetStackAmount(uint8_t amount) { _stackAmount = amount; }
@@ -263,6 +267,7 @@ private:
     int32_t _maxDuration = -1;
 
     TimePoint _procCooldown = TimePoint::min();
+    bool _disallowProc = false;
 
     uint8_t _stackAmount = 1;
     bool _isPassive = false;

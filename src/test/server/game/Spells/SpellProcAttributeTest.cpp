@@ -25,6 +25,7 @@
  * - PROC_ATTR_REQ_MANA_COST (0x04)
  * - PROC_ATTR_REQ_SPELLMOD (0x08)
  * - PROC_ATTR_USE_STACKS_FOR_CHARGES (0x10)
+ * - PROC_ATTR_DISALLOW_PROC_ON_APPLY (0x20)
  * - PROC_ATTR_REDUCE_PROC_60 (0x80)
  * - PROC_ATTR_CANT_PROC_FROM_ITEM_CAST (0x100)
  */
@@ -333,6 +334,110 @@ TEST_F(SpellProcAttributeTest, UseStacksForCharges_NotSet_DecrementCharges)
 }
 
 // =============================================================================
+// PROC_ATTR_DISALLOW_PROC_ON_APPLY (0x20) Tests
+// =============================================================================
+
+TEST_F(SpellProcAttributeTest, DisallowProcOnApply_AttributeSet)
+{
+    auto procEntry = SpellProcEntryBuilder()
+        .WithChance(100.0f)
+        .WithAttributesMask(PROC_ATTR_DISALLOW_PROC_ON_APPLY)
+        .Build();
+
+    EXPECT_TRUE(procEntry.AttributesMask & PROC_ATTR_DISALLOW_PROC_ON_APPLY);
+}
+
+TEST_F(SpellProcAttributeTest, DisallowProcOnApply_AttributeNotSet)
+{
+    auto procEntry = SpellProcEntryBuilder()
+        .WithChance(100.0f)
+        .WithAttributesMask(0)
+        .Build();
+
+    EXPECT_FALSE(procEntry.AttributesMask & PROC_ATTR_DISALLOW_PROC_ON_APPLY);
+}
+
+TEST_F(SpellProcAttributeTest, DisallowProcOnApply_FlagBlocksProc)
+{
+    // Aura created during spell execution should be blocked while
+    // the disallow flag is set (same spell execution).
+    auto aura = AuraStubBuilder()
+        .WithId(57529)  // Arcane Potency Rank 1
+        .WithCharges(1)
+        .Build();
+
+    // Simulate _ApplyAura setting the flag
+    aura->SetDisallowProc(true);
+
+    // Same spell execution: flag is set, proc should be blocked
+    EXPECT_TRUE(ProcChanceTestHelper::IsBlockedByDisallowProcOnApply(aura.get()));
+
+    // Charge should NOT have been consumed
+    EXPECT_EQ(aura->GetCharges(), 1);
+    EXPECT_FALSE(aura->IsRemoved());
+}
+
+TEST_F(SpellProcAttributeTest, DisallowProcOnApply_ActivationUnblocksProc)
+{
+    // After the spell cast finishes, ActivateDelayedProcOnApplyAuras
+    // clears the flag and the aura can proc on the next cast.
+    auto aura = AuraStubBuilder()
+        .WithId(57529)
+        .WithCharges(1)
+        .Build();
+
+    // Simulate _ApplyAura setting the flag
+    aura->SetDisallowProc(true);
+
+    // Same spell: blocked
+    EXPECT_TRUE(ProcChanceTestHelper::IsBlockedByDisallowProcOnApply(aura.get()));
+
+    // Simulate ActivateDelayedProcOnApplyAuras at end of spell cast
+    aura->SetDisallowProc(false);
+
+    // Now the aura should be allowed to proc
+    EXPECT_FALSE(ProcChanceTestHelper::IsBlockedByDisallowProcOnApply(aura.get()));
+}
+
+TEST_F(SpellProcAttributeTest, DisallowProcOnApply_Scenario_ArcanePotency)
+{
+    // Arcane Potency buff (57529/57531) should not be consumed by the same
+    // Arcane Explosion cast that triggered Clearcasting -> Arcane Potency.
+    // The aura is marked as "disallowed" on apply and activated when the
+    // originating spell cast finishes, so the next cast can consume it.
+    auto aura = AuraStubBuilder()
+        .WithId(57529)
+        .WithCharges(1)
+        .WithSpellFamilyName(3)  // SPELLFAMILY_MAGE
+        .Build();
+
+    auto procEntry = SpellProcEntryBuilder()
+        .WithProcFlags(PROC_FLAG_DONE_SPELL_MAGIC_DMG_CLASS_NEG)
+        .WithSpellPhaseMask(PROC_SPELL_PHASE_CAST)
+        .WithChance(100.0f)
+        .WithAttributesMask(PROC_ATTR_DISALLOW_PROC_ON_APPLY)
+        .Build();
+
+    // Simulate _ApplyAura setting the disallow flag
+    aura->SetDisallowProc(true);
+
+    // Same-cast CAST phase proc from Arcane Explosion: should be blocked
+    EXPECT_TRUE(ProcChanceTestHelper::IsBlockedByDisallowProcOnApply(aura.get()));
+    EXPECT_EQ(aura->GetCharges(), 1);
+
+    // Simulate ActivateDelayedProcOnApplyAuras at end of Arcane Explosion cast
+    aura->SetDisallowProc(false);
+
+    // Next spell cast (Arcane Missiles): Arcane Potency can proc
+    EXPECT_FALSE(ProcChanceTestHelper::IsBlockedByDisallowProcOnApply(aura.get()));
+
+    // Simulate charge consumption on next cast
+    ProcChanceTestHelper::SimulateConsumeProcCharges(aura.get(), procEntry);
+    EXPECT_EQ(aura->GetCharges(), 0);
+    EXPECT_TRUE(aura->IsRemoved());
+}
+
+// =============================================================================
 // PROC_ATTR_REDUCE_PROC_60 (0x80) Tests
 // =============================================================================
 
@@ -461,6 +566,7 @@ TEST_F(SpellProcAttributeTest, CombinedAttributes_AllFlags)
         PROC_ATTR_REQ_MANA_COST |
         PROC_ATTR_REQ_SPELLMOD |
         PROC_ATTR_USE_STACKS_FOR_CHARGES |
+        PROC_ATTR_DISALLOW_PROC_ON_APPLY |
         PROC_ATTR_REDUCE_PROC_60 |
         PROC_ATTR_CANT_PROC_FROM_ITEM_CAST;
 
@@ -474,6 +580,7 @@ TEST_F(SpellProcAttributeTest, CombinedAttributes_AllFlags)
     EXPECT_TRUE(procEntry.AttributesMask & PROC_ATTR_REQ_MANA_COST);
     EXPECT_TRUE(procEntry.AttributesMask & PROC_ATTR_REQ_SPELLMOD);
     EXPECT_TRUE(procEntry.AttributesMask & PROC_ATTR_USE_STACKS_FOR_CHARGES);
+    EXPECT_TRUE(procEntry.AttributesMask & PROC_ATTR_DISALLOW_PROC_ON_APPLY);
     EXPECT_TRUE(procEntry.AttributesMask & PROC_ATTR_REDUCE_PROC_60);
     EXPECT_TRUE(procEntry.AttributesMask & PROC_ATTR_CANT_PROC_FROM_ITEM_CAST);
 }
@@ -563,6 +670,7 @@ TEST_F(SpellProcAttributeTest, AttributeValues_Correct)
     EXPECT_EQ(PROC_ATTR_REQ_MANA_COST,          0x0000004u);
     EXPECT_EQ(PROC_ATTR_REQ_SPELLMOD,           0x0000008u);
     EXPECT_EQ(PROC_ATTR_USE_STACKS_FOR_CHARGES, 0x0000010u);
+    EXPECT_EQ(PROC_ATTR_DISALLOW_PROC_ON_APPLY, 0x0000020u);
     EXPECT_EQ(PROC_ATTR_REDUCE_PROC_60,         0x0000080u);
     EXPECT_EQ(PROC_ATTR_CANT_PROC_FROM_ITEM_CAST, 0x0000100u);
 }
@@ -576,6 +684,7 @@ TEST_F(SpellProcAttributeTest, AttributeFlags_NonOverlapping)
         PROC_ATTR_REQ_MANA_COST,
         PROC_ATTR_REQ_SPELLMOD,
         PROC_ATTR_USE_STACKS_FOR_CHARGES,
+        PROC_ATTR_DISALLOW_PROC_ON_APPLY,
         PROC_ATTR_REDUCE_PROC_60,
         PROC_ATTR_CANT_PROC_FROM_ITEM_CAST
     };
