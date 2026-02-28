@@ -3954,7 +3954,9 @@ void Spell::_cast(bool skipCheck)
     {
         // CAST phase procs for non-channeled immediate spells
         // (channeled spells handle this below to preserve spell mods)
-        if (!m_spellInfo->IsChanneled() && m_originalCaster && !IsTriggered())
+        // Note: triggered spells are allowed here; per-aura filtering via
+        // PROC_ATTR_TRIGGERED_CAN_PROC in SpellAuras.cpp handles rejection.
+        if (!m_spellInfo->IsChanneled() && m_originalCaster)
         {
             uint32 procAttacker = m_procAttacker;
             if (!procAttacker)
@@ -4018,8 +4020,10 @@ void Spell::_cast(bool skipCheck)
         modOwner->SetSpellModTakingSpell(this, false);
 
     // CAST phase procs for delayed and channeled spells
+    // Note: triggered spells are allowed here; per-aura filtering via
+    // PROC_ATTR_TRIGGERED_CAN_PROC in SpellAuras.cpp handles rejection.
     if ((m_spellState == SPELL_STATE_DELAYED || m_spellInfo->IsChanneled())
-        && m_originalCaster && !IsTriggered())
+        && m_originalCaster)
     {
         uint32 procAttacker = m_procAttacker;
         if (!procAttacker)
