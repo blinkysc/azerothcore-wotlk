@@ -509,7 +509,7 @@ public:
     void SendPetCastResult(SpellCastResult result);
     void SendSpellStart();
     void SendSpellGo();
-    static void SendEmptySpellGo(ObjectGuid castItemGuid, ObjectGuid casterGuid, uint8 castCount, uint32 spellId, Player* target);
+
     void SendSpellCooldown();
     void SendLogExecute();
     void ExecuteLogEffectTakeTargetPower(uint8 effIndex, Unit* target, uint32 PowerType, uint32 powerTaken, float gainMultiplier);
