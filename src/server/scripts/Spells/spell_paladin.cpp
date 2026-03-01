@@ -1183,8 +1183,7 @@ class spell_pal_seal_of_righteousness : public AuraScript
             return false;
 
         if (IsJudgementDamageSpell(eventInfo.GetSpellInfo()))
-            return target->IsAlive() &&
-                HasJudgementsOfTheJust(eventInfo.GetActor());
+            return target->IsAlive();
 
         return target->IsAlive() && !eventInfo.GetTriggerAuraSpell() &&
             (damageInfo->GetDamage() ||
@@ -1210,7 +1209,8 @@ class spell_pal_seal_of_righteousness : public AuraScript
 
         // Judgements of the Just: Seal of Righteousness procs
         // twice from Judgements
-        if (IsJudgementDamageSpell(eventInfo.GetSpellInfo()))
+        if (IsJudgementDamageSpell(eventInfo.GetSpellInfo()) &&
+            HasJudgementsOfTheJust(GetTarget()))
         {
             GetTarget()->CastCustomSpell(
                 SPELL_PALADIN_SEAL_OF_RIGHTEOUSNESS,
