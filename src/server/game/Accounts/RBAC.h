@@ -265,6 +265,7 @@ enum RBACPermissions
     RBAC_PERM_COMMAND_LFG_QUEUE                              = 433,
     RBAC_PERM_COMMAND_LFG_CLEAN                              = 434,
     RBAC_PERM_COMMAND_LFG_OPTIONS                            = 435,
+    RBAC_PERM_COMMAND_LFG_COOLDOWN                           = 436,
     RBAC_PERM_COMMAND_LIST_CREATURE                          = 437,
     RBAC_PERM_COMMAND_LIST_ITEM                              = 438,
     RBAC_PERM_COMMAND_LIST_OBJECT                            = 439,

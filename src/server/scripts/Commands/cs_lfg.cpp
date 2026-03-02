@@ -48,11 +48,12 @@ public:
     {
         static ChatCommandTable lfgCommandTable =
         {
-            { "player",  HandleLfgPlayerInfoCommand, rbac::RBAC_PERM_COMMAND_LFG_PLAYER,  Console::No },
-            { "group",   HandleLfgGroupInfoCommand,  rbac::RBAC_PERM_COMMAND_LFG_GROUP,   Console::No },
-            { "queue",   HandleLfgQueueInfoCommand,  rbac::RBAC_PERM_COMMAND_LFG_QUEUE,   Console::Yes },
-            { "clean",   HandleLfgCleanCommand,      rbac::RBAC_PERM_COMMAND_LFG_CLEAN,   Console::Yes },
-            { "options", HandleLfgOptionsCommand,    rbac::RBAC_PERM_COMMAND_LFG_OPTIONS, Console::Yes },
+            { "player",   HandleLfgPlayerInfoCommand,    rbac::RBAC_PERM_COMMAND_LFG_PLAYER,   Console::No },
+            { "group",    HandleLfgGroupInfoCommand,     rbac::RBAC_PERM_COMMAND_LFG_GROUP,    Console::No },
+            { "queue",    HandleLfgQueueInfoCommand,     rbac::RBAC_PERM_COMMAND_LFG_QUEUE,    Console::Yes },
+            { "clean",    HandleLfgCleanCommand,         rbac::RBAC_PERM_COMMAND_LFG_CLEAN,    Console::Yes },
+            { "options",  HandleLfgOptionsCommand,       rbac::RBAC_PERM_COMMAND_LFG_OPTIONS,  Console::Yes },
+            { "cooldown", HandleLfgCooldownClearCommand, rbac::RBAC_PERM_COMMAND_LFG_COOLDOWN, Console::Yes },
         };
 
         static ChatCommandTable commandTable =
@@ -125,6 +126,13 @@ public:
     {
         handler->PSendSysMessage(LANG_LFG_CLEAN);
         sLFGMgr->Clean();
+        return true;
+    }
+
+    static bool HandleLfgCooldownClearCommand(ChatHandler* handler)
+    {
+        sLFGMgr->ClearDungeonCooldowns();
+        handler->SendSysMessage(LANG_LFG_COOLDOWN_CLEARED);
         return true;
     }
 };

@@ -280,12 +280,13 @@ INSERT INTO `rbac_permissions` VALUES
 (427,'Command: learn all lang'),
 (428,'Command: learn all recipes'),
 (429,'Command: unlearn'),
--- LFG commands (431-435)
+-- LFG commands (431-436)
 (431,'Command: lfg player'),
 (432,'Command: lfg group'),
 (433,'Command: lfg queue'),
 (434,'Command: lfg clean'),
 (435,'Command: lfg options'),
+(436,'Command: lfg cooldown'),
 -- List commands (437-441)
 (437,'Command: list creature'),
 (438,'Command: list item'),
@@ -894,7 +895,7 @@ INSERT INTO `rbac_linked_permissions` VALUES
 (197, 417), (197, 419), (197, 420), (197, 421), (197, 422), (197, 423), (197, 424),
 (197, 425), (197, 426), (197, 427), (197, 428), (197, 429),
 -- LFG
-(197, 431), (197, 432), (197, 433), (197, 434), (197, 435),
+(197, 431), (197, 432), (197, 433), (197, 434), (197, 435), (197, 436),
 -- List
 (197, 437), (197, 438), (197, 439), (197, 440), (197, 441),
 -- Lookup (GM-level)

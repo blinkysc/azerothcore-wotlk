@@ -70,7 +70,9 @@ enum MageSpells
     SPELL_MAGE_CHILLED_R2                        = 12485,
     SPELL_MAGE_CHILLED_R3                        = 12486,
     SPELL_MAGE_MANA_SURGE                        = 37445,
-    SPELL_MAGE_FROST_NOVA                        = 122
+    SPELL_MAGE_FROST_NOVA                        = 122,
+    SPELL_MAGE_LIVING_BOMB_R1                    = 44457,
+    SPELL_MAGE_MISSILE_BARRAGE_PROC              = 44401
 };
 
 enum MageSpellIcons
@@ -807,7 +809,7 @@ class spell_mage_master_of_elements : public AuraScript
 
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_MAGE_MASTER_OF_ELEMENTS_ENERGIZE });
+        return ValidateSpellInfo({ SPELL_MAGE_MASTER_OF_ELEMENTS_ENERGIZE, SPELL_MAGE_LIVING_BOMB_R1 });
     }
 
     bool CheckProc(ProcEventInfo& eventInfo)
@@ -823,7 +825,23 @@ class spell_mage_master_of_elements : public AuraScript
     {
         PreventDefaultAction();
 
-        int32 mana = eventInfo.GetDamageInfo()->GetSpellInfo()->CalcPowerCost(GetTarget(), eventInfo.GetDamageInfo()->GetSchoolMask());
+        SpellInfo const* spellInfo = eventInfo.GetDamageInfo()->GetSpellInfo();
+
+        // Living Bomb explosion has no mana cost, use the aura spell's cost instead
+        if (spellInfo->SpellFamilyName == SPELLFAMILY_MAGE
+            && spellInfo->SpellIconID == MAGE_ICON_LIVING_BOMB
+            && !spellInfo->ManaCost && !spellInfo->ManaCostPercentage)
+        {
+            uint8 rank = sSpellMgr->GetSpellRank(spellInfo->Id);
+            spellInfo = sSpellMgr->GetSpellInfo(
+                sSpellMgr->GetSpellWithRank(SPELL_MAGE_LIVING_BOMB_R1, rank));
+            if (!spellInfo)
+                return;
+        }
+
+        // Use base mana cost (ManaCost + ManaCostPercentage) without spell mods,
+        // as the talent refunds based on "base mana cost"
+        int32 mana = spellInfo->ManaCost + int32(CalculatePct(GetTarget()->GetCreateMana(), spellInfo->ManaCostPercentage));
         mana = CalculatePct(mana, aurEff->GetAmount());
 
         if (mana > 0)
@@ -941,23 +959,11 @@ class spell_mage_fingers_of_frost : public AuraScript
 
     void PrepareProc(ProcEventInfo& eventInfo)
     {
+        // Block channeled spells (e.g. Blizzard channel start) from consuming charges.
+        // All other filtering is handled by SpellPhaseMask=1 (CAST only) in spell_proc.
         if (Spell const* spell = eventInfo.GetProcSpell())
-        {
-            bool isTriggered = spell->IsTriggered();
-            bool isCastPhase = (eventInfo.GetSpellPhaseMask() & PROC_SPELL_PHASE_CAST) != 0;
-            bool isChanneled = spell->GetSpellInfo()->IsChanneled();
-            bool prevent = false;
-
-            if (isTriggered)
-                prevent = false;
-            else if (isChanneled)
-                prevent = true;
-            else if (!isCastPhase)
-                prevent = true;
-
-            if (prevent)
+            if (spell->GetSpellInfo()->IsChanneled())
                 PreventDefaultAction();
-        }
     }
 
     void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
@@ -1499,6 +1505,31 @@ class spell_mage_ice_block : public SpellScript
     }
 };
 
+// 12536 - Clearcasting
+class spell_mage_clearcasting : public AuraScript
+{
+    PrepareAuraScript(spell_mage_clearcasting);
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
+        if (!spellInfo)
+            return true;
+
+        // Missile Barrage has priority over Clearcasting for Arcane Missiles
+        if (spellInfo->SpellFamilyName == SPELLFAMILY_MAGE && (spellInfo->SpellFamilyFlags[0] & 0x800))
+            if (GetTarget()->HasAura(SPELL_MAGE_MISSILE_BARRAGE_PROC))
+                return false;
+
+        return true;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_mage_clearcasting::CheckProc);
+    }
+};
+
 // 44401 - Missile Barrage (proc buff)
 class spell_mage_missile_barrage_proc : public AuraScript
 {
@@ -1570,6 +1601,7 @@ void AddSC_mage_spell_scripts()
     RegisterSpellScript(spell_mage_ice_block);
     RegisterSpellScript(spell_mage_imp_blizzard);
     RegisterSpellScript(spell_mage_imp_mana_gems);
+    RegisterSpellScript(spell_mage_clearcasting);
     RegisterSpellScript(spell_mage_missile_barrage);
     RegisterSpellScript(spell_mage_missile_barrage_proc);
     RegisterSpellScript(spell_mage_blast_wave);

@@ -268,9 +268,13 @@ public:
 
         // Check if triggered spell filtering applies
         // SpellAuras.cpp:2195-2208
+        static constexpr uint32 KILL_DEATH_PROC_FLAG_MASK =
+            PROC_FLAG_KILL | PROC_FLAG_KILLED | PROC_FLAG_DEATH;
+
         if (!config.auraHasCanProcFromProcs &&
             !(procEntry.AttributesMask & PROC_ATTR_TRIGGERED_CAN_PROC) &&
-            !(eventTypeMask & AUTO_ATTACK_PROC_FLAG_MASK))
+            !(eventTypeMask & AUTO_ATTACK_PROC_FLAG_MASK) &&
+            !(eventTypeMask & KILL_DEATH_PROC_FLAG_MASK))
         {
             // Filter triggered spells unless they have NOT_A_PROC
             if (config.isTriggered && !config.spellHasNotAProc)
@@ -280,6 +284,45 @@ public:
         }
 
         return false; // Allow proc
+    }
+
+    // =============================================================================
+    // Extra Attack Chain-Proc Prevention - simulates SpellAuraEffects.cpp:1245-1261
+    // =============================================================================
+
+    /**
+     * @brief Configuration for simulating extra attack chain-proc prevention
+     */
+    struct ExtraAttackProcConfig
+    {
+        bool triggeredSpellHasExtraAttacks = false; // triggeredSpellInfo->HasEffect(SPELL_EFFECT_ADD_EXTRA_ATTACKS)
+        uint32 triggerSpellId = 0;                  // m_spellInfo->Effects[GetEffIndex()].TriggerSpell
+        uint32 lastExtraAttackSpell = 0;            // eventInfo.GetActor()->GetLastExtraAttackSpell()
+    };
+
+    /**
+     * @brief Simulate extra attack chain-proc prevention from CheckEffectProc
+     * Returns true if proc should be blocked
+     *
+     * @param config Extra attack proc configuration
+     * @return true if proc should be blocked
+     */
+    static bool ShouldBlockExtraAttackChainProc(ExtraAttackProcConfig const& config)
+    {
+        // Only applies when the triggered spell grants extra attacks
+        if (!config.triggeredSpellHasExtraAttacks)
+            return false;
+
+        // Patch 1.12.0(?) extra attack abilities can no longer chain proc themselves
+        if (config.lastExtraAttackSpell == config.triggerSpellId)
+            return true;
+
+        // Patch 2.2.0 Sword Specialization (Warrior, Rogue) extra attack can no longer proc additional extra attacks
+        // 3.3.5 Sword Specialization (Warrior), Hack and Slash (Rogue)
+        if (config.lastExtraAttackSpell == 16459 || config.lastExtraAttackSpell == 66923)
+            return true;
+
+        return false;
     }
 
     // =============================================================================
