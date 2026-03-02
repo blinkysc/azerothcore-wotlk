@@ -1149,6 +1149,37 @@ class spell_rog_mutilate : public SpellScript
     }
 };
 
+// 5374, 34414, 34416, 34419, 48662, 48665 - Mutilate MH sub-spells
+// The parent Mutilate spell has SPELL_ATTR3_SUPPRESS_CASTER_PROCS which prevents
+// its normalized weapon damage (Effect 0) from triggering weapon enchant procs.
+// In WotLK retail, Mutilate grants 2 MH poison proc chances and 1 OH proc chance.
+// The MH sub-spell already triggers 1 MH proc via the core, this script adds the
+// second MH proc to compensate for the parent's suppressed weapon damage proc.
+class spell_rog_mutilate_mh : public SpellScript
+{
+    PrepareSpellScript(spell_rog_mutilate_mh);
+
+    void HandleAfterHit()
+    {
+        Player* player = GetCaster()->ToPlayer();
+        if (!player)
+            return;
+
+        Unit* target = GetHitUnit();
+        if (!target)
+            return;
+
+        player->CastItemCombatSpell(target, BASE_ATTACK,
+            PROC_FLAG_TAKEN_SPELL_MELEE_DMG_CLASS | PROC_FLAG_TAKEN_DAMAGE,
+            PROC_HIT_NORMAL);
+    }
+
+    void Register() override
+    {
+        AfterHit += SpellHitFn(spell_rog_mutilate_mh::HandleAfterHit);
+    }
+};
+
 void AddSC_rogue_spell_scripts()
 {
     RegisterSpellScript(spell_rog_savage_combat);
@@ -1181,5 +1212,6 @@ void AddSC_rogue_spell_scripts()
     RegisterSpellScript(spell_rog_turn_the_tables_proc);
     RegisterSpellScript(spell_rog_focused_attacks);
     RegisterSpellScript(spell_rog_mutilate);
+    RegisterSpellScript(spell_rog_mutilate_mh);
     RegisterSpellScript(spell_rog_cold_blood);
 }
