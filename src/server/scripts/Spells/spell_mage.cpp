@@ -1008,21 +1008,12 @@ class spell_mage_arcane_potency : public AuraScript
     {
         SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
         if (!spellInfo)
-        {
-            LOG_INFO("server", "ArcPotency CheckProc: no spellInfo, returning false");
             return false;
-        }
-
-        LOG_INFO("server", "ArcPotency CheckProc: spell {} ({}), IconID={}, phase={}", spellInfo->Id, spellInfo->SpellName[0], spellInfo->SpellIconID, eventInfo.GetSpellPhaseMask());
 
         // Only proc on Clearcasting or Presence of Mind
         if (spellInfo->SpellIconID != MAGE_ICON_CLEARCASTING && spellInfo->SpellIconID != MAGE_ICON_PRESENCE_OF_MIND)
-        {
-            LOG_INFO("server", "ArcPotency CheckProc: IconID {} != Clearcasting/PoM, returning false", spellInfo->SpellIconID);
             return false;
-        }
 
-        LOG_INFO("server", "ArcPotency CheckProc: PASS");
         return true;
     }
 
