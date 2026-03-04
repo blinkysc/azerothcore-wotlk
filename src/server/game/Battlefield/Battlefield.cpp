@@ -312,6 +312,8 @@ void Battlefield::InvitePlayerToWar(Player* player)
     if (m_PlayersInWar[player->GetTeamId()].count(player->GetGUID()) || m_InvitedPlayers[player->GetTeamId()].count(player->GetGUID()))
         return;
 
+    sScriptMgr->OnBattlefieldBeforeInvitePlayerToWar(this, player);
+
     m_PlayersWillBeKick[player->GetTeamId()].erase(player->GetGUID());
     m_InvitedPlayers[player->GetTeamId()][player->GetGUID()] = GameTime::GetGameTime().count() + m_TimeForAcceptInvite;
     player->GetSession()->SendBfInvitePlayerToWar(m_BattleId, m_ZoneId, m_TimeForAcceptInvite);
@@ -434,6 +436,8 @@ void Battlefield::PlayerAcceptInviteToWar(Player* player)
     if (!IsWarTime())
         return;
 
+    sScriptMgr->OnBattlefieldPlayerJoinWar(this, player);
+
     if (AddOrSetPlayerToCorrectBfGroup(player))
     {
         player->GetSession()->SendBfEntered(m_BattleId);
@@ -444,7 +448,6 @@ void Battlefield::PlayerAcceptInviteToWar(Player* player)
             player->ToggleAFK();
 
         OnPlayerJoinWar(player);                               //for scripting
-        sScriptMgr->OnBattlefieldPlayerJoinWar(this, player);
     }
 }
 

@@ -18,6 +18,7 @@
 #include "BattlefieldMgr.h"
 #include "Chat.h"
 #include "CommandScript.h"
+#include "Language.h"
 #include "RBAC.h"
 
 using namespace Acore::ChatCommands;
@@ -49,12 +50,15 @@ public:
         Battlefield* bf = sBattlefieldMgr->GetBattlefieldByBattleId(battleId);
 
         if (!bf)
+        {
+            handler->SendErrorMessage(LANG_BF_NOT_FOUND, battleId);
             return false;
+        }
 
         bf->StartBattle();
-
-        if (battleId == 1)
-            handler->SendGlobalGMSysMessage("Wintergrasp (Command start used)");
+        handler->SendWorldText(LANG_BF_STARTED, battleId);
+        if (handler->IsConsole())
+            handler->PSendSysMessage(LANG_BF_STARTED, battleId);
 
         return true;
     }
@@ -64,12 +68,15 @@ public:
         Battlefield* bf = sBattlefieldMgr->GetBattlefieldByBattleId(battleId);
 
         if (!bf)
+        {
+            handler->SendErrorMessage(LANG_BF_NOT_FOUND, battleId);
             return false;
+        }
 
         bf->EndBattle(true);
-
-        if (battleId == 1)
-            handler->SendGlobalGMSysMessage("Wintergrasp (Command stop used)");
+        handler->SendWorldText(LANG_BF_STOPPED, battleId);
+        if (handler->IsConsole())
+            handler->PSendSysMessage(LANG_BF_STOPPED, battleId);
 
         return true;
     }
@@ -79,19 +86,24 @@ public:
         Battlefield* bf = sBattlefieldMgr->GetBattlefieldByBattleId(battleId);
 
         if (!bf)
+        {
+            handler->SendErrorMessage(LANG_BF_NOT_FOUND, battleId);
             return false;
+        }
 
         if (bf->IsEnabled())
         {
             bf->ToggleBattlefield(false);
-            if (battleId == 1)
-                handler->SendGlobalGMSysMessage("Wintergrasp is disabled");
+            handler->SendWorldText(LANG_BF_DISABLED, battleId);
+            if (handler->IsConsole())
+                handler->PSendSysMessage(LANG_BF_DISABLED, battleId);
         }
         else
         {
             bf->ToggleBattlefield(true);
-            if (battleId == 1)
-                handler->SendGlobalGMSysMessage("Wintergrasp is enabled");
+            handler->SendWorldText(LANG_BF_ENABLED, battleId);
+            if (handler->IsConsole())
+                handler->PSendSysMessage(LANG_BF_ENABLED, battleId);
         }
 
         return true;
@@ -102,11 +114,15 @@ public:
         Battlefield* bf = sBattlefieldMgr->GetBattlefieldByBattleId(battleId);
 
         if (!bf)
+        {
+            handler->SendErrorMessage(LANG_BF_NOT_FOUND, battleId);
             return false;
+        }
 
         bf->EndBattle(false);
-        if (battleId == 1)
-            handler->SendGlobalGMSysMessage("Wintergrasp (Command switch used)");
+        handler->SendWorldText(LANG_BF_SWITCHED, battleId);
+        if (handler->IsConsole())
+            handler->PSendSysMessage(LANG_BF_SWITCHED, battleId);
 
         return true;
     }
@@ -139,12 +155,16 @@ public:
         Battlefield* bf = sBattlefieldMgr->GetBattlefieldByBattleId(battleId);
 
         if (!bf)
+        {
+            handler->SendErrorMessage(LANG_BF_NOT_FOUND, battleId);
             return false;
+        }
 
         bf->SetTimer(time * IN_MILLISECONDS);
         bf->SendInitWorldStatesToAll();
-        if (battleId == 1)
-            handler->SendGlobalGMSysMessage("Wintergrasp (Command timer used)");
+        handler->SendWorldText(LANG_BF_TIMER_SET, battleId, time);
+        if (handler->IsConsole())
+            handler->PSendSysMessage(LANG_BF_TIMER_SET, battleId, time);
 
         return true;
     }
