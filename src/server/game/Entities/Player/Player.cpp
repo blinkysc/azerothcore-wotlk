@@ -1487,13 +1487,7 @@ bool Player::TeleportTo(uint32 mapid, float x, float y, float z, float orientati
 
         // code for finish transfer called in WorldSession::HandleMovementOpcodes()
         // at client packet MSG_MOVE_TELEPORT_ACK
-        // Only wait for client ack if the client is actually controlling this player.
-        // If m_mover != this (e.g. mind control, charm), the client can't ack for us
-        // so complete the teleport immediately instead of waiting for a timeout.
-        bool waitForClientAck = (m_mover == this);
-        if (waitForClientAck)
-            SetSemaphoreTeleportNear(GameTime::GetGameTime().count());
-
+        SetSemaphoreTeleportNear(GameTime::GetGameTime().count());
         // near teleport, triggering send MSG_MOVE_TELEPORT_ACK from client at landing
         if (!GetSession()->PlayerLogout())
         {
@@ -1503,9 +1497,6 @@ bool Player::TeleportTo(uint32 mapid, float x, float y, float z, float orientati
             SendTeleportAckPacket();
             SendTeleportPacket(oldPos); // this automatically relocates to oldPos in order to broadcast the packet in the right place
         }
-
-        if (!waitForClientAck)
-            ProcessNearTeleportAck();
     }
     else
     {
@@ -1621,56 +1612,6 @@ bool Player::TeleportToEntryPoint()
     }
 
     return TeleportTo(loc);
-}
-
-void Player::ProcessNearTeleportAck()
-{
-    constexpr uint32 SPELL_HONORLESS_TARGET = 2479;
-    constexpr float ZONE_UPDATE_DISTANCE_THRESHOLD = 100.0f;
-    constexpr float PET_VISIBILITY_OFFSET = 5.0f;
-
-    SetSemaphoreTeleportNear(0);
-
-    uint32 old_zone = GetZoneId();
-
-    WorldLocation const& dest = GetTeleportDest();
-    Position oldPos(*this);
-
-    UpdatePosition(dest, true);
-
-    SetFallInformation(GameTime::GetGameTime().count(), dest.GetPositionZ());
-
-    // teleport pets if they are not unsummoned
-    if (Pet* pet = GetPet())
-    {
-        if (!pet->IsWithinDist3d(this, GetMap()->GetVisibilityRange() - PET_VISIBILITY_OFFSET))
-            pet->NearTeleportTo(GetPositionX(), GetPositionY(), GetPositionZ(), pet->GetOrientation());
-    }
-
-    if (oldPos.GetExactDist2d(this) > ZONE_UPDATE_DISTANCE_THRESHOLD)
-    {
-        uint32 newzone, newarea;
-        GetZoneAndAreaId(newzone, newarea);
-        UpdateZone(newzone, newarea);
-
-        // new zone
-        if (old_zone != newzone)
-        {
-            // honorless target
-            if (pvpInfo.IsHostile)
-                CastSpell(this, SPELL_HONORLESS_TARGET, true);
-
-            // in friendly area
-            else if (IsPvP() && !HasPlayerFlag(PLAYER_FLAGS_IN_PVP))
-                UpdatePvP(false, false);
-        }
-    }
-
-    GetMotionMaster()->ReinitializeMovement();
-
-    // client forgets about losing control, resend it
-    if (HasUnitState(UNIT_STATE_FLEEING | UNIT_STATE_CONFUSED) || IsCharmed())
-        SetClientControl(this, false, true);
 }
 
 void Player::ProcessDelayedOperations()

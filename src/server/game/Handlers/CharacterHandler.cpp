@@ -723,7 +723,7 @@ void WorldSession::HandlePlayerLoginOpcode(WorldPacket& recvData)
                 return;
             }
 
-            uint8 limitA = 10, limitB = 10;
+            uint8 limitA = 10, limitB = 10, limitC = 10; // pussywizard: this somehow froze (probably, ahh crash logs ...), and while (far) have never frozen in LogoutPlayer o_O maybe it's the combination of while(far); while(near);
             while (sess->GetPlayer() && (sess->GetPlayer()->IsBeingTeleportedFar() || (sess->GetPlayer()->IsInWorld() && sess->GetPlayer()->IsBeingTeleportedNear())))
             {
                 if (limitA == 0 || --limitA == 0)
@@ -740,11 +740,23 @@ void WorldSession::HandlePlayerLoginOpcode(WorldPacket& recvData)
                     }
                     sess->HandleMoveWorldportAck();
                 }
-                if (sess->GetPlayer() && sess->GetPlayer()->IsInWorld() && sess->GetPlayer()->IsBeingTeleportedNear())
+                while (sess->GetPlayer() && sess->GetPlayer()->IsInWorld() && sess->GetPlayer()->IsBeingTeleportedNear())
                 {
-                    sess->GetPlayer()->ProcessNearTeleportAck();
-                    sess->GetPlayer()->ResummonPetTemporaryUnSummonedIfAny();
-                    sess->GetPlayer()->ProcessDelayedOperations();
+                    if (limitC == 0 || --limitC == 0)
+                    {
+                        LOG_INFO("misc", "HandlePlayerLoginOpcode C");
+                        break;
+                    }
+
+                    Player* plMover = sess->GetPlayer()->m_mover->ToPlayer();
+                    if (!plMover)
+                        break;
+
+                    WorldPacket pkt(MSG_MOVE_TELEPORT_ACK, 20);
+                    pkt << plMover->GetPackGUID();
+                    pkt << uint32(0); // flags
+                    pkt << uint32(0); // time
+                    sess->HandleMoveTeleportAck(pkt);
                 }
             }
             if (!p->FindMap() || !p->IsInWorld() || sess->IsKicked())

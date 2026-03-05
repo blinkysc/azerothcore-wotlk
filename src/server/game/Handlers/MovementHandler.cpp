@@ -291,13 +291,54 @@ void WorldSession::HandleMoveTeleportAck(WorldPacket& recvData)
     if (guid != plMover->GetGUID())
         return;
 
-    plMover->ProcessNearTeleportAck();
+    plMover->SetSemaphoreTeleportNear(0);
+
+    uint32 old_zone = plMover->GetZoneId();
+
+    WorldLocation const& dest = plMover->GetTeleportDest();
+    Position oldPos(*plMover);
+
+    plMover->UpdatePosition(dest, true);
+
+    plMover->SetFallInformation(GameTime::GetGameTime().count(), dest.GetPositionZ());
+
+    // xinef: teleport pets if they are not unsummoned
+    if (Pet* pet = plMover->GetPet())
+    {
+        if (!pet->IsWithinDist3d(plMover, plMover->GetMap()->GetVisibilityRange() - 5.0f))
+            pet->NearTeleportTo(plMover->GetPositionX(), plMover->GetPositionY(), plMover->GetPositionZ(), pet->GetOrientation());
+    }
+
+    if (oldPos.GetExactDist2d(plMover) > 100.0f)
+    {
+        uint32 newzone, newarea;
+        plMover->GetZoneAndAreaId(newzone, newarea);
+        plMover->UpdateZone(newzone, newarea);
+
+        // new zone
+        if (old_zone != newzone)
+        {
+            // honorless target
+            if (plMover->pvpInfo.IsHostile)
+                plMover->CastSpell(plMover, 2479, true);
+
+            // in friendly area
+            else if (plMover->IsPvP() && !plMover->HasPlayerFlag(PLAYER_FLAGS_IN_PVP))
+                plMover->UpdatePvP(false, false);
+        }
+    }
 
     // resummon pet
     GetPlayer()->ResummonPetTemporaryUnSummonedIfAny();
 
     //lets process all delayed operations on successful teleport
     GetPlayer()->ProcessDelayedOperations();
+
+    plMover->GetMotionMaster()->ReinitializeMovement();
+
+    // pussywizard: client forgets about losing control, resend it
+    if (plMover->HasUnitState(UNIT_STATE_FLEEING | UNIT_STATE_CONFUSED) || plMover->IsCharmed()) // only in such cases SetClientControl(self, false) is sent
+        plMover->SetClientControl(plMover, false, true);
 }
 
 void WorldSession::HandleMovementOpcodes(WorldPacket& recvData)
