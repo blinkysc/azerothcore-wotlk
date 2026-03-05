@@ -2109,6 +2109,7 @@ public:
     [[nodiscard]] bool IsBeingTeleportedFar() const { return mSemaphoreTeleport_Far != 0; }
     void SetSemaphoreTeleportNear(time_t tm) { mSemaphoreTeleport_Near = tm; }
     void SetSemaphoreTeleportFar(time_t tm) { mSemaphoreTeleport_Far = tm; }
+    void ProcessNearTeleportAck();
     [[nodiscard]] time_t GetSemaphoreTeleportNear() const { return mSemaphoreTeleport_Near; }
     [[nodiscard]] time_t GetSemaphoreTeleportFar() const { return mSemaphoreTeleport_Far; }
     void ProcessDelayedOperations();

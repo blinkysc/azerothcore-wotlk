@@ -623,17 +623,11 @@ void WorldSession::HandleTeleportTimeout(bool updateInSessions)
         else // session update from Map::Update
         {
             if (GetPlayer()->IsBeingTeleportedNear() && GetPlayer()->GetSemaphoreTeleportNear() + sWorld->getIntConfig(CONFIG_TELEPORT_TIMEOUT_NEAR) < currTime)
-                while (GetPlayer() && GetPlayer()->IsInWorld() && GetPlayer()->IsBeingTeleportedNear())
-                {
-                    Player* plMover = GetPlayer()->m_mover->ToPlayer();
-                    if (!plMover)
-                        break;
-                    WorldPacket pkt(MSG_MOVE_TELEPORT_ACK, 20);
-                    pkt << plMover->GetPackGUID();
-                    pkt << uint32(0); // flags
-                    pkt << uint32(0); // time
-                    HandleMoveTeleportAck(pkt);
-                }
+            {
+                GetPlayer()->ProcessNearTeleportAck();
+                GetPlayer()->ResummonPetTemporaryUnSummonedIfAny();
+                GetPlayer()->ProcessDelayedOperations();
+            }
         }
     }
 }
