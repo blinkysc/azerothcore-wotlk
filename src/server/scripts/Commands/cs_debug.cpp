@@ -21,6 +21,7 @@
 #include "Channel.h"
 #include "Chat.h"
 #include "CommandScript.h"
+#include "GhostActorSystem.h"
 #include "GridNotifiersImpl.h"
 #include "LFGMgr.h"
 #include "Language.h"
@@ -66,16 +67,33 @@ public:
             { "setphaseshift",  HandleDebugSendSetPhaseShiftCommand,   SEC_ADMINISTRATOR, Console::No },
             { "spellfail",      HandleDebugSendSpellFailCommand,       SEC_ADMINISTRATOR, Console::No }
         };
+        static ChatCommandTable debugTraceCommandTable =
+        {
+            { "",               HandleDebugTraceCommand,               SEC_ADMINISTRATOR, Console::No },
+            { "stop",           HandleDebugTraceStopCommand,           SEC_ADMINISTRATOR, Console::No }
+        };
+        static ChatCommandTable debugGhostActorCommandTable =
+        {
+            { "",               HandleDebugGhostActorCommand,          SEC_ADMINISTRATOR, Console::No },
+            { "neighbors",      HandleDebugGhostActorNeighborsCommand, SEC_ADMINISTRATOR, Console::No },
+            { "perf",           HandleDebugGhostActorPerfCommand,      SEC_ADMINISTRATOR, Console::No },
+            { "hotspots",       HandleDebugGhostActorHotspotsCommand,  SEC_ADMINISTRATOR, Console::No },
+            { "messages",       HandleDebugGhostActorMessagesCommand,  SEC_ADMINISTRATOR, Console::No }
+        };
         static ChatCommandTable debugCommandTable =
         {
             { "setbit",         HandleDebugSet32BitCommand,            SEC_ADMINISTRATOR, Console::No },
             { "threat",         HandleDebugThreatListCommand,          SEC_ADMINISTRATOR, Console::No },
+            { "trace",          debugTraceCommandTable },
             { "hostile",        HandleDebugHostileRefListCommand,      SEC_ADMINISTRATOR, Console::No },
             { "anim",           HandleDebugAnimCommand,                SEC_ADMINISTRATOR, Console::No },
             { "arena",          HandleDebugArenaCommand,               SEC_ADMINISTRATOR, Console::No },
             { "bg",             HandleDebugBattlegroundCommand,        SEC_ADMINISTRATOR, Console::Yes},
+            { "cell",           HandleDebugCellCommand,                SEC_ADMINISTRATOR, Console::No },
             { "cooldown",       HandleDebugCooldownCommand,            SEC_ADMINISTRATOR, Console::No },
             { "getitemstate",   HandleDebugGetItemStateCommand,        SEC_ADMINISTRATOR, Console::No },
+            { "ghost",          HandleDebugGhostCommand,               SEC_ADMINISTRATOR, Console::No },
+            { "ghostactor",     debugGhostActorCommandTable },
             { "lootrecipient",  HandleDebugGetLootRecipientCommand,    SEC_ADMINISTRATOR, Console::No },
             { "getvalue",       HandleDebugGetValueCommand,            SEC_ADMINISTRATOR, Console::No },
             { "getitemvalue",   HandleDebugGetItemValueCommand,        SEC_ADMINISTRATOR, Console::No },
@@ -1458,6 +1476,466 @@ public:
         uint32 zoneId = player->GetZoneId();
         AreaTableEntry const* zoneEntry = sAreaTableStore.LookupEntry(zoneId);
         handler->PSendSysMessage("Player count in zone {} ({}): {}.", zoneId, (zoneEntry ? zoneEntry->area_name[LOCALE_enUS] : "<unknown>"), player->GetMap()->GetPlayerCountInZone(zoneId));
+        return true;
+    }
+
+    // ========================================================================
+    // GhostActorSystem Debug Commands
+    // ========================================================================
+
+    static bool HandleDebugCellCommand(ChatHandler* handler)
+    {
+        Player* player = handler->GetSession()->GetPlayer();
+        if (!player)
+        {
+            handler->SendErrorMessage("No player session.");
+            return false;
+        }
+
+        // Use target if selected, otherwise use self
+        Unit* target = handler->getSelectedUnit();
+        if (!target)
+            target = player;
+
+        Map* map = target->GetMap();
+        if (!map)
+        {
+            handler->SendErrorMessage("Target has no map.");
+            return false;
+        }
+
+        uint32_t playerGridId = GhostActor::CalculateGridId(player->GetPositionX(), player->GetPositionY());
+        uint32_t targetGridId = GhostActor::CalculateGridId(target->GetPositionX(), target->GetPositionY());
+        uint32_t gridX, gridY;
+        GhostActor::ExtractGridCoords(targetGridId, gridX, gridY);
+
+        handler->SendSysMessage("=== Grid Info ===");
+        handler->PSendSysMessage("Target: {} (GUID: 0x{:016X})",
+            target->GetName(), target->GetGUID().GetRawValue());
+        handler->PSendSysMessage("Position: ({:.2f}, {:.2f}, {:.2f})",
+            target->GetPositionX(), target->GetPositionY(), target->GetPositionZ());
+        handler->PSendSysMessage("Grid ID: {} ({}, {})", targetGridId, gridX, gridY);
+        handler->PSendSysMessage("Map: {} ({})", map->GetMapName(), map->GetId());
+
+        if (target != player)
+            handler->PSendSysMessage("Same Grid as You: {}", playerGridId == targetGridId ? "Yes" : "No");
+
+        GhostActor::CellActorManager* cellMgr = map->GetCellActorManager();
+        if (cellMgr)
+        {
+            GhostActor::CellActor* cell = cellMgr->GetCell(targetGridId);
+            if (cell)
+            {
+                handler->PSendSysMessage("Entity Count: {}", cell->GetEntityCount());
+                handler->PSendSysMessage("Ghost Count: {}", cell->GetGhostCount());
+                handler->PSendSysMessage("Message Queue: {} pending", cell->GetPendingMessageCount());
+            }
+            else
+            {
+                handler->SendSysMessage("Cell not active");
+            }
+        }
+        else
+        {
+            handler->SendSysMessage("GhostActorSystem not active on this map.");
+        }
+
+        return true;
+    }
+
+    static bool HandleDebugGhostCommand(ChatHandler* handler)
+    {
+        Player* player = handler->GetSession()->GetPlayer();
+        if (!player)
+        {
+            handler->SendErrorMessage("No player session.");
+            return false;
+        }
+
+        Unit* target = handler->getSelectedUnit();
+        if (!target)
+        {
+            handler->SendErrorMessage("No target selected.");
+            return false;
+        }
+
+        Map* map = player->GetMap();
+        if (!map)
+        {
+            handler->SendErrorMessage("Player has no map.");
+            return false;
+        }
+
+        uint32_t playerGridId = GhostActor::CalculateGridId(player->GetPositionX(), player->GetPositionY());
+        uint32_t targetGridId = GhostActor::CalculateGridId(target->GetPositionX(), target->GetPositionY());
+
+        GhostActor::CellActorManager* cellMgr = map->GetCellActorManager();
+        if (!cellMgr)
+        {
+            handler->SendSysMessage("GhostActorSystem not active on this map.");
+            return true;
+        }
+
+        // Check if the entity appears as a ghost in the player's grid
+        GhostActor::CellActor* playerCell = cellMgr->GetCell(playerGridId);
+        GhostActor::GhostEntity* ghost = playerCell ? playerCell->GetGhost(target->GetGUID().GetRawValue()) : nullptr;
+
+        handler->SendSysMessage("=== Ghost Entity Info ===");
+        handler->PSendSysMessage("Entity: {} (GUID: 0x{:016X})",
+            target->GetName(), target->GetGUID().GetRawValue());
+        handler->PSendSysMessage("Grid ID: {}", targetGridId);
+        handler->PSendSysMessage("Health: {}/{}", target->GetHealth(), target->GetMaxHealth());
+
+        if (ghost)
+        {
+            handler->SendSysMessage("Viewing As: Ghost projection (you're in a neighbor cell)");
+            handler->PSendSysMessage("Ghost Owner Cell: 0x{:08X}", ghost->GetOwnerCellId());
+        }
+        else
+        {
+            handler->SendSysMessage("Viewing As: Real entity");
+        }
+
+        // Count actual ghosts in neighbor grids
+        std::vector<uint32_t> neighbors = cellMgr->GetNeighborCellIds(targetGridId);
+        size_t actualGhostCount = 0;
+        size_t existingCellCount = 0;
+        for (uint32_t neighborId : neighbors)
+        {
+            GhostActor::CellActor* neighborCell = cellMgr->GetCell(neighborId);
+            if (neighborCell)
+            {
+                ++existingCellCount;
+                if (neighborCell->GetGhost(target->GetGUID().GetRawValue()))
+                    ++actualGhostCount;
+            }
+        }
+
+        // Get tracked ghost info
+        const GhostActor::EntityGhostInfo* ghostInfo = cellMgr->GetEntityGhostInfo(target->GetGUID().GetRawValue());
+        uint8_t trackedFlags = ghostInfo ? static_cast<uint8_t>(ghostInfo->activeGhosts) : 0;
+        size_t trackedCount = 0;
+        for (uint8_t f = trackedFlags; f; f >>= 1) trackedCount += f & 1;
+
+        handler->PSendSysMessage("Ghosts in Neighbor Cells: {} (of {} active cells)",
+            actualGhostCount, existingCellCount);
+        handler->PSendSysMessage("Tracked Ghost Directions: {} (flags: 0x{:02X})",
+            trackedCount, trackedFlags);
+
+        if (trackedCount > 0 && actualGhostCount == 0)
+            handler->SendSysMessage("|cffff0000WARNING: Ghosts tracked but not found - cells may not exist|r");
+
+        return true;
+    }
+
+    static bool HandleDebugGhostActorCommand(ChatHandler* handler)
+    {
+        Player* player = handler->GetSession()->GetPlayer();
+        if (!player)
+        {
+            handler->SendErrorMessage("No player session.");
+            return false;
+        }
+
+        Map* map = player->GetMap();
+        if (!map)
+        {
+            handler->SendErrorMessage("Player has no map.");
+            return false;
+        }
+
+        GhostActor::CellActorManager* cellMgr = map->GetCellActorManager();
+        if (!cellMgr)
+        {
+            handler->SendSysMessage("GhostActorSystem not active on this map.");
+            return true;
+        }
+
+        handler->SendSysMessage("=== GhostActorSystem Stats ===");
+        handler->PSendSysMessage("Map: {} ({})", map->GetMapName(), map->GetId());
+        handler->PSendSysMessage("Active Cells: {}", cellMgr->GetActiveCellCount());
+        handler->PSendSysMessage("Total Entities: {}", cellMgr->GetTotalEntityCount());
+        handler->PSendSysMessage("Total Ghosts: {}", cellMgr->GetTotalGhostCount());
+
+        return true;
+    }
+
+    static bool HandleDebugGhostActorNeighborsCommand(ChatHandler* handler)
+    {
+        Player* player = handler->GetSession()->GetPlayer();
+        if (!player)
+        {
+            handler->SendErrorMessage("No player session.");
+            return false;
+        }
+
+        Map* map = player->GetMap();
+        if (!map)
+        {
+            handler->SendErrorMessage("Player has no map.");
+            return false;
+        }
+
+        uint32_t gridId = GhostActor::CalculateGridId(player->GetPositionX(), player->GetPositionY());
+        uint32_t gridX, gridY;
+        GhostActor::ExtractGridCoords(gridId, gridX, gridY);
+
+        GhostActor::CellActorManager* cellMgr = map->GetCellActorManager();
+        if (!cellMgr)
+        {
+            handler->SendSysMessage("GhostActorSystem not active on this map.");
+            return true;
+        }
+
+        handler->PSendSysMessage("=== Neighbor Grids for ({}, {}) ===", gridX, gridY);
+
+        // Direction labels for the 8 neighbors
+        static const char* directions[] = { "NW", "N ", "NE", "W ", "E ", "SW", "S ", "SE" };
+        static const int8_t offsets[][2] = {
+            {-1, -1}, {0, -1}, {1, -1},  // NW, N, NE
+            {-1,  0},          {1,  0},  // W, E
+            {-1,  1}, {0,  1}, {1,  1}   // SW, S, SE
+        };
+
+        for (int i = 0; i < 8; ++i)
+        {
+            int32_t nx = static_cast<int32_t>(gridX) + offsets[i][0];
+            int32_t ny = static_cast<int32_t>(gridY) + offsets[i][1];
+
+            if (nx < 0 || nx >= static_cast<int32_t>(GhostActor::GRIDS_PER_DIMENSION) ||
+                ny < 0 || ny >= static_cast<int32_t>(GhostActor::GRIDS_PER_DIMENSION))
+                continue;
+
+            uint32_t neighborId = static_cast<uint32_t>(ny) * GhostActor::GRIDS_PER_DIMENSION +
+                                  static_cast<uint32_t>(nx);
+
+            GhostActor::CellActor* neighborCell = cellMgr->GetCell(neighborId);
+            if (neighborCell)
+            {
+                handler->PSendSysMessage("{} ({}, {}): Entities: {}, Ghosts: {}, Queue: {}",
+                    directions[i], nx, ny,
+                    neighborCell->GetEntityCount(),
+                    neighborCell->GetGhostCount(),
+                    neighborCell->GetPendingMessageCount());
+            }
+            else
+            {
+                handler->PSendSysMessage("{} ({}, {}): Not active", directions[i], nx, ny);
+            }
+        }
+
+        return true;
+    }
+
+    static bool HandleDebugGhostActorPerfCommand(ChatHandler* handler)
+    {
+        Player* player = handler->GetSession()->GetPlayer();
+        if (!player)
+        {
+            handler->SendErrorMessage("No player session.");
+            return false;
+        }
+
+        Map* map = player->GetMap();
+        if (!map)
+        {
+            handler->SendErrorMessage("Player has no map.");
+            return false;
+        }
+
+        GhostActor::CellActorManager* cellMgr = map->GetCellActorManager();
+        if (!cellMgr)
+        {
+            handler->SendSysMessage("GhostActorSystem not active on this map.");
+            return true;
+        }
+
+        const GhostActor::PerformanceStats& stats = cellMgr->GetPerfStats();
+
+        handler->SendSysMessage("=== GhostActor Performance ===");
+        handler->PSendSysMessage("Last Update: {:.2f}ms (avg: {:.2f}ms, max: {:.2f}ms)",
+            stats.lastUpdateUs.load() / 1000.0,
+            stats.avgUpdateUs / 1000.0,
+            stats.maxUpdateUs / 1000.0);
+        handler->PSendSysMessage("Messages This Tick: {}",
+            stats.totalMessagesThisTick.load());
+        handler->PSendSysMessage("Work Stealing: {} tasks stolen",
+            stats.tasksStolen.load());
+        handler->PSendSysMessage("Active Cells: {}", cellMgr->GetActiveCellCount());
+
+        return true;
+    }
+
+    static bool HandleDebugGhostActorHotspotsCommand(ChatHandler* handler)
+    {
+        Player* player = handler->GetSession()->GetPlayer();
+        if (!player)
+        {
+            handler->SendErrorMessage("No player session.");
+            return false;
+        }
+
+        Map* map = player->GetMap();
+        if (!map)
+        {
+            handler->SendErrorMessage("Player has no map.");
+            return false;
+        }
+
+        GhostActor::CellActorManager* cellMgr = map->GetCellActorManager();
+        if (!cellMgr)
+        {
+            handler->SendSysMessage("GhostActorSystem not active on this map.");
+            return true;
+        }
+
+        auto hotspots = cellMgr->GetHotspotCells(5);
+
+        handler->SendSysMessage("=== Hotspot Grids ===");
+        int rank = 1;
+        for (const auto& [gridId, msgCount] : hotspots)
+        {
+            uint32_t gx = gridId % GhostActor::GRIDS_PER_DIMENSION;
+            uint32_t gy = gridId / GhostActor::GRIDS_PER_DIMENSION;
+            GhostActor::CellActor* cell = cellMgr->GetCell(gridId);
+            size_t entities = cell ? cell->GetEntityCount() : 0;
+
+            handler->PSendSysMessage("{}. ({}, {}): {} entities, {} msgs/tick",
+                rank++, gx, gy, entities, msgCount);
+        }
+
+        if (hotspots.empty())
+            handler->SendSysMessage("No active grids.");
+
+        return true;
+    }
+
+    static bool HandleDebugGhostActorMessagesCommand(ChatHandler* handler)
+    {
+        Player* player = handler->GetSession()->GetPlayer();
+        if (!player)
+        {
+            handler->SendErrorMessage("No player session.");
+            return false;
+        }
+
+        Map* map = player->GetMap();
+        if (!map)
+        {
+            handler->SendErrorMessage("Player has no map.");
+            return false;
+        }
+
+        GhostActor::CellActorManager* cellMgr = map->GetCellActorManager();
+        if (!cellMgr)
+        {
+            handler->SendSysMessage("GhostActorSystem not active on this map.");
+            return true;
+        }
+
+        const GhostActor::PerformanceStats& stats = cellMgr->GetPerfStats();
+
+        // Message type names
+        static const char* typeNames[] = {
+            "SPELL_HIT", "MELEE_DAMAGE", "HEAL", "AURA_APPLY", "AURA_REMOVE",
+            "ENTITY_ENTERING", "ENTITY_LEAVING", "POSITION_UPDATE",
+            "HEALTH_CHANGED", "POWER_CHANGED", "AURA_STATE_SYNC", "COMBAT_STATE_CHANGED",
+            "GHOST_CREATE", "GHOST_UPDATE", "GHOST_DESTROY",
+            "MIGRATION_REQUEST", "MIGRATION_ACK", "MIGRATION_COMPLETE", "MIGRATION_FORWARD",
+            "THREAT_UPDATE", "AGGRO_REQUEST", "COMBAT_INITIATED", "TARGET_SWITCH",
+            "ASSISTANCE_REQUEST", "PET_REMOVAL"
+        };
+        constexpr size_t numTypes = sizeof(typeNames) / sizeof(typeNames[0]);
+
+        handler->SendSysMessage("=== Message Stats ===");
+        handler->SendSysMessage("Type                    Count");
+
+        uint32_t total = 0;
+        for (size_t i = 0; i < numTypes && i < GhostActor::PerformanceStats::MAX_MESSAGE_TYPES; ++i)
+        {
+            uint32_t count = stats.messageCountsByType[i].load();
+            if (count > 0)
+            {
+                handler->PSendSysMessage("{:<23} {}", typeNames[i], count);
+                total += count;
+            }
+        }
+
+        handler->SendSysMessage("---");
+        handler->PSendSysMessage("Total                   {}", total);
+
+        return true;
+    }
+
+    static bool HandleDebugTraceCommand(ChatHandler* handler)
+    {
+        Player* player = handler->GetSession()->GetPlayer();
+        if (!player)
+        {
+            handler->SendErrorMessage("No player session.");
+            return false;
+        }
+
+        Unit* target = handler->getSelectedUnit();
+        if (!target)
+        {
+            handler->SendErrorMessage("No target selected. Select an entity to trace.");
+            return false;
+        }
+
+        Map* map = player->GetMap();
+        if (!map)
+        {
+            handler->SendErrorMessage("Player has no map.");
+            return false;
+        }
+
+        GhostActor::CellActorManager* cellMgr = map->GetCellActorManager();
+        if (!cellMgr)
+        {
+            handler->SendSysMessage("GhostActorSystem not active on this map.");
+            return true;
+        }
+
+        uint64_t guid = target->GetGUID().GetRawValue();
+        cellMgr->StartTrace(guid);
+
+        handler->PSendSysMessage("Started tracing messages for {} (GUID: 0x{:016X})",
+            target->GetName(), guid);
+        handler->SendSysMessage("Check server log for trace output.");
+        handler->PSendSysMessage("Currently tracing {} entities.", cellMgr->GetTracedCount());
+
+        return true;
+    }
+
+    static bool HandleDebugTraceStopCommand(ChatHandler* handler)
+    {
+        Player* player = handler->GetSession()->GetPlayer();
+        if (!player)
+        {
+            handler->SendErrorMessage("No player session.");
+            return false;
+        }
+
+        Map* map = player->GetMap();
+        if (!map)
+        {
+            handler->SendErrorMessage("Player has no map.");
+            return false;
+        }
+
+        GhostActor::CellActorManager* cellMgr = map->GetCellActorManager();
+        if (!cellMgr)
+        {
+            handler->SendSysMessage("GhostActorSystem not active on this map.");
+            return true;
+        }
+
+        size_t count = cellMgr->GetTracedCount();
+        cellMgr->StopAllTraces();
+
+        handler->PSendSysMessage("Stopped tracing {} entities.", count);
+
         return true;
     }
 };

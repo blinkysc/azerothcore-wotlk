@@ -105,7 +105,7 @@ class Object
 public:
     virtual ~Object();
 
-    [[nodiscard]] bool IsInWorld() const { return m_inWorld; }
+    [[nodiscard]] virtual bool IsInWorld() const { return m_inWorld; }
 
     virtual void AddToWorld();
     virtual void RemoveFromWorld();
@@ -786,6 +786,28 @@ private:
     GuidUnorderedSet _allowedLooters;
 
     ObjectVisibilityContainer _objectVisibilityContainer;
+
+    // Phase 7A: Cell-managed flag for parallel updates
+    bool _isCellManaged{false};
+    // Phase 7H: Cross-cell effect deferral flag for parallel updates
+    bool _deferCrossCellEffects{false};
+
+    // Phase 10B: LoS result cache (500ms TTL)
+    struct LoSCacheEntry
+    {
+        bool hasLoS;
+        uint32 expireTimeMs;
+    };
+    mutable std::unordered_map<uint32, LoSCacheEntry> _losCache;
+
+public:
+    [[nodiscard]] bool IsCellManaged() const { return _isCellManaged; }
+    void SetCellManaged(bool managed) { _isCellManaged = managed; }
+    // Phase 7H: When true, cross-cell effects queue as messages instead of direct execution
+    [[nodiscard]] bool IsDeferringCrossCellEffects() const { return _deferCrossCellEffects; }
+    void SetDeferCrossCellEffects(bool defer) { _deferCrossCellEffects = defer; }
+    // Phase 10B: Clear LoS cache on position change
+    void InvalidateLoSCache() const { _losCache.clear(); }
 };
 
 namespace Acore

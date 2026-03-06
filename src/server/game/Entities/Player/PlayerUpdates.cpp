@@ -50,6 +50,15 @@
 // Zone Interval should be 1 second
 constexpr auto ZONE_UPDATE_INTERVAL = 1000;
 
+void Player::UpdateParallel(uint32 diff)
+{
+    // Phase 7H: Full parallel update with deferred cross-cell effects
+    // When deferral is enabled, cross-cell operations queue messages instead of direct execution
+    SetDeferCrossCellEffects(true);
+    Update(diff);
+    SetDeferCrossCellEffects(false);
+}
+
 void Player::Update(uint32 p_time)
 {
     if (!IsInWorld())
