@@ -28,6 +28,7 @@
 #include "Creature.h"
 #include "CreatureAI.h"
 #include "Player.h"
+#include "ScriptMgr.h"
 #include "ThreatManager.h"
 #include "Unit.h"
 #include "UnitAI.h"
@@ -416,6 +417,9 @@ bool CombatManager::UpdateOwnerCombatState() const
         _owner->AtEnterCombat();
         if (!_owner->IsCreature())
             _owner->AtEngage(GetAnyTarget());
+
+        if (Player* player = _owner->ToPlayer())
+            sScriptMgr->OnPlayerEnterCombat(player, GetAnyTarget());
     }
     else
     {
