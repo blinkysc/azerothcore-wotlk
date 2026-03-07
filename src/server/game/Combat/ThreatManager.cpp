@@ -680,13 +680,9 @@ void ThreatManager::ProcessAIUpdates()
         if (it == _myThreatListEntries.end())
             continue;
 
-        ThreatReference const* ref = it->second;
-        if (!ref->IsAvailable())
-            continue;
-
         if (Creature* owner = _owner->ToCreature())
             if (CreatureAI* ownerAI = owner->AI())
-                ownerAI->JustStartedThreateningMe(ref->GetVictim());
+                ownerAI->JustStartedThreateningMe(it->second->GetVictim());
     }
 }
 

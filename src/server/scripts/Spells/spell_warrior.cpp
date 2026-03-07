@@ -748,7 +748,7 @@ class spell_warr_vigilance : public AuraScript
             target->RemoveAurasDueToSpell(SPELL_GEN_DAMAGE_REDUCTION_AURA);
         }
 
-        target->GetThreatMgr().UnregisterRedirectThreat(SPELL_WARRIOR_VIGILANCE_REDIRECT_THREAT);
+        target->GetThreatMgr().UnregisterRedirectThreat(SPELL_WARRIOR_VIGILANCE_REDIRECT_THREAT, GetCasterGUID());
     }
 
     bool CheckProc(ProcEventInfo& /*eventInfo*/)
