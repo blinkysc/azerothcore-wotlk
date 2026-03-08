@@ -1483,9 +1483,7 @@ class spell_pal_divine_purpose : public AuraScript
     {
         PreventDefaultAction();
         if (Unit* target = eventInfo.GetActionTarget())
-        {
             target->RemoveAurasWithMechanic(1 << MECHANIC_STUN, AURA_REMOVE_BY_ENEMY_SPELL);
-        }
     }
 
     void Register() override
