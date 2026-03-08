@@ -1485,8 +1485,6 @@ class spell_pal_divine_purpose : public AuraScript
         if (Unit* target = eventInfo.GetActionTarget())
         {
             target->RemoveAurasWithMechanic(1 << MECHANIC_STUN, AURA_REMOVE_BY_ENEMY_SPELL);
-            // Also remove stun auras that use a different spell mechanic (e.g. Intimidating Shout's primary target stun uses MECHANIC_FEAR)
-            target->RemoveAurasByType(SPELL_AURA_MOD_STUN);
         }
     }
 
