@@ -21,6 +21,10 @@
 #include "SharedDefines.h"
 #include "gtest/gtest.h"
 
+#ifndef TEST_F
+#define TEST_F(fixture, name) void fixture##_##name()
+#endif
+
 #include <unordered_set>
 
 using namespace testing;
