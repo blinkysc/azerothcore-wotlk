@@ -121,6 +121,24 @@ public:
         return *this;
     }
 
+    TestSpellEntryHelper& WithEffectBasePoints(uint8 effIndex, int32 basePoints)
+    {
+        if (effIndex < MAX_SPELL_EFFECTS)
+        {
+            _entry.EffectBasePoints[effIndex] = basePoints;
+        }
+        return *this;
+    }
+
+    TestSpellEntryHelper& WithEffectMiscValue(uint8 effIndex, int32 miscValue)
+    {
+        if (effIndex < MAX_SPELL_EFFECTS)
+        {
+            _entry.EffectMiscValue[effIndex] = miscValue;
+        }
+        return *this;
+    }
+
     SpellEntry const* Get() const
     {
         return &_entry;
@@ -204,6 +222,18 @@ public:
     SpellInfoBuilder& WithEffectTriggerSpell(uint8 effIndex, uint32 triggerSpell)
     {
         _entryHelper.WithEffectTriggerSpell(effIndex, triggerSpell);
+        return *this;
+    }
+
+    SpellInfoBuilder& WithEffectBasePoints(uint8 effIndex, int32 basePoints)
+    {
+        _entryHelper.WithEffectBasePoints(effIndex, basePoints);
+        return *this;
+    }
+
+    SpellInfoBuilder& WithEffectMiscValue(uint8 effIndex, int32 miscValue)
+    {
+        _entryHelper.WithEffectMiscValue(effIndex, miscValue);
         return *this;
     }
 
