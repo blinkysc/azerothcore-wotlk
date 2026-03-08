@@ -1968,6 +1968,7 @@ void GameEventMgr::SetHolidayEventTime(GameEventData& event)
             holiday->Date, MAX_HOLIDAY_DATES, stageOffset, event.Length, curTime);
         if (start)
             event.Start = start;
+
         return;
     }
 
