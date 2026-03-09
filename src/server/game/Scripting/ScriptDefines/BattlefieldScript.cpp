@@ -21,26 +21,36 @@
 
 void ScriptMgr::OnBattlefieldPlayerEnterZone(Battlefield* bf, Player* player)
 {
+    if (ScriptRegistry<BattlefieldScript>::EnabledHooks.empty())
+        return;
     CALL_ENABLED_HOOKS(BattlefieldScript, BATTLEFIELDHOOK_ON_PLAYER_ENTER_ZONE, script->OnBattlefieldPlayerEnterZone(bf, player));
 }
 
 void ScriptMgr::OnBattlefieldPlayerLeaveZone(Battlefield* bf, Player* player)
 {
+    if (ScriptRegistry<BattlefieldScript>::EnabledHooks.empty())
+        return;
     CALL_ENABLED_HOOKS(BattlefieldScript, BATTLEFIELDHOOK_ON_PLAYER_LEAVE_ZONE, script->OnBattlefieldPlayerLeaveZone(bf, player));
 }
 
 void ScriptMgr::OnBattlefieldPlayerJoinWar(Battlefield* bf, Player* player)
 {
+    if (ScriptRegistry<BattlefieldScript>::EnabledHooks.empty())
+        return;
     CALL_ENABLED_HOOKS(BattlefieldScript, BATTLEFIELDHOOK_ON_PLAYER_JOIN_WAR, script->OnBattlefieldPlayerJoinWar(bf, player));
 }
 
 void ScriptMgr::OnBattlefieldPlayerLeaveWar(Battlefield* bf, Player* player)
 {
+    if (ScriptRegistry<BattlefieldScript>::EnabledHooks.empty())
+        return;
     CALL_ENABLED_HOOKS(BattlefieldScript, BATTLEFIELDHOOK_ON_PLAYER_LEAVE_WAR, script->OnBattlefieldPlayerLeaveWar(bf, player));
 }
 
 void ScriptMgr::OnBattlefieldBeforeInvitePlayerToWar(Battlefield* bf, Player* player)
 {
+    if (ScriptRegistry<BattlefieldScript>::EnabledHooks.empty())
+        return;
     CALL_ENABLED_HOOKS(BattlefieldScript, BATTLEFIELDHOOK_BEFORE_INVITE_PLAYER_TO_WAR, script->OnBattlefieldBeforeInvitePlayerToWar(bf, player));
 }
 
