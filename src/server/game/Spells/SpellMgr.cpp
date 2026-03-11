@@ -2957,6 +2957,19 @@ void SpellMgr::LoadSpellSpecificAndAuraState()
     LOG_INFO("server.loading", " ");
 }
 
+void SpellMgr::RegisterTestSpell(uint32 id, SpellInfo* info)
+{
+    if (id >= mSpellInfoMap.size())
+        mSpellInfoMap.resize(id + 1, nullptr);
+    mSpellInfoMap[id] = info;
+}
+
+void SpellMgr::UnregisterTestSpell(uint32 id)
+{
+    if (id < mSpellInfoMap.size())
+        mSpellInfoMap[id] = nullptr;
+}
+
 void SpellMgr::LoadSpellInfoCustomAttributes()
 {
     uint32 const oldMSTime = getMSTime();

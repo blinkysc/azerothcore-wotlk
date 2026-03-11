@@ -128,6 +128,20 @@ public:
         return *this;
     }
 
+    TestSpellEntryHelper& WithEffectMiscValue(uint8 effIndex, int32 miscValue)
+    {
+        if (effIndex < MAX_SPELL_EFFECTS)
+            _entry.EffectMiscValue[effIndex] = miscValue;
+        return *this;
+    }
+
+    TestSpellEntryHelper& WithEffectSpellClassMask(uint8 effIndex, flag96 mask)
+    {
+        if (effIndex < MAX_SPELL_EFFECTS)
+            _entry.EffectSpellClassMask[effIndex] = mask;
+        return *this;
+    }
+
     TestSpellEntryHelper& WithEffectDieSides(uint8 effIndex, int32 dieSides)
     {
         if (effIndex < MAX_SPELL_EFFECTS)
@@ -230,6 +244,18 @@ public:
     SpellInfoBuilder& WithEffectBasePoints(uint8 effIndex, int32 basePoints)
     {
         _entryHelper.WithEffectBasePoints(effIndex, basePoints);
+        return *this;
+    }
+
+    SpellInfoBuilder& WithEffectMiscValue(uint8 effIndex, int32 miscValue)
+    {
+        _entryHelper.WithEffectMiscValue(effIndex, miscValue);
+        return *this;
+    }
+
+    SpellInfoBuilder& WithEffectSpellClassMask(uint8 effIndex, flag96 mask)
+    {
+        _entryHelper.WithEffectSpellClassMask(effIndex, mask);
         return *this;
     }
 

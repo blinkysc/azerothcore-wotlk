@@ -779,6 +779,10 @@ public:
     void LoadSpellInfoCorrections();
     void LoadSpellSpecificAndAuraState();
 
+    // Test helpers for registering fake SpellInfo objects in unit tests
+    void RegisterTestSpell(uint32 id, SpellInfo* info);
+    void UnregisterTestSpell(uint32 id);
+
 private:
     SpellDifficultySearcherMap mSpellDifficultySearcherMap;
     SpellChainMap              mSpellChains;

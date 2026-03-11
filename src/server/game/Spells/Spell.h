@@ -469,6 +469,7 @@ public:
     // handler helpers
     void _handle_immediate_phase();
     void _handle_finish_phase();
+    void _ProcSkillsAndAurasCastPhase();
 
     void OnSpellLaunch();
 
