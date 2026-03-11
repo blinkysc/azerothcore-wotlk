@@ -72,14 +72,14 @@ public:
     void CalculatePeriodic(Unit* caster, bool create = false, bool load = false);
     void CalculatePeriodicData();
     void CalculateSpellMod();
-    void ChangeAmount(int32 newAmount, bool mark = true, bool onStackOrReapply = false);
-    void RecalculateAmount() { if (!CanBeRecalculated()) return; ChangeAmount(CalculateAmount(GetCaster()), false); }
-    void RecalculateAmount(Unit* caster) { if (!CanBeRecalculated()) return; ChangeAmount(CalculateAmount(caster), false); }
+    void ChangeAmount(int32 newAmount, bool mark = true, bool onStackOrReapply = false, AuraEffect const* triggeredBy = nullptr);
+    void RecalculateAmount(AuraEffect const* triggeredBy = nullptr) { if (!CanBeRecalculated()) return; ChangeAmount(CalculateAmount(GetCaster()), false, false, triggeredBy); }
+    void RecalculateAmount(Unit* caster, AuraEffect const* triggeredBy = nullptr) { if (!CanBeRecalculated()) return; ChangeAmount(CalculateAmount(caster), false, false, triggeredBy); }
     bool CanBeRecalculated() const { return m_canBeRecalculated; }
     void SetCanBeRecalculated(bool val) { m_canBeRecalculated = val; }
-    void HandleEffect(AuraApplication* aurApp, uint8 mode, bool apply);
-    void HandleEffect(Unit* target, uint8 mode, bool apply);
-    void ApplySpellMod(Unit* target, bool apply);
+    void HandleEffect(AuraApplication* aurApp, uint8 mode, bool apply, AuraEffect const* triggeredBy = nullptr);
+    void HandleEffect(Unit* target, uint8 mode, bool apply, AuraEffect const* triggeredBy = nullptr);
+    void ApplySpellMod(Unit* target, bool apply, AuraEffect const* triggeredBy = nullptr);
 
     void Update(uint32 diff, Unit* caster);
     void UpdatePeriodic(Unit* caster);
@@ -144,7 +144,6 @@ private:
     uint8 const m_effIndex;
     bool m_canBeRecalculated;
     bool m_isPeriodic;
-    bool m_isRecalculatingPassiveAuras = false;
 private:
     float CalcPeriodicCritChance(Unit const* caster, Unit const* target) const;
 

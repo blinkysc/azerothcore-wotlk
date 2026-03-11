@@ -710,7 +710,7 @@ void AuraEffect::CalculateSpellMod()
     GetBase()->CallScriptEffectCalcSpellModHandlers(this, m_spellmod);
 }
 
-void AuraEffect::ChangeAmount(int32 newAmount, bool mark, bool onStackOrReapply)
+void AuraEffect::ChangeAmount(int32 newAmount, bool mark, bool onStackOrReapply, AuraEffect const* triggeredBy /*= nullptr*/)
 {
     // Reapply if amount change
     uint8 handleMask = 0;
@@ -729,7 +729,7 @@ void AuraEffect::ChangeAmount(int32 newAmount, bool mark, bool onStackOrReapply)
         if (aurApp->HasEffect(GetEffIndex()))
         {
             aurApp->GetTarget()->_RegisterAuraEffect(this, false);
-            HandleEffect(aurApp, handleMask, false);
+            HandleEffect(aurApp, handleMask, false, triggeredBy);
         }
 
     if (handleMask & AURA_EFFECT_HANDLE_CHANGE_AMOUNT)
@@ -748,11 +748,11 @@ void AuraEffect::ChangeAmount(int32 newAmount, bool mark, bool onStackOrReapply)
                 continue;
 
             aurApp->GetTarget()->_RegisterAuraEffect(this, true);
-            HandleEffect(aurApp, handleMask, true);
+            HandleEffect(aurApp, handleMask, true, triggeredBy);
         }
 }
 
-void AuraEffect::HandleEffect(AuraApplication* aurApp, uint8 mode, bool apply)
+void AuraEffect::HandleEffect(AuraApplication* aurApp, uint8 mode, bool apply, AuraEffect const* triggeredBy /*= nullptr*/)
 {
     // check if call is correct, we really don't want using bitmasks here (with 1 exception)
     ASSERT(mode == AURA_EFFECT_HANDLE_REAL
@@ -777,7 +777,7 @@ void AuraEffect::HandleEffect(AuraApplication* aurApp, uint8 mode, bool apply)
 
     // real aura apply/remove, handle modifier
     if (mode & AURA_EFFECT_HANDLE_CHANGE_AMOUNT_MASK)
-        ApplySpellMod(aurApp->GetTarget(), apply);
+        ApplySpellMod(aurApp->GetTarget(), apply, triggeredBy);
 
     // call scripts helping/replacing effect handlers
     bool prevented = false;
@@ -803,14 +803,14 @@ void AuraEffect::HandleEffect(AuraApplication* aurApp, uint8 mode, bool apply)
         GetBase()->CallScriptAfterEffectRemoveHandlers(this, aurApp, (AuraEffectHandleModes)mode);
 }
 
-void AuraEffect::HandleEffect(Unit* target, uint8 mode, bool apply)
+void AuraEffect::HandleEffect(Unit* target, uint8 mode, bool apply, AuraEffect const* triggeredBy /*= nullptr*/)
 {
     AuraApplication* aurApp = GetBase()->GetApplicationOfTarget(target->GetGUID());
     ASSERT(aurApp);
-    HandleEffect(aurApp, mode, apply);
+    HandleEffect(aurApp, mode, apply, triggeredBy);
 }
 
-void AuraEffect::ApplySpellMod(Unit* target, bool apply)
+void AuraEffect::ApplySpellMod(Unit* target, bool apply, AuraEffect const* triggeredBy /*= nullptr*/)
 {
     if (!m_spellmod || !target->IsPlayer())
         return;
@@ -821,15 +821,8 @@ void AuraEffect::ApplySpellMod(Unit* target, bool apply)
     if (GetBase()->IsUsingCharges())
         return;
 
-    // Guard against infinite recursion: a spell mod recalculating an aura that
-    // triggers ApplySpellMod again (self-referencing or mutual spell mods).
-    if (m_isRecalculatingPassiveAuras)
-    {
-        LOG_DEBUG("spells.aura", "AuraEffect::ApplySpellMod: Recursion detected for spell {} effect {}, skipping passive aura recalculation",
-            GetId(), GetEffIndex());
-        return;
-    }
-    m_isRecalculatingPassiveAuras = true;
+    if (!triggeredBy)
+        triggeredBy = this;
 
     // reapply some passive spells after add/remove related spellmods
     // Warning: it is a dead loop if 2 auras each other amount-shouldn't happen
@@ -854,23 +847,27 @@ void AuraEffect::ApplySpellMod(Unit* target, bool apply)
                             for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
                             {
                                 if (AuraEffect* aurEff = aura->GetEffect(i))
-                                    aurEff->RecalculateAmount();
+                                    if (aurEff != triggeredBy)
+                                        aurEff->RecalculateAmount(triggeredBy);
                             }
                         }
                         else if (GetMiscValue() == SPELLMOD_EFFECT1)
                         {
                             if (AuraEffect* aurEff = aura->GetEffect(0))
-                                aurEff->RecalculateAmount();
+                                if (aurEff != triggeredBy)
+                                    aurEff->RecalculateAmount(triggeredBy);
                         }
                         else if (GetMiscValue() == SPELLMOD_EFFECT2)
                         {
                             if (AuraEffect* aurEff = aura->GetEffect(1))
-                                aurEff->RecalculateAmount();
+                                if (aurEff != triggeredBy)
+                                    aurEff->RecalculateAmount(triggeredBy);
                         }
                         else //if (modOp == SPELLMOD_EFFECT3)
                         {
                             if (AuraEffect* aurEff = aura->GetEffect(2))
-                                aurEff->RecalculateAmount();
+                                if (aurEff != triggeredBy)
+                                    aurEff->RecalculateAmount(triggeredBy);
                         }
                     }
                 }
@@ -893,23 +890,27 @@ void AuraEffect::ApplySpellMod(Unit* target, bool apply)
                             for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
                             {
                                 if (AuraEffect* aurEff = aura->GetEffect(i))
-                                    aurEff->RecalculateAmount();
+                                    if (aurEff != triggeredBy)
+                                        aurEff->RecalculateAmount(triggeredBy);
                             }
                         }
                         else if (GetMiscValue() == SPELLMOD_EFFECT1)
                         {
                             if (AuraEffect* aurEff = aura->GetEffect(0))
-                                aurEff->RecalculateAmount();
+                                if (aurEff != triggeredBy)
+                                    aurEff->RecalculateAmount(triggeredBy);
                         }
                         else if (GetMiscValue() == SPELLMOD_EFFECT2)
                         {
                             if (AuraEffect* aurEff = aura->GetEffect(1))
-                                aurEff->RecalculateAmount();
+                                if (aurEff != triggeredBy)
+                                    aurEff->RecalculateAmount(triggeredBy);
                         }
                         else //if (modOp == SPELLMOD_EFFECT3)
                         {
                             if (AuraEffect* aurEff = aura->GetEffect(2))
-                                aurEff->RecalculateAmount();
+                                if (aurEff != triggeredBy)
+                                    aurEff->RecalculateAmount(triggeredBy);
                         }
                     }
                 }
@@ -917,8 +918,6 @@ void AuraEffect::ApplySpellMod(Unit* target, bool apply)
         default:
             break;
     }
-
-    m_isRecalculatingPassiveAuras = false;
 }
 
 void AuraEffect::Update(uint32 diff, Unit* caster)

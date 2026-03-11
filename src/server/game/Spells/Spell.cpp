@@ -3915,6 +3915,45 @@ void Spell::_cast(bool skipCheck)
     // we must send smsg_spell_go packet before m_castItem delete in TakeCastItem()...
     SendSpellGo();
 
+    // Handle procs on cast
+    // Must fire BEFORE handle_immediate() to ensure correct CAST -> HIT -> FINISH
+    // proc phase ordering for immediate spells. Spell mods (e.g. Missile Barrage's
+    // SPELLMOD_DURATION) remain active during handle_immediate() because charge
+    // consumption is deferred via SetSpellModTakingSpell / RemoveSpellMods.
+    if (m_originalCaster)
+    {
+        uint32 procAttacker = m_procAttacker;
+        if (!procAttacker)
+        {
+            bool IsPositive = m_spellInfo->IsPositive();
+            if (m_spellInfo->DmgClass == SPELL_DAMAGE_CLASS_MAGIC)
+            {
+                procAttacker = IsPositive ? PROC_FLAG_DONE_SPELL_MAGIC_DMG_CLASS_POS : PROC_FLAG_DONE_SPELL_MAGIC_DMG_CLASS_NEG;
+            }
+            else
+            {
+                procAttacker = IsPositive ? PROC_FLAG_DONE_SPELL_NONE_DMG_CLASS_POS : PROC_FLAG_DONE_SPELL_NONE_DMG_CLASS_NEG;
+            }
+        }
+
+        uint32 hitMask = PROC_HIT_NORMAL;
+
+        for (std::list<TargetInfo>::iterator ihit = m_UniqueTargetInfo.begin(); ihit != m_UniqueTargetInfo.end(); ++ihit)
+        {
+            if (ihit->missCondition != SPELL_MISS_NONE)
+                continue;
+
+            if (!ihit->crit)
+                continue;
+
+            hitMask |= PROC_HIT_CRITICAL;
+            break;
+        }
+
+        Unit::ProcSkillsAndAuras(m_originalCaster, m_originalCaster, procAttacker, PROC_FLAG_NONE, hitMask, 1, BASE_ATTACK, m_spellInfo, m_triggeredByAuraSpell.spellInfo,
+            m_triggeredByAuraSpell.effectIndex, this, nullptr, nullptr, PROC_SPELL_PHASE_CAST);
+    }
+
     bool resetAttackTimers = IsAutoActionResetSpell() && !m_spellInfo->HasAttribute(SPELL_ATTR2_DO_NOT_RESET_COMBAT_TIMERS);
     if (resetAttackTimers)
     {
@@ -3985,46 +4024,6 @@ void Spell::_cast(bool skipCheck)
 
     if (modOwner)
         modOwner->SetSpellModTakingSpell(this, false);
-
-    // Handle procs on cast - only for non-triggered spells
-    // Triggered spells (from auras, items, etc.) should not fire CAST phase procs
-    // as they are not player-initiated casts. This prevents issues like Arcane Potency
-    // charges being consumed by periodic damage effects (e.g., Blizzard ticks).
-    // Must be called AFTER handle_immediate() so spell mods (like Missile Barrage's
-    // duration reduction) are applied before the aura is consumed by the proc.
-    if (m_originalCaster && !IsTriggered())
-    {
-        uint32 procAttacker = m_procAttacker;
-        if (!procAttacker)
-        {
-            bool IsPositive = m_spellInfo->IsPositive();
-            if (m_spellInfo->DmgClass == SPELL_DAMAGE_CLASS_MAGIC)
-            {
-                procAttacker = IsPositive ? PROC_FLAG_DONE_SPELL_MAGIC_DMG_CLASS_POS : PROC_FLAG_DONE_SPELL_MAGIC_DMG_CLASS_NEG;
-            }
-            else
-            {
-                procAttacker = IsPositive ? PROC_FLAG_DONE_SPELL_NONE_DMG_CLASS_POS : PROC_FLAG_DONE_SPELL_NONE_DMG_CLASS_NEG;
-            }
-        }
-
-        uint32 hitMask = PROC_HIT_NORMAL;
-
-        for (std::list<TargetInfo>::iterator ihit = m_UniqueTargetInfo.begin(); ihit != m_UniqueTargetInfo.end(); ++ihit)
-        {
-            if (ihit->missCondition != SPELL_MISS_NONE)
-                continue;
-
-            if (!ihit->crit)
-                continue;
-
-            hitMask |= PROC_HIT_CRITICAL;
-            break;
-        }
-
-        Unit::ProcSkillsAndAuras(m_originalCaster, m_originalCaster, procAttacker, PROC_FLAG_NONE, hitMask, 1, BASE_ATTACK, m_spellInfo, m_triggeredByAuraSpell.spellInfo,
-            m_triggeredByAuraSpell.effectIndex, this, nullptr, nullptr, PROC_SPELL_PHASE_CAST);
-    }
 
     if (std::vector<int32> const* spell_triggered = sSpellMgr->GetSpellLinked(m_spellInfo->Id))
     {
