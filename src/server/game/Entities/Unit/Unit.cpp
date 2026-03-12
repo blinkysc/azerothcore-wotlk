@@ -14232,9 +14232,7 @@ void Unit::Kill(Unit* killer, Unit* victim, bool durabilityLoss, WeaponAttackTyp
     }
 
     // Do KILL and KILLED procs. KILL proc is called only for the unit who landed the killing blow (and its owner - for pets and totems) regardless of who tapped the victim
-    // Note: spell/spellProto are intentionally not passed here. Kill/death procs should not
-    // carry the killing spell context - this prevents the killing spell's triggered status
-    // from suppressing nested proc events (e.g. Rapid Killing buff proccing Rapid Recuperation).
+    // Spell context is not passed to avoid the killing spell's triggered status from suppressing nested proc events
     if (killer && (killer->IsPet() || killer->IsTotem()))
         if (Unit* owner = killer->GetOwner())
         {
