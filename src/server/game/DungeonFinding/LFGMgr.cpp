@@ -815,7 +815,6 @@ namespace lfg
             return;
         }
 
-        std::string debugNames = "";
         if (grp)                                               // Begin rolecheck
         {
             // Create new rolecheck
@@ -846,9 +845,6 @@ namespace lfg
                     if (!isContinue)
                         SetSelectedDungeons(pguid, dungeons);
                     roleCheck.roles[pguid] = 0;
-                    if (!debugNames.empty())
-                        debugNames.append(", ");
-                    debugNames.append(plrg->GetName());
                 }
             }
             // Update leader role
@@ -875,16 +871,7 @@ namespace lfg
             player->GetSession()->SendLfgUpdatePlayer(LfgUpdateData(LFG_UPDATETYPE_JOIN_QUEUE, dungeons, comment));
             SetState(guid, LFG_STATE_QUEUED);
             SetRoles(guid, roles);
-            debugNames.append(player->GetName());
         }
-
-        /*if (sLog->ShouldLog(LOG_FILTER_LFG, LOG_LEVEL_DEBUG))
-        {
-            std::ostringstream o;
-            o << "LFGMgr::Join: [" << guid << "] joined (" << (grp ? "group" : "player") << ") Members: " << debugNames.c_str()
-              << ". Dungeons (" << uint32(dungeons.size()) << "): " << ConcatenateDungeons(dungeons);
-            LOG_DEBUG("lfg", "{}", o.str());
-        }*/
     }
 
     void LFGMgr::ToggleTesting()
@@ -1088,10 +1075,7 @@ namespace lfg
         int32 spellDamage, spellHeal;
         uint32 dungeonId, encounterMask, maxPower;
         uint32 deletedCounter, groupCounter, playerCounter;
-        ByteBuffer buffer_deleted, buffer_groups, buffer_players;
         std::string emptyComment;
-        GuidSet deletedGroups, deletedGroupsToErase;
-        RBInternalInfoMap copy;
 
         for (uint8 team = 0; team < 2; ++team)
         {
@@ -1196,18 +1180,18 @@ namespace lfg
                     }
                 }
 
-                copy.clear();
-                copy = currInternalInfoMap; // will be saved as prev at the end
+                m_rbCopy.clear();
+                m_rbCopy = currInternalInfoMap; // will be saved as prev at the end
 
                 // compare prev with curr to build difference packet
                 deletedCounter = 0;
                 groupCounter = 0;
                 playerCounter = 0;
-                buffer_deleted.clear();
-                buffer_groups.clear();
-                buffer_players.clear();
-                deletedGroups.clear();
-                deletedGroupsToErase.clear();
+                m_rbBufferDeleted.clear();
+                m_rbBufferGroups.clear();
+                m_rbBufferPlayers.clear();
+                m_rbDeletedGroups.clear();
+                m_rbDeletedGroupsToErase.clear();
 
                 RBInternalInfoMap& prevInternalInfoMap = RBInternalInfoStorePrev[team][dungeonId];
                 RBInternalInfoMap::iterator iter, iterTmp;
@@ -1217,50 +1201,50 @@ namespace lfg
                     if (iter == currInternalInfoMap.end()) // was -> isn't
                     {
                         if (sitr->second.isGroupLeader)
-                            deletedGroups.insert(sitr->second.groupGuid);
+                            m_rbDeletedGroups.insert(sitr->second.groupGuid);
                         ++deletedCounter;
-                        buffer_deleted << sitr->second.guid;
+                        m_rbBufferDeleted << sitr->second.guid;
                     }
                     else // was -> is
                     {
                         if (sitr->second.isGroupLeader) // was a leader
                         {
                             if (!iter->second.isGroupLeader) // leader -> no longer a leader
-                                deletedGroups.insert(sitr->second.groupGuid);
+                                m_rbDeletedGroups.insert(sitr->second.groupGuid);
                             else if (sitr->second.groupGuid != iter->second.groupGuid) // leader -> leader of another group
                             {
-                                deletedGroups.insert(sitr->second.groupGuid);
-                                deletedGroupsToErase.insert(iter->second.groupGuid);
+                                m_rbDeletedGroups.insert(sitr->second.groupGuid);
+                                m_rbDeletedGroupsToErase.insert(iter->second.groupGuid);
                                 ++groupCounter;
-                                RBPacketAppendGroup(iter->second, buffer_groups);
+                                RBPacketAppendGroup(iter->second, m_rbBufferGroups);
                             }
                             else if (sitr->second.comment != iter->second.comment || sitr->second.encounterMask != iter->second.encounterMask || sitr->second.instanceGuid != iter->second.instanceGuid) // leader -> nothing changed
                             {
                                 ++groupCounter;
-                                RBPacketAppendGroup(iter->second, buffer_groups);
+                                RBPacketAppendGroup(iter->second, m_rbBufferGroups);
                             }
                         }
                         else if (iter->second.isGroupLeader) // wasn't a leader -> is a leader
                         {
-                            deletedGroupsToErase.insert(iter->second.groupGuid);
+                            m_rbDeletedGroupsToErase.insert(iter->second.groupGuid);
                             ++groupCounter;
-                            RBPacketAppendGroup(iter->second, buffer_groups);
+                            RBPacketAppendGroup(iter->second, m_rbBufferGroups);
                         }
 
                         if (!iter->second._online) // if offline, copy previous stats (itemLevel, talents, area, etc.)
                         {
-                            iterTmp = copy.find(sitr->first); // copied container is for building a full packet, so modify it there (currInternalInfoMap is erased)
+                            iterTmp = m_rbCopy.find(sitr->first); // copied container is for building a full packet, so modify it there (currInternalInfoMap is erased)
                             iterTmp->second.CopyStats(sitr->second);
                             if (!sitr->second.PlayerSameAs(iterTmp->second)) // player info changed
                             {
                                 ++playerCounter;
-                                RBPacketAppendPlayer(iterTmp->second, buffer_players);
+                                RBPacketAppendPlayer(iterTmp->second, m_rbBufferPlayers);
                             }
                         }
                         else if (!sitr->second.PlayerSameAs(iter->second)) // player info changed
                         {
                             ++playerCounter;
-                            RBPacketAppendPlayer(iter->second, buffer_players);
+                            RBPacketAppendPlayer(iter->second, m_rbBufferPlayers);
                         }
                         currInternalInfoMap.erase(iter);
                     }
@@ -1270,38 +1254,38 @@ namespace lfg
                 {
                     if (sitr->second.isGroupLeader)
                     {
-                        deletedGroupsToErase.insert(sitr->second.groupGuid);
+                        m_rbDeletedGroupsToErase.insert(sitr->second.groupGuid);
                         ++groupCounter;
-                        RBPacketAppendGroup(sitr->second, buffer_groups);
+                        RBPacketAppendGroup(sitr->second, m_rbBufferGroups);
                     }
                     ++playerCounter;
-                    RBPacketAppendPlayer(sitr->second, buffer_players);
+                    RBPacketAppendPlayer(sitr->second, m_rbBufferPlayers);
                 }
 
-                if (!deletedGroupsToErase.empty())
+                if (!m_rbDeletedGroupsToErase.empty())
                 {
-                    for (ObjectGuid const& toErase : deletedGroupsToErase)
+                    for (ObjectGuid const& toErase : m_rbDeletedGroupsToErase)
                     {
-                        deletedGroups.erase(toErase);
+                        m_rbDeletedGroups.erase(toErase);
                     }
                 }
 
-                if (!deletedGroups.empty())
+                if (!m_rbDeletedGroups.empty())
                 {
-                    for (ObjectGuid const& deletedGroup : deletedGroups)
+                    for (ObjectGuid const& deletedGroup : m_rbDeletedGroups)
                     {
                         ++deletedCounter;
-                        buffer_deleted << deletedGroup;
+                        m_rbBufferDeleted << deletedGroup;
                     }
                 }
 
                 WorldPacket differencePacket(SMSG_UPDATE_LFG_LIST, 1000);
-                RBPacketBuildDifference(differencePacket, dungeonId, deletedCounter, buffer_deleted, groupCounter, buffer_groups, playerCounter, buffer_players);
+                RBPacketBuildDifference(differencePacket, dungeonId, deletedCounter, m_rbBufferDeleted, groupCounter, m_rbBufferGroups, playerCounter, m_rbBufferPlayers);
                 WorldPacket fullPacket(SMSG_UPDATE_LFG_LIST, 1000);
-                RBPacketBuildFull(fullPacket, dungeonId, copy);
+                RBPacketBuildFull(fullPacket, dungeonId, m_rbCopy);
 
                 RBCacheStore[team][dungeonId] = fullPacket;
-                prevInternalInfoMap = copy;
+                prevInternalInfoMap = m_rbCopy;
                 currInternalInfoMap.clear();
 
                 if (entryInfoMap.empty())
@@ -1392,19 +1376,19 @@ namespace lfg
         buffer << (uint32)info.encounterMask;
     }
 
-    void LFGMgr::RBPacketBuildDifference(WorldPacket& differencePacket, uint32 dungeonId, uint32 deletedCounter, ByteBuffer& buffer_deleted, uint32 groupCounter, ByteBuffer& buffer_groups, uint32 playerCounter, ByteBuffer& buffer_players)
+    void LFGMgr::RBPacketBuildDifference(WorldPacket& differencePacket, uint32 dungeonId, uint32 deletedCounter, ByteBuffer& bufferDeleted, uint32 groupCounter, ByteBuffer& bufferGroups, uint32 playerCounter, ByteBuffer& bufferPlayers)
     {
         differencePacket << (uint32)LFG_TYPE_RAID;
         differencePacket << (uint32)dungeonId;
         differencePacket << (uint8)1;
         differencePacket << (uint32)deletedCounter;
-        differencePacket.append(buffer_deleted);
+        differencePacket.append(bufferDeleted);
         differencePacket << (uint32)groupCounter;
         differencePacket << (uint32)0;
-        differencePacket.append(buffer_groups);
+        differencePacket.append(bufferGroups);
         differencePacket << (uint32)playerCounter;
         differencePacket << (uint32)0;
-        differencePacket.append(buffer_players);
+        differencePacket.append(bufferPlayers);
     }
 
     void LFGMgr::RBPacketBuildFull(WorldPacket& fullPacket, uint32 dungeonId, RBInternalInfoMap& infoMap)
@@ -1413,23 +1397,23 @@ namespace lfg
         fullPacket << (uint32)dungeonId;
         fullPacket << (uint8)0;
         uint32 groupCounter = 0, playerCounter = 0;
-        ByteBuffer buffer_groups, buffer_players;
+        ByteBuffer bufferGroups, bufferPlayers;
         for (RBInternalInfoMap::const_iterator itr = infoMap.begin(); itr != infoMap.end(); ++itr)
         {
             if (itr->second.isGroupLeader)
             {
                 ++groupCounter;
-                RBPacketAppendGroup(itr->second, buffer_groups);
+                RBPacketAppendGroup(itr->second, bufferGroups);
             }
             ++playerCounter;
-            RBPacketAppendPlayer(itr->second, buffer_players);
+            RBPacketAppendPlayer(itr->second, bufferPlayers);
         }
         fullPacket << (uint32)groupCounter;
         fullPacket << (uint32)0;
-        fullPacket.append(buffer_groups);
+        fullPacket.append(bufferGroups);
         fullPacket << (uint32)playerCounter;
         fullPacket << (uint32)0;
-        fullPacket.append(buffer_players);
+        fullPacket.append(bufferPlayers);
     }
 
     // pussywizard:
