@@ -675,6 +675,7 @@ enum RBACPermissions
     RBAC_PERM_COMMAND_CHARACTER_CHECK_BAG                    = 910,
     RBAC_PERM_COMMAND_CHARACTER_CHECK_PROFESSION             = 911,
     RBAC_PERM_COMMAND_GOBJECT_LOAD                           = 912,
+    RBAC_PERM_COMMAND_BF_QUEUE                              = 913,
     // custom permissions 1000+
     RBAC_PERM_MAX
 };

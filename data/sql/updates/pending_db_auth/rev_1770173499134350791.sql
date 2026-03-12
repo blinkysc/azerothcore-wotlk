@@ -725,7 +725,9 @@ INSERT INTO `rbac_permissions` VALUES
 -- Character check commands (909-911)
 (909,'Command: character check bank'),
 (910,'Command: character check bag'),
-(911,'Command: character check profession');
+(911,'Command: character check profession'),
+(912,'Command: gobject load'),
+(913,'Command: bf queue');
 
 -- ============================================================================
 -- Link roles to permissions
@@ -853,8 +855,8 @@ INSERT INTO `rbac_linked_permissions` VALUES
 -- AHBot
 (196, 779), (196, 780), (196, 781), (196, 782), (196, 783), (196, 784), (196, 785),
 (196, 786), (196, 787), (196, 788), (196, 789), (196, 790), (196, 791), (196, 792), (196, 793),
--- List spawnpoints
-(196, 866),
+-- Gobject load / List spawnpoints
+(196, 912), (196, 866),
 -- Arena season commands
 (196, 905), (196, 906), (196, 907), (196, 908),
 -- AC-specific admin commands
@@ -948,8 +950,8 @@ INSERT INTO `rbac_linked_permissions` VALUES
 (197, 868), (197, 874),
 -- Lookup map/item/quest id
 (197, 875), (197, 876), (197, 877),
--- BG start/stop
-(197, 884), (197, 885),
+-- BG start/stop / BF queue
+(197, 884), (197, 885), (197, 913),
 -- AC-specific GM commands
 (197, 889), (197, 890), (197, 892), (197, 893), (197, 895),
 -- Gear repair
