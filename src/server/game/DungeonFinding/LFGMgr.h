@@ -628,12 +628,12 @@ namespace lfg
         uint32 lastProposalId;                             ///< pussywizard, store it here because of splitting LFGMgr update into tasks
         uint32 m_raidBrowserUpdateTimer[2];                ///< pussywizard
         uint32 m_raidBrowserLastUpdatedDungeonId[2];       ///< pussywizard: for 2 factions
-        ByteBuffer m_rbBufferDeleted;
-        ByteBuffer m_rbBufferGroups;
-        ByteBuffer m_rbBufferPlayers;
-        GuidSet m_rbDeletedGroups;
-        GuidSet m_rbDeletedGroupsToErase;
-        RBInternalInfoMap m_rbCopy;
+        ByteBuffer rbBufferDeleted;
+        ByteBuffer rbBufferGroups;
+        ByteBuffer rbBufferPlayers;
+        GuidSet rbDeletedGroups;
+        GuidSet rbDeletedGroupsToErase;
+        RBInternalInfoMap rbCopy;
 
         LfgQueueContainer QueuesStore;                     ///< Queues
         LfgCachedDungeonContainer CachedDungeonMapStore;   ///< Stores all dungeons by groupType
