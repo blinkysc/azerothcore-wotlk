@@ -135,6 +135,10 @@ bool ThreatReference::ShouldBeSuppressed() const
 
 void ThreatReference::UpdateTauntState(TauntState state)
 {
+    // Check for SPELL_AURA_MOD_DETAUNT (applied from owner to victim)
+    if (state < TAUNT_STATE_TAUNT && _victim->HasAuraTypeWithCaster(SPELL_AURA_MOD_DETAUNT, _owner->GetGUID()))
+        state = TAUNT_STATE_DETAUNT;
+
     if (state == _taunted)
         return;
 
