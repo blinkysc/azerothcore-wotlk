@@ -27,6 +27,7 @@
 #include "Log.h"
 #include "M2Stores.h"
 #include "MapMgr.h"
+#include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "PoolMgr.h"
 #include "ScriptMgr.h"
@@ -70,6 +71,7 @@ public:
         {
             { "setbit",         HandleDebugSet32BitCommand,            SEC_ADMINISTRATOR, Console::No },
             { "threat",         HandleDebugThreatListCommand,          SEC_ADMINISTRATOR, Console::No },
+            { "threatinfo",     HandleDebugThreatInfoCommand,          SEC_ADMINISTRATOR, Console::No },
             { "hostile",        HandleDebugHostileRefListCommand,      SEC_ADMINISTRATOR, Console::No },
             { "anim",           HandleDebugAnimCommand,                SEC_ADMINISTRATOR, Console::No },
             { "arena",          HandleDebugArenaCommand,               SEC_ADMINISTRATOR, Console::No },
@@ -843,6 +845,81 @@ public:
         }
 
         handler->SendSysMessage("End of threat list.");
+
+        return true;
+    }
+
+    static bool HandleDebugThreatInfoCommand(ChatHandler* handler)
+    {
+        Unit* target = handler->getSelectedUnit();
+        if (!target)
+        {
+            handler->SendSysMessage(LANG_SELECT_CHAR_OR_CREATURE);
+            handler->SetSentErrorMessage(true);
+            return false;
+        }
+
+        handler->PSendSysMessage("Threat info for {} ({}):", target->GetName(), target->GetGUID().ToString());
+
+        ThreatManager const& mgr = target->GetThreatMgr();
+
+        // _singleSchoolModifiers
+        {
+            auto& mods = mgr._singleSchoolModifiers;
+            handler->SendSysMessage(" - Single-school threat modifiers:");
+            handler->PSendSysMessage(" |-- Physical: {:.2f}%", mods[SPELL_SCHOOL_NORMAL] * 100.0f);
+            handler->PSendSysMessage(" |-- Holy    : {:.2f}%", mods[SPELL_SCHOOL_HOLY] * 100.0f);
+            handler->PSendSysMessage(" |-- Fire    : {:.2f}%", mods[SPELL_SCHOOL_FIRE] * 100.0f);
+            handler->PSendSysMessage(" |-- Nature  : {:.2f}%", mods[SPELL_SCHOOL_NATURE] * 100.0f);
+            handler->PSendSysMessage(" |-- Frost   : {:.2f}%", mods[SPELL_SCHOOL_FROST] * 100.0f);
+            handler->PSendSysMessage(" |-- Shadow  : {:.2f}%", mods[SPELL_SCHOOL_SHADOW] * 100.0f);
+            handler->PSendSysMessage(" |-- Arcane  : {:.2f}%", mods[SPELL_SCHOOL_ARCANE] * 100.0f);
+        }
+
+        // _multiSchoolModifiers
+        {
+            auto& mods = mgr._multiSchoolModifiers;
+            handler->PSendSysMessage(" - Multi-school threat modifiers ({} entries):", mods.size());
+            for (auto const& pair : mods)
+                handler->PSendSysMessage(" |-- Mask 0x{:x}: {:.2f}%", uint32(pair.first), pair.second * 100.0f);
+        }
+
+        // _redirectInfo
+        {
+            auto const& redirectInfo = mgr._redirectInfo;
+            if (redirectInfo.empty())
+                handler->SendSysMessage(" - No redirects being applied");
+            else
+            {
+                handler->PSendSysMessage(" - {:02} redirects being applied:", redirectInfo.size());
+                for (auto const& pair : redirectInfo)
+                {
+                    Unit* unit = ObjectAccessor::GetUnit(*target, pair.first);
+                    handler->PSendSysMessage(" |-- {:02}% to {}", pair.second, unit ? unit->GetName() : pair.first.ToString());
+                }
+            }
+        }
+
+        // _redirectRegistry
+        {
+            auto const& redirectRegistry = mgr._redirectRegistry;
+            if (redirectRegistry.empty())
+                handler->SendSysMessage(" - No redirects are registered");
+            else
+            {
+                handler->PSendSysMessage(" - {:02} spells may have redirects registered", redirectRegistry.size());
+                for (auto const& outerPair : redirectRegistry)
+                {
+                    SpellInfo const* const spell = sSpellMgr->GetSpellInfo(outerPair.first);
+                    handler->PSendSysMessage(" |-- #{:06} {} ({} entries):", outerPair.first, spell ? spell->SpellName[0] : "<unknown>", outerPair.second.size());
+                    for (auto const& innerPair : outerPair.second)
+                    {
+                        Unit* unit = ObjectAccessor::GetUnit(*target, innerPair.first);
+                        handler->PSendSysMessage("   |-- {:02}% to {}", innerPair.second, unit ? unit->GetName() : innerPair.first.ToString());
+                    }
+                }
+            }
+        }
 
         return true;
     }
