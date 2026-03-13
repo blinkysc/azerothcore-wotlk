@@ -840,7 +840,7 @@ public:
             for (auto const& pair : threatenedByMe)
             {
                 Unit* unit = pair.second->GetOwner();
-                handler->PSendSysMessage("   {}.   {}   ({}, SpawnID {})  - threat {}", ++count, unit->GetName(), unit->GetGUID().ToString(), unit->GetTypeId() == TYPEID_UNIT ? unit->ToCreature()->GetSpawnId() : 0, pair.second->GetThreat());
+                handler->PSendSysMessage("   {}.   {}   ({}, SpawnID {})  - threat {}", ++count, unit->GetName(), unit->GetGUID().ToString(), unit->IsCreature() ? unit->ToCreature()->GetSpawnId() : 0, pair.second->GetThreat());
             }
             handler->SendSysMessage("End of threatened-by-me list.");
         }
@@ -850,9 +850,9 @@ public:
             if (!mgr.IsThreatListEmpty(true))
             {
                 if (target->IsEngaged())
-                    handler->PSendSysMessage("Threat list of {} ({}, SpawnID {}):", target->GetName(), target->GetGUID().ToString(), target->GetTypeId() == TYPEID_UNIT ? target->ToCreature()->GetSpawnId() : 0);
+                    handler->PSendSysMessage("Threat list of {} ({}, SpawnID {}):", target->GetName(), target->GetGUID().ToString(), target->IsCreature() ? target->ToCreature()->GetSpawnId() : 0);
                 else
-                    handler->PSendSysMessage("{} ({}, SpawnID {}) is not engaged, but still has a threat list? Well, here it is:", target->GetName(), target->GetGUID().ToString(), target->GetTypeId() == TYPEID_UNIT ? target->ToCreature()->GetSpawnId() : 0);
+                    handler->PSendSysMessage("{} ({}, SpawnID {}) is not engaged, but still has a threat list? Well, here it is:", target->GetName(), target->GetGUID().ToString(), target->IsCreature() ? target->ToCreature()->GetSpawnId() : 0);
 
                 count = 0;
                 Unit* fixateVictim = mgr.GetFixateTarget();
@@ -891,9 +891,9 @@ public:
                 handler->SendSysMessage("End of threat list.");
             }
             else if (!target->IsEngaged())
-                handler->PSendSysMessage("{} ({}, SpawnID {}) is not currently engaged.", target->GetName(), target->GetGUID().ToString(), target->GetTypeId() == TYPEID_UNIT ? target->ToCreature()->GetSpawnId() : 0);
+                handler->PSendSysMessage("{} ({}, SpawnID {}) is not currently engaged.", target->GetName(), target->GetGUID().ToString(), target->IsCreature() ? target->ToCreature()->GetSpawnId() : 0);
             else
-                handler->PSendSysMessage("{} ({}, SpawnID {}) seems to be engaged, but does not have a threat list??", target->GetName(), target->GetGUID().ToString(), target->GetTypeId() == TYPEID_UNIT ? target->ToCreature()->GetSpawnId() : 0);
+                handler->PSendSysMessage("{} ({}, SpawnID {}) seems to be engaged, but does not have a threat list??", target->GetName(), target->GetGUID().ToString(), target->IsCreature() ? target->ToCreature()->GetSpawnId() : 0);
         }
         else if (target->IsEngaged())
             handler->PSendSysMessage("{} ({}) is currently engaged. (This unit cannot have a threat list.)", target->GetName(), target->GetGUID().ToString());
@@ -988,12 +988,12 @@ public:
         for (auto const& ref : target->GetCombatManager().GetPvPCombatRefs())
         {
             Unit* unit = ref.second->GetOther(target);
-            handler->PSendSysMessage("[PvP] {} (SpawnID {})", unit->GetName(), unit->GetTypeId() == TYPEID_UNIT ? unit->ToCreature()->GetSpawnId() : 0);
+            handler->PSendSysMessage("[PvP] {} (SpawnID {})", unit->GetName(), unit->IsCreature() ? unit->ToCreature()->GetSpawnId() : 0);
         }
         for (auto const& ref : target->GetCombatManager().GetPvECombatRefs())
         {
             Unit* unit = ref.second->GetOther(target);
-            handler->PSendSysMessage("[PvE] {} (SpawnID {})", unit->GetName(), unit->GetTypeId() == TYPEID_UNIT ? unit->ToCreature()->GetSpawnId() : 0);
+            handler->PSendSysMessage("[PvE] {} (SpawnID {})", unit->GetName(), unit->IsCreature() ? unit->ToCreature()->GetSpawnId() : 0);
         }
         return true;
     }
