@@ -529,6 +529,7 @@ private:
     ObjectGuid m_cannotReachTarget;
 
     Spell const* _focusSpell;   ///> Locks the target during spell cast for proper facing
+    ObjectGuid _spellFocusTarget; ///> Saved target during spell focus for restoration
 
     CreatureTextRepeatGroup m_textRepeat;
 

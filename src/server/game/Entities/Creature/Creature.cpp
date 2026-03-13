@@ -3429,7 +3429,9 @@ void Creature::SetDisplayFromModel(uint32 modelIdx)
 
 void Creature::SetTarget(ObjectGuid guid)
 {
-    if (!_focusSpell)
+    if (_focusSpell)
+        _spellFocusTarget = guid;
+    else
         SetGuidValue(UNIT_FIELD_TARGET, guid);
 }
 
@@ -3440,6 +3442,7 @@ void Creature::FocusTarget(Spell const* focusSpell, WorldObject const* target)
         return;
 
     _focusSpell = focusSpell;
+    _spellFocusTarget = GetGuidValue(UNIT_FIELD_TARGET);
 
     SetGuidValue(UNIT_FIELD_TARGET, this == target ? ObjectGuid::Empty : target->GetGUID());
     if (focusSpell->GetSpellInfo()->HasAttribute(SPELL_ATTR5_AI_DOESNT_FACE_TARGET))
@@ -3469,10 +3472,8 @@ void Creature::ReleaseFocus(Spell const* focusSpell)
         return;
 
     _focusSpell = nullptr;
-    if (Unit* victim = GetVictim())
-        SetGuidValue(UNIT_FIELD_TARGET, victim->GetGUID());
-    else
-        SetGuidValue(UNIT_FIELD_TARGET, ObjectGuid::Empty);
+    SetGuidValue(UNIT_FIELD_TARGET, _spellFocusTarget);
+    _spellFocusTarget.Clear();
 
     if (focusSpell->GetSpellInfo()->HasAttribute(SPELL_ATTR5_AI_DOESNT_FACE_TARGET))
         ClearUnitState(UNIT_STATE_ROTATING);
