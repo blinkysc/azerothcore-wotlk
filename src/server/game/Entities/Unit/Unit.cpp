@@ -11440,9 +11440,10 @@ Unit* Creature::SelectVictim()
     else
         return nullptr;
 
-    if (target && CanCreatureAttack(target))
+    if (target && _IsTargetAcceptable(target) && CanCreatureAttack(target))
     {
-        SetInFront(target);
+        if (!HasSpellFocus())
+            SetInFront(target);
         return target;
     }
 
