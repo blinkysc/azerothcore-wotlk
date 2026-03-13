@@ -11,13 +11,13 @@ INSERT INTO `creature_text` (`CreatureID`, `GroupID`, `ID`, `Text`, `Type`, `Lan
 -- Tirion: On quest 13081 accepted, SetData on Rhydian
 DELETE FROM `smart_scripts` WHERE `entryorguid` = 31044 AND `source_type` = 0;
 INSERT INTO `smart_scripts` (`entryorguid`, `source_type`, `id`, `link`, `event_type`, `event_phase_mask`, `event_chance`, `event_flags`, `event_param1`, `event_param2`, `event_param3`, `event_param4`, `event_param5`, `event_param6`, `action_type`, `action_param1`, `action_param2`, `action_param3`, `action_param4`, `action_param5`, `action_param6`, `target_type`, `target_param1`, `target_param2`, `target_param3`, `target_param4`, `target_x`, `target_y`, `target_z`, `target_o`, `comment`) VALUES
-(31044, 0, 0, 0, 19, 0, 100, 0, 13081, 0, 0, 0, 0, 0, 45, 1, 1, 0, 0, 0, 0, 19, 30656, 50, 0, 0, 0, 0, 0, 0, 'Highlord Tirion Fordring - On Quest 13081 Accepted - SetData on Rhydian');
+(31044, 0, 0, 0, 19, 0, 100, 0, 13081, 0, 0, 0, 0, 0, 223, 1, 0, 0, 0, 0, 0, 19, 30656, 50, 0, 0, 0, 0, 0, 0, 'Highlord Tirion Fordring - On Quest 13081 Accepted - Do Action 1 on Rhydian');
 
 -- Rhydian: On DataSet, run first action list (walk to point)
 -- On MovementInform PointID 1, run second action list (say line, cast portal, walk back)
 DELETE FROM `smart_scripts` WHERE `entryorguid` = 30656 AND `source_type` = 0;
 INSERT INTO `smart_scripts` (`entryorguid`, `source_type`, `id`, `link`, `event_type`, `event_phase_mask`, `event_chance`, `event_flags`, `event_param1`, `event_param2`, `event_param3`, `event_param4`, `event_param5`, `event_param6`, `action_type`, `action_param1`, `action_param2`, `action_param3`, `action_param4`, `action_param5`, `action_param6`, `target_type`, `target_param1`, `target_param2`, `target_param3`, `target_param4`, `target_x`, `target_y`, `target_z`, `target_o`, `comment`) VALUES
-(30656, 0, 0, 0, 38, 0, 100, 0, 1, 1, 0, 0, 0, 0, 80, 3065600, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Rhydian - On DataSet - Run Timed Action List'),
+(30656, 0, 0, 0, 72, 0, 100, 0, 1, 0, 0, 0, 0, 0, 80, 3065600, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Rhydian - On Do Action 1 - Run Timed Action List'),
 (30656, 0, 1, 0, 34, 0, 100, 0, 8, 1, 0, 0, 0, 0, 80, 3065601, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 'Rhydian - On MovementInform Point 1 - Run Timed Action List');
 
 -- Rhydian action list 1: set walk and move to point
