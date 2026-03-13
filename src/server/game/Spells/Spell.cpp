@@ -3023,11 +3023,11 @@ SpellMissInfo Spell::DoSpellHitOnUnit(Unit* unit, uint32 effectMask, bool scaleA
             }
 
             // xinef: triggered spells should not prolong combat
-            if (unit->IsInCombat() && !m_spellInfo->HasAttribute(SPELL_ATTR3_SUPPRESS_TARGET_PROCS) && !m_triggeredByAuraSpell)
+            if (m_originalCaster && unit->IsInCombat() && !m_spellInfo->HasAttribute(SPELL_ATTR3_SUPPRESS_TARGET_PROCS) && !m_triggeredByAuraSpell)
             {
-                if (m_caster->HasUnitFlag(UNIT_FLAG_PLAYER_CONTROLLED))
-                    m_caster->GetCombatManager().InheritCombatStatesFrom(unit);
-                unit->GetThreatMgr().ForwardThreatForAssistingMe(m_caster, 0.0f, nullptr, true);
+                if (m_originalCaster->HasUnitFlag(UNIT_FLAG_PLAYER_CONTROLLED))
+                    m_originalCaster->GetCombatManager().InheritCombatStatesFrom(unit);
+                unit->GetThreatMgr().ForwardThreatForAssistingMe(m_originalCaster, 0.0f, nullptr, true);
             }
         }
     }
