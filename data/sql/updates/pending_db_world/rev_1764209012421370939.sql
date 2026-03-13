@@ -1,11 +1,10 @@
 -- Fix Aces High! quest issues (https://github.com/azerothcore/azerothcore-wotlk/issues/23834)
 
 -- 1. Add missing Blazing Speed (57092) to Wyrmrest Skytalon (32535)
--- Move Flight aura (57403) from index 5 to index 6 to match EoE version (30161)
+-- Remove Flight aura (57403) from action bar - sniff shows it's not on the bar (60534 handles flight via cooldowns)
 DELETE FROM `creature_template_spell` WHERE `CreatureID` = 32535 AND `Index` IN (5, 6);
 INSERT INTO `creature_template_spell` (`CreatureID`, `Index`, `Spell`, `VerifiedBuild`) VALUES
-(32535, 5, 57092, 0), -- Blazing Speed
-(32535, 6, 57403, 0); -- Flight (aura)
+(32535, 5, 57092, 0); -- Blazing Speed
 
 -- 2. Set Scalesworn Elite (32534) to use SmartAI for combat abilities
 UPDATE `creature_template` SET `AIName` = 'SmartAI' WHERE `entry` = 32534;
