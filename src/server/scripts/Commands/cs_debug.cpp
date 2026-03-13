@@ -72,6 +72,7 @@ public:
             { "setbit",         HandleDebugSet32BitCommand,            SEC_ADMINISTRATOR, Console::No },
             { "threat",         HandleDebugThreatListCommand,          SEC_ADMINISTRATOR, Console::No },
             { "threatinfo",     HandleDebugThreatInfoCommand,          SEC_ADMINISTRATOR, Console::No },
+            { "combat",         HandleDebugCombatListCommand,          SEC_ADMINISTRATOR, Console::No },
             { "hostile",        HandleDebugHostileRefListCommand,      SEC_ADMINISTRATOR, Console::No },
             { "anim",           HandleDebugAnimCommand,                SEC_ADMINISTRATOR, Console::No },
             { "arena",          HandleDebugArenaCommand,               SEC_ADMINISTRATOR, Console::No },
@@ -921,6 +922,26 @@ public:
             }
         }
 
+        return true;
+    }
+
+    static bool HandleDebugCombatListCommand(ChatHandler* handler)
+    {
+        Unit* target = handler->getSelectedUnit();
+        if (!target)
+            target = handler->GetPlayer();
+
+        handler->PSendSysMessage("Combat refs: (Combat state: {} | Manager state: {})", target->IsInCombat(), target->GetCombatManager().HasCombat());
+        for (auto const& ref : target->GetCombatManager().GetPvPCombatRefs())
+        {
+            Unit* unit = ref.second->GetOther(target);
+            handler->PSendSysMessage("[PvP] {} (SpawnID {})", unit->GetName(), unit->GetTypeId() == TYPEID_UNIT ? unit->ToCreature()->GetSpawnId() : 0);
+        }
+        for (auto const& ref : target->GetCombatManager().GetPvECombatRefs())
+        {
+            Unit* unit = ref.second->GetOther(target);
+            handler->PSendSysMessage("[PvE] {} (SpawnID {})", unit->GetName(), unit->GetTypeId() == TYPEID_UNIT ? unit->ToCreature()->GetSpawnId() : 0);
+        }
         return true;
     }
 
