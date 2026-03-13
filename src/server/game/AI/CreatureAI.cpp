@@ -193,6 +193,15 @@ void CreatureAI::MoveInLineOfSight(Unit* who)
         AttackStart(who);
 }
 
+void CreatureAI::OnOwnerCombatInteraction(Unit* target)
+{
+    if (!target || !me->IsAlive())
+        return;
+
+    if (!me->HasReactState(REACT_PASSIVE) && me->CanStartAttack(target))
+        me->EngageWithTarget(target);
+}
+
 // Distract creature, if player gets too close while stealthed/prowling
 void CreatureAI::TriggerAlert(Unit const* who) const
 {

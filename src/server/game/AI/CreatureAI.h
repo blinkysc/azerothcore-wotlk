@@ -197,10 +197,13 @@ public:
     virtual void ReceiveEmote(Player* /*player*/, uint32 /*emoteId*/) {}
 
     // Called when owner takes damage
-    virtual void OwnerAttackedBy(Unit* /*attacker*/) {}
+    virtual void OwnerAttackedBy(Unit* attacker) { OnOwnerCombatInteraction(attacker); }
 
     // Called when owner attacks something
-    virtual void OwnerAttacked(Unit* /*target*/) {}
+    virtual void OwnerAttacked(Unit* target) { OnOwnerCombatInteraction(target); }
+
+    // Default handler for owner combat interactions — makes controlled creatures auto-engage
+    void OnOwnerCombatInteraction(Unit* target);
 
     /// == Triggered Actions Requested ==================
 
