@@ -677,17 +677,13 @@ ThreatReference const* ThreatManager::ReselectVictim()
 
 void ThreatManager::ProcessAIUpdates()
 {
-    std::vector<ObjectGuid> updateList = std::move(_needsAIUpdate);
-    for (ObjectGuid const& guid : updateList)
-    {
-        auto it = _myThreatListEntries.find(guid);
-        if (it == _myThreatListEntries.end())
-            continue;
-
-        if (Creature* owner = _owner->ToCreature())
-            if (CreatureAI* ownerAI = owner->AI())
-                ownerAI->JustStartedThreateningMe(it->second->GetVictim());
-    }
+    CreatureAI* ai = ASSERT_NOTNULL(_owner->ToCreature())->AI();
+    std::vector<ObjectGuid> v(std::move(_needsAIUpdate)); // _needsAIUpdate is now empty in case this triggers a recursive call
+    if (!ai)
+        return;
+    for (ObjectGuid const& guid : v)
+        if (ThreatReference const* ref = Acore::Containers::MapGetValuePtr(_myThreatListEntries, guid))
+            ai->JustStartedThreateningMe(ref->GetVictim());
 }
 
 // returns true if a is LOWER on the threat list than b
