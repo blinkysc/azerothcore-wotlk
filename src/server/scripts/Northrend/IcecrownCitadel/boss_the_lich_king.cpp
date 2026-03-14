@@ -1180,7 +1180,7 @@ public:
                         {
                             if (summon->GetEntry() == NPC_VILE_SPIRIT)
                             {
-                                summon->m_Events.KillAllEvents(true);
+                                summon->m_Events.KillAllEvents(false);
                                 summon->m_Events.AddEventAtOffset(new VileSpiritActivateEvent(summon), 55s);
                                 summon->GetMotionMaster()->Clear(true);
                                 summon->StopMoving();
