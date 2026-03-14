@@ -126,7 +126,7 @@ public:
     bool operator()(Unit const* target) const;
 
 private:
-    Creature const* _source;
+    Creature* _source;
     bool _playerOnly;
 };
 
