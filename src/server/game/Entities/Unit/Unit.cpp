@@ -11295,8 +11295,6 @@ void Unit::setDeathState(DeathState s, bool despawn)
     if (s != DeathState::Alive && s != DeathState::JustRespawned)
     {
         CombatStop();
-        GetThreatMgr().ClearAllThreat();
-        GetThreatMgr().RemoveMeFromThreatLists();
         ClearComboPointHolders();                           // any combo points pointed to unit lost at it death
 
         if (IsNonMeleeSpellCast(false))
@@ -12546,8 +12544,6 @@ void Unit::CleanupBeforeRemoveFromMap(bool finalCleanup)
     CombatStop();
     ClearComboPoints();
     ClearComboPointHolders();
-    GetThreatMgr().ClearAllThreat();
-    GetThreatMgr().RemoveMeFromThreatLists();
     GetMotionMaster()->Clear(false);                    // remove different non-standard movement generators.
 }
 
@@ -14060,7 +14056,6 @@ void Unit::Kill(Unit* killer, Unit* victim, bool durabilityLoss, WeaponAttackTyp
 
                 // Stop attacks
                 victim->CombatStop();
-                victim->GetThreatMgr().RemoveMeFromThreatLists();
 
                 // restore for use at real death
                 victim->SetUInt32Value(PLAYER_SELF_RES_SPELL, ressSpellId);
@@ -14122,8 +14117,6 @@ void Unit::Kill(Unit* killer, Unit* victim, bool durabilityLoss, WeaponAttackTyp
 
         if (!creature->IsPet() && creature->GetLootMode() > 0)
         {
-            creature->GetThreatMgr().ClearAllThreat();
-
             // must be after setDeathState which resets dynamic flags
             if (!creature->loot.isLooted())
             {

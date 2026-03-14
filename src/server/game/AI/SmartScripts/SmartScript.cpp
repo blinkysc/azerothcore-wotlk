@@ -1290,9 +1290,7 @@ void SmartScript::ProcessAction(SmartScriptHolder& e, Unit* unit, uint32 var0, u
                     for (WorldObject* unit : units)
                         if (IsPlayer(unit) && !unit->ToPlayer()->isDead())
                         {
-                            me->SetInCombatWith(unit->ToPlayer());
-                            unit->ToPlayer()->SetInCombatWith(me);
-                            me->AddThreat(unit->ToPlayer(), 0.0f);
+                            me->EngageWithTarget(unit->ToPlayer());
                         }
             }
             else
