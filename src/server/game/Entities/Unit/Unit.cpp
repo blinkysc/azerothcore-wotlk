@@ -14577,10 +14577,6 @@ bool Unit::SetCharmedBy(Unit* charmer, CharmType type, AuraApplication const* au
     CastStop();
     AttackStop();
 
-    // Xinef: dont reset threat and combat, put them on offline list, moved down after faction changes
-    //  CombatStop(); /// @todo: CombatStop(true) may cause crash (interrupt spells)
-    //  DeleteThreatList();
-
     Player* playerCharmer = charmer->ToPlayer();
 
     // Charmer stop charming
