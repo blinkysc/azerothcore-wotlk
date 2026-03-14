@@ -3995,24 +3995,18 @@ void Spell::EffectSanctuary(SpellEffIndex /*effIndex*/)
     if (!unitTarget)
         return;
 
-    if (unitTarget->GetInstanceScript() && unitTarget->GetInstanceScript()->IsEncounterInProgress())
+    unitTarget->GetThreatMgr().EvaluateSuppressed();
+
+    if (unitTarget->IsPlayer() && !unitTarget->GetMap()->IsDungeon())
     {
-        unitTarget->GetThreatMgr().EvaluateSuppressed();
-        // Xinef: replaced with CombatStop(false)
-        unitTarget->AttackStop();
-        unitTarget->RemoveAllAttackers();
-
-        // Night Elf: Shadowmeld only resets threat temporarily
-        if (m_spellInfo->Id != 59646)
-            unitTarget->GetThreatMgr().ResetAllMyThreatOnOthers();
-
-        if (unitTarget->IsPlayer())
-            unitTarget->ToPlayer()->SendAttackSwingCancelAttack();     // melee and ranged forced attack cancel
+        // stop all pve combat for players outside dungeons, suppress pvp combat
+        unitTarget->CombatStop(false, false);
     }
     else
     {
-        unitTarget->GetThreatMgr().EvaluateSuppressed();
-        unitTarget->CombatStop(true);
+        // in dungeons (or for nonplayers), reset this unit on all enemies' threat lists
+        for (auto const& pair : unitTarget->GetThreatMgr().GetThreatenedByMeList())
+            pair.second->ScaleThreat(0.0f);
     }
 
     UnitList targets;

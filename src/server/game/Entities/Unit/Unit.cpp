@@ -7340,7 +7340,7 @@ bool Unit::Attack(Unit* victim, bool meleeAttack)
     // set position before any AI calls/assistance
     //if (IsCreature())
     //    ToCreature()->SetCombatStartPosition(GetPositionX(), GetPositionY(), GetPositionZ());
-    if (creature && !(IsControllableGuardian() && IsControlledByPlayer()))
+    if (creature && !IsControlledByPlayer())
     {
         // should not let player enter combat by right clicking target - doesn't helps
         EngageWithTarget(victim);
@@ -8292,13 +8292,10 @@ void Unit::SendEnergizeSpellLog(Unit* victim, uint32 spellID, uint32 damage, Pow
 
 void Unit::EnergizeBySpell(Unit* victim, uint32 spellID, uint32 damage, Powers powerType)
 {
-    int32 gainedPower = victim->ModifyPower(powerType, damage, false);
+    victim->ModifyPower(powerType, damage, false);
 
-    if (powerType != POWER_HAPPINESS && gainedPower)
-    {
-        SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spellID);
-        victim->GetThreatMgr().ForwardThreatForAssistingMe(this, float(gainedPower) * 0.5f, spellInfo);
-    }
+    if (SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spellID))
+        victim->GetThreatMgr().ForwardThreatForAssistingMe(this, float(damage) / 2.0f, spellInfo, true);
 
     SendEnergizeSpellLog(victim, spellID, damage, powerType);
 }

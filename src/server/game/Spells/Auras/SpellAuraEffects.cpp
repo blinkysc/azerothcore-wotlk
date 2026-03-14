@@ -2984,19 +2984,17 @@ void AuraEffect::HandleFeignDeath(AuraApplication const* aurApp, uint8 mode, boo
             }
         }
 
+        for (auto& pair : target->GetThreatMgr().GetThreatenedByMeList())
+            pair.second->ScaleThreat(0.0f);
+
         if (target->GetMap()->IsDungeon()) // feign death does not remove combat in dungeons
         {
-            // Xinef: replaced with CombatStop(false)
             target->AttackStop();
-            target->RemoveAllAttackers();
-            target->GetThreatMgr().ResetAllMyThreatOnOthers();
-            target->ToPlayer()->SendAttackSwingCancelAttack();     // melee and ranged forced attack cancel
+            if (Player* targetPlayer = target->ToPlayer())
+                targetPlayer->SendAttackSwingCancelAttack();
         }
         else
-        {
-            target->CombatStop();
-            target->GetThreatMgr().RemoveMeFromThreatLists();
-        }
+            target->CombatStop(false, false);
 
         target->RemoveAurasWithInterruptFlags(AURA_INTERRUPT_FLAG_IMMUNE_OR_LOST_SELECTION);
 
@@ -6897,8 +6895,6 @@ void AuraEffect::HandlePeriodicHealthLeechAuraTick(Unit* target, Unit* caster) c
 
     HealInfo healInfo(caster, caster, heal, GetSpellInfo(), GetSpellInfo()->GetSchoolMask());
     float threat = float(caster->HealBySpell(healInfo)) * 0.5f;
-    if (caster->IsClass(CLASS_PALADIN))
-        threat *= 0.5f;
     caster->GetThreatMgr().ForwardThreatForAssistingMe(caster, threat, GetSpellInfo());
 }
 
@@ -7032,9 +7028,6 @@ void AuraEffect::HandlePeriodicHealAurasTick(Unit* target, Unit* caster) const
     if (caster)
     {
         float threat = float(gain) * 0.5f;
-        if (caster->IsClass(CLASS_PALADIN))
-            threat *= 0.5f;
-
         target->GetThreatMgr().ForwardThreatForAssistingMe(caster, threat, GetSpellInfo());
     }
 

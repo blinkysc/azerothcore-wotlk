@@ -521,7 +521,7 @@ bool NonTankTargetSelector::operator()(Unit const* target) const
     if (_playerOnly && !target->IsPlayer())
         return false;
 
-    if (Unit* currentVictim = _source->GetThreatMgr().GetLastVictim())
+    if (Unit* currentVictim = _source->GetThreatMgr().GetCurrentVictim())
         return target != currentVictim;
 
     return target != _source->GetVictim();
