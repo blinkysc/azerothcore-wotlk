@@ -60,6 +60,7 @@ public:
     void MoveInLineOfSight(Unit*) override {}
     void AttackStart(Unit*) override {}
     void JustStartedThreateningMe(Unit*) override {}
+    void JustEnteredCombat(Unit*) override {}
     void UpdateAI(uint32) override {}
     void EnterEvadeMode(EvadeReason /*why*/) override {}
     void OnCharmed(bool /*apply*/) override {}
