@@ -343,20 +343,26 @@ bool CreatureAI::UpdateVictim()
     if (!me->IsEngaged())
         return false;
 
+    if (!me->IsAlive())
+    {
+        EngagementOver();
+        return false;
+    }
+
     if (!me->HasReactState(REACT_PASSIVE))
     {
         if (Unit* victim = me->SelectVictim())
-            AttackStart(victim);
-        return me->GetVictim();
+            if (victim != me->GetVictim())
+                AttackStart(victim);
+        return me->GetVictim() != nullptr;
     }
-    // xinef: if we have any victim, just return true
-    else if (me->GetVictim() && me->GetExactDist(me->GetVictim()) < 30.0f)
-        return true;
-    else if (me->GetThreatMgr().IsThreatListEmpty())
+    else if (!me->IsInCombat())
     {
-        EnterEvadeMode();
+        EnterEvadeMode(EVADE_REASON_NO_HOSTILES);
         return false;
     }
+    else if (me->GetVictim())
+        me->AttackStop();
 
     return true;
 }
