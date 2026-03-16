@@ -6895,6 +6895,8 @@ void AuraEffect::HandlePeriodicHealthLeechAuraTick(Unit* target, Unit* caster) c
 
     HealInfo healInfo(caster, caster, heal, GetSpellInfo(), GetSpellInfo()->GetSchoolMask());
     float threat = float(caster->HealBySpell(healInfo)) * 0.5f;
+    if (caster->IsClass(CLASS_PALADIN))
+        threat *= 0.5f;
     caster->GetThreatMgr().ForwardThreatForAssistingMe(caster, threat, GetSpellInfo());
 }
 
@@ -7028,6 +7030,8 @@ void AuraEffect::HandlePeriodicHealAurasTick(Unit* target, Unit* caster) const
     if (caster)
     {
         float threat = float(gain) * 0.5f;
+        if (caster->IsClass(CLASS_PALADIN))
+            threat *= 0.5f;
         target->GetThreatMgr().ForwardThreatForAssistingMe(caster, threat, GetSpellInfo());
     }
 
