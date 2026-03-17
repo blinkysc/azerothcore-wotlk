@@ -408,8 +408,7 @@ void Creature::SignalFormationMovement()
     if (!m_formation->GetLeader() || m_formation->GetLeader() != this)
         return;
 
-    if (m_formation->CanLeaderStartMoving())
-        m_formation->LeaderStartedMoving();
+    m_formation->LeaderStartedMoving();
 }
 
 bool Creature::IsFormationLeaderMoveAllowed() const

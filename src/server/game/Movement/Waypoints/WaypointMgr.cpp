@@ -32,8 +32,8 @@ void WaypointMgr::Load()
 {
     uint32 oldMSTime = getMSTime();
 
-    //                                                0    1         2           3          4            5          6         7        8                 9        10
-    QueryResult result = WorldDatabase.Query("SELECT id, point, position_x, position_y, position_z, orientation, velocity, move_type, delay, smoothTransition, action, action_chance FROM waypoint_data ORDER BY id, point");
+    //                                                0    1         2           3          4            5          6      7      8                 9         10       11
+    QueryResult result = WorldDatabase.Query("SELECT id, point, position_x, position_y, position_z, orientation, velocity, delay, smoothTransition, move_type, action, action_chance FROM waypoint_data ORDER BY id, point");
 
     if (!result)
     {
@@ -68,7 +68,9 @@ void WaypointMgr::Load()
         if (o.has_value())
             waypoint.Orientation = o;
         waypoint.Velocity = velocity;
-        waypoint.MoveType = fields[7].Get<uint32>();
+        waypoint.Delay = fields[7].Get<uint32>();
+        waypoint.SmoothTransition = fields[8].Get<bool>();
+        waypoint.MoveType = fields[9].Get<uint32>();
 
         if (waypoint.MoveType >= WAYPOINT_MOVE_TYPE_MAX)
         {
@@ -76,8 +78,6 @@ void WaypointMgr::Load()
             continue;
         }
 
-        waypoint.Delay = fields[8].Get<uint32>();
-        waypoint.SmoothTransition = fields[9].Get<bool>();
         waypoint.EventId = fields[10].Get<uint32>();
         waypoint.EventChance = fields[11].Get<int16>();
 
@@ -188,7 +188,9 @@ void WaypointMgr::ReloadPath(uint32 id)
         if (o.has_value())
             waypoint.Orientation = o;
         waypoint.Velocity = velocity;
-        waypoint.MoveType = fields[6].Get<uint32>();
+        waypoint.Delay = fields[6].Get<uint32>();
+        waypoint.SmoothTransition = fields[7].Get<bool>();
+        waypoint.MoveType = fields[8].Get<uint32>();
 
         if (waypoint.MoveType >= WAYPOINT_MOVE_TYPE_MAX)
         {
@@ -196,8 +198,6 @@ void WaypointMgr::ReloadPath(uint32 id)
             continue;
         }
 
-        waypoint.Delay = fields[7].Get<uint32>();
-        waypoint.SmoothTransition = fields[8].Get<bool>();
         waypoint.EventId = fields[9].Get<uint32>();
         waypoint.EventChance = fields[10].Get<uint8>();
 

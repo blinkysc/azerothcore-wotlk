@@ -68,7 +68,7 @@ public:
     void Resume(uint32 overrideTimer = 0) override;
     bool GetResetPosition(float& x, float& y, float& z) override;
 
-    MovementGeneratorType GetMovementGeneratorType() { return WAYPOINT_MOTION_TYPE; }
+    MovementGeneratorType GetMovementGeneratorType() override { return WAYPOINT_MOTION_TYPE; }
 
 private:
     void ProcessWaypointArrival(Creature*, WaypointNode const&);
@@ -89,6 +89,8 @@ private:
     bool _hasBeenStalled;
     bool _done;
     PathSource _pathSource;
+    bool _smoothSplineLaunched;
+    int32 _lastPassedSplineIdx;
 };
 
 /** FlightPathMovementGenerator generates movement of the player for the paths
