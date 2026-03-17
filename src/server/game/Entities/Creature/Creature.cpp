@@ -392,6 +392,34 @@ void Creature::SearchFormation()
     }
 }
 
+bool Creature::IsFormationLeader() const
+{
+    if (!m_formation)
+        return false;
+
+    return m_formation->GetLeader() == this;
+}
+
+void Creature::SignalFormationMovement()
+{
+    if (!m_formation)
+        return;
+
+    if (!m_formation->GetLeader() || m_formation->GetLeader() != this)
+        return;
+
+    if (m_formation->CanLeaderStartMoving())
+        m_formation->LeaderStartedMoving();
+}
+
+bool Creature::IsFormationLeaderMoveAllowed() const
+{
+    if (!m_formation)
+        return true;
+
+    return m_formation->CanLeaderStartMoving();
+}
+
 void Creature::RemoveCorpse(bool setSpawnTime, bool skipVisibility)
 {
     if (getDeathState() != DeathState::Corpse)
