@@ -1,7 +1,7 @@
 -- Add velocity and smoothTransition columns to waypoint_data
 ALTER TABLE `waypoint_data`
   ADD COLUMN `velocity` FLOAT NOT NULL DEFAULT 0 AFTER `orientation`,
-  ADD COLUMN `smoothTransition` TINYINT(1) NOT NULL DEFAULT 0 AFTER `delay`;
+  ADD COLUMN `smoothTransition` TINYINT NOT NULL DEFAULT 0 AFTER `delay`;
 
 -- Create waypoint_data_addon table for custom spline points
 CREATE TABLE IF NOT EXISTS `waypoint_data_addon` (
