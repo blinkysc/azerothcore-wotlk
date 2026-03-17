@@ -302,10 +302,7 @@ void WaypointMovementGenerator<Creature>::StartMove(Creature* creature, bool rel
     }
 
     if (creature->CanFly())
-    {
         init.SetFly();
-        init.SetSmooth();
-    }
 
     if (waypoint.Velocity > 0.f)
         init.SetVelocity(waypoint.Velocity);
