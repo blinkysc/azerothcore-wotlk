@@ -225,18 +225,28 @@ void WaypointMovementGenerator<Creature>::StartMove(Creature* creature, bool rel
 
     if (waypoint.SmoothTransition && i_path->Nodes.size() > 2)
     {
-        // Build a single catmullrom spline through all waypoints
+        // Build a catmullrom spline segment, stopping at delay waypoints
         init.Path().push_back(PositionToVector3(creature->GetPosition()));
 
+        bool hasDelayInSegment = false;
+        uint32 segmentNodes = 0;
         for (uint32 i = 0; i < i_path->Nodes.size(); ++i)
         {
             uint32 idx = (i_currentNode + i) % i_path->Nodes.size();
             WaypointNode const& node = i_path->Nodes.at(idx);
             init.Path().push_back(G3D::Vector3(node.X, node.Y, node.Z));
+            segmentNodes++;
+
+            // Stop the segment at a waypoint with a delay
+            if (node.Delay > 0)
+            {
+                hasDelayInSegment = true;
+                break;
+            }
         }
 
-        // Extra points past the wrap to smooth the seam
-        if (_repeating)
+        // If no delays found and repeating, add wrap-around points for seamless loop
+        if (!hasDelayInSegment && _repeating)
         {
             for (uint32 i = 0; i < std::min<uint32>(3, i_path->Nodes.size()); ++i)
             {
@@ -246,10 +256,20 @@ void WaypointMovementGenerator<Creature>::StartMove(Creature* creature, bool rel
             }
         }
 
-        init.SetFirstPointId(i_currentNode);
-        init.SetSmooth();
-        _smoothSplineLaunched = true;
-        _lastPassedSplineIdx = 0;
+        // Need at least 3 waypoints for a meaningful catmullrom spline
+        if (segmentNodes >= 3)
+        {
+            init.SetFirstPointId(i_currentNode);
+            init.SetSmooth();
+            _smoothSplineLaunched = true;
+            _lastPassedSplineIdx = i_currentNode;
+        }
+        else
+        {
+            // Too few points for catmullrom, fall back to linear point-to-point
+            init.Path().clear();
+            init.MoveTo(G3D::Vector3(waypoint.X, waypoint.Y, waypoint.Z));
+        }
     }
     else if (!waypoint.SplinePoints.empty())
     {
@@ -378,6 +398,19 @@ bool WaypointMovementGenerator<Creature>::DoUpdate(Creature* creature, uint32 di
 
             // Advance node
             i_currentNode = (i_currentNode + 1) % i_path->Nodes.size();
+
+            // If this waypoint has a delay, stop the spline and pause
+            if (passedWp.Delay > 0)
+            {
+                creature->StopMoving();
+                creature->ClearUnitState(UNIT_STATE_ROAMING_MOVE);
+                _waypointDelay = passedWp.Delay;
+                _waypointReached = true;
+                _smoothSplineLaunched = false;
+                if (passedWp.Orientation.has_value())
+                    creature->SetFacingTo(*passedWp.Orientation);
+                return true;
+            }
         }
 
         if (creature->movespline->Finalized())
