@@ -37,7 +37,9 @@
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SharedDefines.h"
+#include "Spell.h"
 #include "SpellAuraEffects.h"
+#include "SpellMgr.h"
 #include "StringConvert.h"
 #include "TargetedMovementGenerator.h"
 #include "TemporarySummon.h"
@@ -2489,6 +2491,154 @@ void WorldObject::SummonGameObjectGroup(uint8 group, std::list<GameObject*>* lis
         if (GameObject* go = SummonGameObject(itr->entry, itr->pos.GetPositionX(), itr->pos.GetPositionY(), itr->pos.GetPositionZ(), itr->pos.GetOrientation(), itr->rot.x, itr->rot.y, itr->rot.z, itr->rot.w, itr->respawnTime))
             if (list)
                 list->push_back(go);
+}
+
+SpellCastResult WorldObject::CastSpell(CastSpellTargetArg const& targets, uint32 spellId, CastSpellExtraArgs const& args)
+{
+    SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spellId);
+    if (!spellInfo)
+    {
+        LOG_ERROR("entities.object", "WorldObject::CastSpell: unknown spell {} by caster {}", spellId, GetGUID().ToString());
+        return SPELL_FAILED_SPELL_UNAVAILABLE;
+    }
+
+    if (!targets.Targets)
+    {
+        LOG_ERROR("entities.object", "WorldObject::CastSpell: Invalid target passed to spell cast {} by {}", spellId, GetGUID().ToString());
+        return SPELL_FAILED_BAD_TARGETS;
+    }
+
+    Spell* spell = new Spell(this, spellInfo, args.TriggerFlags, args.OriginalCaster);
+
+    for (auto const& pair : args.SpellValueOverrides)
+        spell->SetSpellValue(pair.first, pair.second);
+
+    spell->m_CastItem = args.CastItem;
+    return spell->prepare(targets.Targets.get(), args.TriggeringAura);
+}
+
+SpellCastResult WorldObject::CastSpell(SpellCastTargets const& targets, SpellInfo const* spellInfo, CustomSpellValues const* value, TriggerCastFlags triggerFlags, Item* castItem, AuraEffect const* triggeredByAura, ObjectGuid originalCaster)
+{
+    if (!spellInfo)
+    {
+        LOG_ERROR("entities.object", "WorldObject::CastSpell: unknown spell by caster {}", GetGUID().ToString());
+        return SPELL_FAILED_SPELL_UNAVAILABLE;
+    }
+
+    if (!originalCaster && triggeredByAura)
+        originalCaster = triggeredByAura->GetCasterGUID();
+
+    Spell* spell = new Spell(this, spellInfo, triggerFlags, originalCaster);
+
+    if (value)
+        for (auto itr = value->begin(); itr != value->end(); ++itr)
+            spell->SetSpellValue(itr->first, itr->second);
+
+    spell->m_CastItem = castItem;
+    return spell->prepare(&targets, triggeredByAura);
+}
+
+SpellCastResult WorldObject::CastSpell(Unit* victim, uint32 spellId, bool triggered, Item* castItem, AuraEffect const* triggeredByAura, ObjectGuid originalCaster)
+{
+    return CastSpell(victim, spellId, triggered ? TRIGGERED_FULL_MASK : TRIGGERED_NONE, castItem, triggeredByAura, originalCaster);
+}
+
+SpellCastResult WorldObject::CastSpell(Unit* victim, uint32 spellId, TriggerCastFlags triggerFlags, Item* castItem, AuraEffect const* triggeredByAura, ObjectGuid originalCaster)
+{
+    SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spellId);
+    if (!spellInfo)
+    {
+        LOG_ERROR("entities.object", "WorldObject::CastSpell: unknown spell {} by caster {}", spellId, GetGUID().ToString());
+        return SPELL_FAILED_SPELL_UNAVAILABLE;
+    }
+
+    return CastSpell(victim, spellInfo, triggerFlags, castItem, triggeredByAura, originalCaster);
+}
+
+SpellCastResult WorldObject::CastSpell(Unit* victim, SpellInfo const* spellInfo, bool triggered, Item* castItem, AuraEffect const* triggeredByAura, ObjectGuid originalCaster)
+{
+    return CastSpell(victim, spellInfo, triggered ? TRIGGERED_FULL_MASK : TRIGGERED_NONE, castItem, triggeredByAura, originalCaster);
+}
+
+SpellCastResult WorldObject::CastSpell(Unit* victim, SpellInfo const* spellInfo, TriggerCastFlags triggerFlags, Item* castItem, AuraEffect const* triggeredByAura, ObjectGuid originalCaster)
+{
+    SpellCastTargets targets;
+    targets.SetUnitTarget(victim);
+    return CastSpell(targets, spellInfo, nullptr, triggerFlags, castItem, triggeredByAura, originalCaster);
+}
+
+SpellCastResult WorldObject::CastSpell(float x, float y, float z, uint32 spellId, bool triggered, Item* castItem, AuraEffect const* triggeredByAura, ObjectGuid originalCaster)
+{
+    SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spellId);
+    if (!spellInfo)
+    {
+        LOG_ERROR("entities.object", "WorldObject::CastSpell: unknown spell {} by caster {}", spellId, GetGUID().ToString());
+        return SPELL_FAILED_SPELL_UNAVAILABLE;
+    }
+
+    SpellCastTargets targets;
+    targets.SetDst(x, y, z, GetOrientation());
+    return CastSpell(targets, spellInfo, nullptr, triggered ? TRIGGERED_FULL_MASK : TRIGGERED_NONE, castItem, triggeredByAura, originalCaster);
+}
+
+SpellCastResult WorldObject::CastSpell(GameObject* go, uint32 spellId, bool triggered, Item* castItem, AuraEffect* triggeredByAura, ObjectGuid originalCaster)
+{
+    SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spellId);
+    if (!spellInfo)
+    {
+        LOG_ERROR("entities.object", "WorldObject::CastSpell: unknown spell {} by caster {}", spellId, GetGUID().ToString());
+        return SPELL_FAILED_SPELL_UNAVAILABLE;
+    }
+
+    SpellCastTargets targets;
+    targets.SetGOTarget(go);
+    return CastSpell(targets, spellInfo, nullptr, triggered ? TRIGGERED_FULL_MASK : TRIGGERED_NONE, castItem, triggeredByAura, originalCaster);
+}
+
+SpellCastResult WorldObject::CastCustomSpell(Unit* target, uint32 spellId, int32 const* bp0, int32 const* bp1, int32 const* bp2, bool triggered, Item* castItem, AuraEffect const* triggeredByAura, ObjectGuid originalCaster)
+{
+    CustomSpellValues values;
+    if (bp0)
+        values.AddSpellMod(SPELLVALUE_BASE_POINT0, *bp0);
+    if (bp1)
+        values.AddSpellMod(SPELLVALUE_BASE_POINT1, *bp1);
+    if (bp2)
+        values.AddSpellMod(SPELLVALUE_BASE_POINT2, *bp2);
+    return CastCustomSpell(spellId, values, target, triggered ? TRIGGERED_FULL_MASK : TRIGGERED_NONE, castItem, triggeredByAura, originalCaster);
+}
+
+SpellCastResult WorldObject::CastCustomSpell(uint32 spellId, SpellValueMod mod, int32 value, Unit* target, bool triggered, Item* castItem, AuraEffect const* triggeredByAura, ObjectGuid originalCaster)
+{
+    CustomSpellValues values;
+    values.AddSpellMod(mod, value);
+    return CastCustomSpell(spellId, values, target, triggered ? TRIGGERED_FULL_MASK : TRIGGERED_NONE, castItem, triggeredByAura, originalCaster);
+}
+
+SpellCastResult WorldObject::CastCustomSpell(uint32 spellId, SpellValueMod mod, int32 value, Unit* target, TriggerCastFlags triggerFlags, Item* castItem, AuraEffect const* triggeredByAura, ObjectGuid originalCaster)
+{
+    CustomSpellValues values;
+    values.AddSpellMod(mod, value);
+    return CastCustomSpell(spellId, values, target, triggerFlags, castItem, triggeredByAura, originalCaster);
+}
+
+SpellCastResult WorldObject::CastCustomSpell(uint32 spellId, CustomSpellValues const& value, Unit* victim, TriggerCastFlags triggerFlags, Item* castItem, AuraEffect const* triggeredByAura, ObjectGuid originalCaster)
+{
+    SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spellId);
+    if (!spellInfo)
+    {
+        LOG_ERROR("entities.object", "CastCustomSpell: unknown spell {} by caster {}", spellId, GetGUID().ToString());
+        return SPELL_FAILED_SPELL_UNAVAILABLE;
+    }
+
+    return CastCustomSpell(spellInfo, value, victim, triggerFlags, castItem, triggeredByAura, originalCaster);
+}
+
+SpellCastResult WorldObject::CastCustomSpell(SpellInfo const* spellInfo, CustomSpellValues const& value, Unit* victim, TriggerCastFlags triggerFlags, Item* castItem, AuraEffect const* triggeredByAura, ObjectGuid originalCaster)
+{
+    SpellCastTargets targets;
+    targets.SetUnitTarget(victim);
+
+    return CastSpell(targets, spellInfo, &value, triggerFlags, castItem, triggeredByAura, originalCaster);
 }
 
 Creature* WorldObject::FindNearestCreature(uint32 entry, float range, bool alive) const

@@ -282,7 +282,6 @@ public:
 
     GameObject* LookupFishingHoleAround(float range);
 
-    void CastSpell(Unit* target, uint32 spell);
     void SendCustomAnim(uint32 anim);
     [[nodiscard]] bool IsInRange(float x, float y, float z, float radius) const;
 
