@@ -245,11 +245,44 @@ struct npc_pet_dk_ghoul : public CombatAI
 {
     npc_pet_dk_ghoul(Creature* c) : CombatAI(c) { }
 
+    void IsSummonedBy(WorldObject* summoner) override
+    {
+        if (!summoner || !summoner->IsPlayer())
+            return;
+
+        // Remember the owner's target so we can attack it after the rising stun expires.
+        if (Unit* victim = summoner->ToPlayer()->GetVictim())
+            _summonTargetGUID = victim->GetGUID();
+    }
+
+    void UpdateAI(uint32 diff) override
+    {
+        // While stunned (rising animation), don't run CombatAI - just wait.
+        if (me->HasUnitState(UNIT_STATE_STUNNED))
+            return;
+
+        // Once the stun expires, attack the saved target from summon time.
+        if (!_summonTargetGUID.IsEmpty())
+        {
+            if (Unit* target = ObjectAccessor::GetUnit(*me, _summonTargetGUID))
+            {
+                if (target->IsAlive() && me->IsValidAttackTarget(target))
+                    AttackStart(target);
+            }
+            _summonTargetGUID.Clear();
+        }
+
+        CombatAI::UpdateAI(diff);
+    }
+
     void JustDied(Unit* /*who*/) override
     {
         if (me->IsGuardian() || me->IsSummon())
             me->ToTempSummon()->UnSummon();
     }
+
+private:
+    ObjectGuid _summonTargetGUID;
 };
 
 struct npc_pet_dk_risen_ally : public PossessedAI
