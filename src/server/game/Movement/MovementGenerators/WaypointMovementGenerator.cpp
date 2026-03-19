@@ -409,6 +409,7 @@ bool WaypointMovementGenerator<Creature>::DoUpdate(Creature* creature, uint32 di
                 _smoothSplineLaunched = false;
                 if (passedWp.Orientation.has_value())
                     creature->SetFacingTo(*passedWp.Orientation);
+
                 return true;
             }
         }
