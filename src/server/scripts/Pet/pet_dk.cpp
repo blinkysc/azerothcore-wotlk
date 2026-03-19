@@ -250,13 +250,29 @@ struct npc_pet_dk_ghoul : public CombatAI
         if (!summoner || !summoner->IsPlayer())
             return;
 
-        Player* player = summoner->ToPlayer();
-
-        if (Unit* victim = player->GetVictim())
+        if (Unit* victim = summoner->ToPlayer()->GetVictim())
         {
             me->Attack(victim, true);
             me->GetMotionMaster()->MoveChase(victim);
         }
+    }
+
+    void OwnerAttacked(Unit* target) override
+    {
+        if (!target || !me->IsAlive() || me->HasReactState(REACT_PASSIVE))
+            return;
+        if (me->GetVictim() && me->GetVictim() != target)
+            return;
+        if (me->IsValidAttackTarget(target))
+            AttackStart(target);
+    }
+
+    void OwnerAttackedBy(Unit* attacker) override
+    {
+        if (!attacker || !me->IsAlive() || me->HasReactState(REACT_PASSIVE))
+            return;
+        if (me->IsValidAttackTarget(attacker))
+            AttackStart(attacker);
     }
 
     void JustDied(Unit* /*who*/) override
@@ -283,36 +299,18 @@ struct npc_pet_dk_risen_ally : public PossessedAI
     }
 };
 
-struct npc_pet_dk_army_of_the_dead : public CombatAI
+struct npc_pet_dk_army_of_the_dead : public AggressorAI
 {
-    npc_pet_dk_army_of_the_dead(Creature* creature) : CombatAI(creature) { }
+    npc_pet_dk_army_of_the_dead(Creature* creature) : AggressorAI(creature) { }
 
-    void InitializeAI() override
+    bool CanAIAttack(Unit const* target) const override
     {
-        CombatAI::InitializeAI();
-        ((Minion*)me)->SetFollowAngle(rand_norm() * 2 * M_PI);
-    }
-
-    void IsSummonedBy(WorldObject* summoner) override
-    {
-        if (Unit* owner = summoner->ToUnit())
-        {
-            Unit* victim = owner->GetVictim();
-
-            if (victim && me->IsValidAttackTarget(victim))
-            {
-                AttackStart(victim);
-            }
-            else
-            {
-                // If there is no valid target, attack the nearest enemy within 30m
-                if (Unit* nearest = me->SelectNearbyTarget(nullptr, 30.0f))
-                {
-                    if (me->IsValidAttackTarget(nearest))
-                        AttackStart(nearest);
-                }
-            }
-        }
+        if (!target)
+            return false;
+        Unit* owner = me->GetOwner();
+        if (owner && !target->IsInCombatWith(owner))
+            return false;
+        return AggressorAI::CanAIAttack(target);
     }
 };
 
