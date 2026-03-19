@@ -38,15 +38,6 @@ class SpellEvent;
 class ByteBuffer;
 class BasicEvent;
 
-namespace Acore
-{
-    enum class WorldObjectSpellAreaTargetSearchReason
-    {
-        Area,
-        Chain
-    };
-}
-
 #define SPELL_CHANNEL_UPDATE_INTERVAL (1 * IN_MILLISECONDS)
 #define TRAJECTORY_MISSILE_SIZE 3.0f
 
@@ -299,7 +290,7 @@ class Spell
     friend void Unit::SetCurrentCastedSpell(Spell* pSpell);
     friend class SpellScript;
 public:
-    Spell(Unit* caster, SpellInfo const* info, TriggerCastFlags triggerFlags, ObjectGuid originalCasterGUID = ObjectGuid::Empty, bool skipCheck = false);
+    Spell(WorldObject* caster, SpellInfo const* info, TriggerCastFlags triggerFlags, ObjectGuid originalCasterGUID = ObjectGuid::Empty, bool skipCheck = false);
     ~Spell();
 
     void EffectNULL(SpellEffIndex effIndex);
@@ -450,10 +441,10 @@ public:
     void SelectEffectTypeImplicitTargets(uint8 effIndex);
 
     uint32 GetSearcherTypeMask(SpellTargetObjectTypes objType, ConditionList* condList);
-    template<class SEARCHER> void SearchTargets(SEARCHER& searcher, uint32 containerMask, Unit* referer, Position const* pos, float radius);
+    template<class SEARCHER> void SearchTargets(SEARCHER& searcher, uint32 containerMask, WorldObject* referer, Position const* pos, float radius);
 
     WorldObject* SearchNearbyTarget(float range, SpellTargetObjectTypes objectType, SpellTargetCheckTypes selectionType, ConditionList* condList = nullptr);
-    void SearchAreaTargets(std::list<WorldObject*>& targets, float range, Position const* position, Unit* referer, SpellTargetObjectTypes objectType, SpellTargetCheckTypes selectionType, ConditionList* condList, Acore::WorldObjectSpellAreaTargetSearchReason searchReason = Acore::WorldObjectSpellAreaTargetSearchReason::Area);
+    void SearchAreaTargets(std::list<WorldObject*>& targets, float range, Position const* position, WorldObject* referer, SpellTargetObjectTypes objectType, SpellTargetCheckTypes selectionType, ConditionList* condList);
     void SearchChainTargets(std::list<WorldObject*>& targets, uint32 chainTargets, WorldObject* target, SpellTargetObjectTypes objectType, SpellTargetCheckTypes selectType, SpellTargetSelectionCategories selectCategory, ConditionList* condList, bool isChainHeal);
 
     SpellCastResult prepare(SpellCastTargets const* targets, AuraEffect const* triggeredByAura = nullptr);
@@ -488,7 +479,12 @@ public:
     SpellCastResult CheckRuneCost(uint32 RuneCostID);
     SpellCastResult CheckCasterAuras(bool preventionOnly) const;
 
-    int32 CalculateSpellDamage(uint8 i, Unit const* target) const { return m_caster->CalculateSpellDamage(target, m_spellInfo, i, &m_spellValue->EffectBasePoints[i]); }
+    int32 CalculateSpellDamage(uint8 i, Unit const* target) const
+    {
+        if (Unit* unitCaster = m_caster->ToUnit())
+            return unitCaster->CalculateSpellDamage(target, m_spellInfo, i, &m_spellValue->EffectBasePoints[i]);
+        return m_spellValue->EffectBasePoints[i];
+    }
 
     bool HaveTargetsForEffect(uint8 effect) const;
     void Delayed();
@@ -568,7 +564,7 @@ public:
     bool IsTriggered() const { return HasTriggeredCastFlag(TRIGGERED_FULL_MASK); };
     bool HasTriggeredCastFlag(TriggerCastFlags flag) const { return _triggeredCastFlags & flag; };
     [[nodiscard]] bool IsProcDisabled() const { return HasTriggeredCastFlag(TRIGGERED_DISALLOW_PROC_EVENTS); }
-    bool IsChannelActive() const { return m_caster->GetUInt32Value(UNIT_CHANNEL_SPELL) != 0; }
+    bool IsChannelActive() const { return m_caster->ToUnit() && m_caster->ToUnit()->GetUInt32Value(UNIT_CHANNEL_SPELL) != 0; }
     bool IsAutoActionResetSpell() const;
     bool IsIgnoringCooldowns() const;
 
@@ -587,7 +583,7 @@ public:
 
     CurrentSpellTypes GetCurrentContainer() const;
 
-    Unit* GetCaster() const { return m_caster; }
+    WorldObject* GetCaster() const { return m_caster; }
     Unit* GetOriginalCaster() const { return m_originalCaster; }
     Unit* GetOriginalTarget() const;
     SpellInfo const* GetSpellInfo() const { return m_spellInfo; }
@@ -618,7 +614,7 @@ public:
 
     void SendLoot(ObjectGuid guid, LootType loottype);
 
-    Unit* const m_caster;
+    WorldObject* const m_caster;
 
     SpellValue* const m_spellValue;
 
@@ -810,14 +806,14 @@ namespace Acore
 {
     struct WorldObjectSpellTargetCheck
     {
-        Unit* _caster;
-        Unit* _referer;
+        WorldObject* _caster;
+        WorldObject* _referer;
         SpellInfo const* _spellInfo;
         SpellTargetCheckTypes _targetSelectionType;
         ConditionSourceInfo* _condSrcInfo;
         ConditionList* _condList;
 
-        WorldObjectSpellTargetCheck(Unit* caster, Unit* referer, SpellInfo const* spellInfo,
+        WorldObjectSpellTargetCheck(WorldObject* caster, WorldObject* referer, SpellInfo const* spellInfo,
                                     SpellTargetCheckTypes selectionType, ConditionList* condList);
         ~WorldObjectSpellTargetCheck();
         bool operator()(WorldObject* target);
@@ -827,7 +823,7 @@ namespace Acore
     {
         float _range;
         Position const* _position;
-        WorldObjectSpellNearbyTargetCheck(float range, Unit* caster, SpellInfo const* spellInfo,
+        WorldObjectSpellNearbyTargetCheck(float range, WorldObject* caster, SpellInfo const* spellInfo,
                                           SpellTargetCheckTypes selectionType, ConditionList* condList);
         bool operator()(WorldObject* target);
     };
@@ -836,23 +832,22 @@ namespace Acore
     {
         float _range;
         Position const* _position;
-        Acore::WorldObjectSpellAreaTargetSearchReason _searchReason;
-        WorldObjectSpellAreaTargetCheck(float range, Position const* position, Unit* caster,
-                                        Unit* referer, SpellInfo const* spellInfo, SpellTargetCheckTypes selectionType, ConditionList* condList, Acore::WorldObjectSpellAreaTargetSearchReason searchReason = Acore::WorldObjectSpellAreaTargetSearchReason::Area);
+        WorldObjectSpellAreaTargetCheck(float range, Position const* position, WorldObject* caster,
+                                        WorldObject* referer, SpellInfo const* spellInfo, SpellTargetCheckTypes selectionType, ConditionList* condList);
         bool operator()(WorldObject* target);
     };
 
     struct WorldObjectSpellConeTargetCheck : public WorldObjectSpellAreaTargetCheck
     {
         float _coneAngle;
-        WorldObjectSpellConeTargetCheck(float coneAngle, float range, Unit* caster,
+        WorldObjectSpellConeTargetCheck(float coneAngle, float range, WorldObject* caster,
                                         SpellInfo const* spellInfo, SpellTargetCheckTypes selectionType, ConditionList* condList);
         bool operator()(WorldObject* target);
     };
 
     struct WorldObjectSpellTrajTargetCheck : public WorldObjectSpellAreaTargetCheck
     {
-        WorldObjectSpellTrajTargetCheck(float range, Position const* position, Unit* caster,
+        WorldObjectSpellTrajTargetCheck(float range, Position const* position, WorldObject* caster,
                                         SpellInfo const* spellInfo, SpellTargetCheckTypes selectionType, ConditionList* condList);
         bool operator()(WorldObject* target);
     };
