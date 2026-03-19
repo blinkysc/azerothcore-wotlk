@@ -245,36 +245,6 @@ struct npc_pet_dk_ghoul : public CombatAI
 {
     npc_pet_dk_ghoul(Creature* c) : CombatAI(c) { }
 
-    void IsSummonedBy(WorldObject* summoner) override
-    {
-        if (!summoner || !summoner->IsPlayer())
-            return;
-
-        if (Unit* victim = summoner->ToPlayer()->GetVictim())
-        {
-            me->Attack(victim, true);
-            me->GetMotionMaster()->MoveChase(victim);
-        }
-    }
-
-    void OwnerAttacked(Unit* target) override
-    {
-        if (!target || !me->IsAlive() || me->HasReactState(REACT_PASSIVE))
-            return;
-        if (me->GetVictim() && me->GetVictim() != target)
-            return;
-        if (me->IsValidAttackTarget(target))
-            AttackStart(target);
-    }
-
-    void OwnerAttackedBy(Unit* attacker) override
-    {
-        if (!attacker || !me->IsAlive() || me->HasReactState(REACT_PASSIVE))
-            return;
-        if (me->IsValidAttackTarget(attacker))
-            AttackStart(attacker);
-    }
-
     void JustDied(Unit* /*who*/) override
     {
         if (me->IsGuardian() || me->IsSummon())

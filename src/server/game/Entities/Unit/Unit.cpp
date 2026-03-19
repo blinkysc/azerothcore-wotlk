@@ -7333,25 +7333,19 @@ bool Unit::Attack(Unit* victim, bool meleeAttack)
     // set position before any AI calls/assistance
     //if (IsCreature())
     //    ToCreature()->SetCombatStartPosition(GetPositionX(), GetPositionY(), GetPositionZ());
-    if (creature)
+    if (creature && !IsControlledByPlayer())
     {
-        // All creatures need to enter combat when they attack, including player-controlled pets.
-        // Without this, pets that can't have threat lists (guardians/minions summoned by players)
-        // never become "engaged" and their AI (UpdateVictim) stops working.
         EngageWithTarget(victim);
 
-        if (!IsControlledByPlayer())
-        {
-            creature->SendAIReaction(AI_REACTION_HOSTILE);
+        creature->SendAIReaction(AI_REACTION_HOSTILE);
 
-            /// @todo: Implement aggro range, detection range and assistance range templates
-            if (!(creature->HasFlagsExtra(CREATURE_FLAG_EXTRA_DONT_CALL_ASSISTANCE)))
-                creature->CallAssistance();
+        /// @todo: Implement aggro range, detection range and assistance range templates
+        if (!(creature->HasFlagsExtra(CREATURE_FLAG_EXTRA_DONT_CALL_ASSISTANCE)))
+            creature->CallAssistance();
 
-            creature->SetAssistanceTimer(sWorld->getIntConfig(CONFIG_CREATURE_FAMILY_ASSISTANCE_PERIOD));
+        creature->SetAssistanceTimer(sWorld->getIntConfig(CONFIG_CREATURE_FAMILY_ASSISTANCE_PERIOD));
 
-            SetUInt32Value(UNIT_NPC_EMOTESTATE, EMOTE_ONESHOT_NONE);
-        }
+        SetUInt32Value(UNIT_NPC_EMOTESTATE, EMOTE_ONESHOT_NONE);
     }
 
     // delay offhand weapon attack by 50% of the base attack time
