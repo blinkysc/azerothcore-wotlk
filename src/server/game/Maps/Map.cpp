@@ -702,7 +702,7 @@ void Map::RemovePlayerFromMap(Player* player, bool remove)
 {
     UpdatePlayerZoneStats(player->GetZoneId(), MAP_INVALID_ZONE);
 
-    player->getHostileRefMgr().deleteReferences(true); // pussywizard: multithreading crashfix
+    player->GetThreatMgr().RemoveMeFromThreatLists(); // pussywizard: multithreading crashfix
 
     player->RemoveFromWorld();
     SendRemoveTransports(player);
@@ -1037,9 +1037,10 @@ void Map::UnloadAll()
 
     for (GridRefMgr<MapGridType>::iterator i = GridRefMgr<MapGridType>::begin(); i != GridRefMgr<MapGridType>::end();)
     {
-        MapGridType& grid(*i->GetSource());
+        MapGridType* grid = i->GetSource();
         ++i;
-        UnloadGrid(grid); // deletes the grid and removes it from the GridRefMgr
+        if (grid)
+            UnloadGrid(*grid);
     }
 
     // pussywizard: crashfix, some npc can be left on transport (not a default passenger)
