@@ -190,11 +190,9 @@ struct boss_felblood_kaelthas : public BossAI
             damage = me->GetHealth() - 1;
             if (me->isRegeneratingHealth())
             {
-                me->CombatStop();
                 me->CastStop();
                 me->SetRegeneratingHealth(false);
                 me->SetUnitFlag(UNIT_FLAG_DISABLE_MOVE);
-                me->SetImmuneToAll(true);
                 me->SetReactState(REACT_PASSIVE);
                 LapseAction(ACTION_REMOVE_FLY);
                 scheduler.CancelAll();
