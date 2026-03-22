@@ -95,7 +95,7 @@ struct boss_skeram : public BossAI
         creature->CastSpell(creature, SPELL_BIRTH, true);
         creature->SetControlled(true, UNIT_STATE_ROOT);
         creature->SetReactState(REACT_PASSIVE);
-        creature->SetImmuneToAll(true);
+        creature->SetImmuneToAll(true, true);
 
         _copiesGUIDs.push_back(creature->GetGUID());
     }
