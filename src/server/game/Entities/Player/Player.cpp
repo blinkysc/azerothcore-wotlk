@@ -12500,13 +12500,22 @@ bool Player::HasItemFitToSpellRequirements(SpellInfo const* spellInfo, Item cons
                         if (item != ignoreItem && item->IsFitToSpellRequirements(spellInfo))
                             return true;
 
-                // special check to keep active non-passive auras (e.g. Bladestorm)
-                // even when the required weapon is temporarily missing (e.g. weapon swap)
+                // Keep active non-passive auras (e.g. Bladestorm) when disarmed
                 if (!spellInfo->IsPassive())
                 {
-                    for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
-                        if (spellInfo->Effects[i].IsAura())
-                            return true;
+                    bool hasWeaponInSlot = false;
+                    for (uint8 i = EQUIPMENT_SLOT_MAINHAND; i < EQUIPMENT_SLOT_TABARD; ++i)
+                        if (Item* item = GetItemByPos(INVENTORY_SLOT_BAG_0, i))
+                            if (item != ignoreItem && item->IsFitToSpellRequirements(spellInfo))
+                            {
+                                hasWeaponInSlot = true;
+                                break;
+                            }
+
+                    if (hasWeaponInSlot)
+                        for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
+                            if (spellInfo->Effects[i].IsAura())
+                                return true;
                 }
 
                 break;
@@ -12520,9 +12529,9 @@ bool Player::HasItemFitToSpellRequirements(SpellInfo const* spellInfo, Item cons
                         if (item != ignoreItem && item->IsFitToSpellRequirements(spellInfo))
                             return true;
 
-                    // special check to keep active non-passive auras (e.g. Shield Wall)
-                    // even when the shield is removed (e.g. disarm)
-                    if (!spellInfo->IsPassive())
+                    // Keep active non-passive auras (e.g. Shield Wall) when disarmed
+                    Item* offhand = GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
+                    if (!spellInfo->IsPassive() && offhand && offhand != ignoreItem)
                     {
                         for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
                             if (spellInfo->Effects[i].IsAura())
