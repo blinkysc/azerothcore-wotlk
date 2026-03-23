@@ -795,8 +795,10 @@ void GameObject::Update(uint32 diff)
                         }
                         else if (Unit* target = ObjectAccessor::GetUnit(*this, _lootStateUnitGUID))
                         {
+                            CastSpellExtraArgs args;
+                            args.SetOriginalCaster(GetOwnerGUID());
                             if (goInfo->trap.spellId)
-                                CastSpell(target, goInfo->trap.spellId);
+                                CastSpell(target, goInfo->trap.spellId, args);
 
                             m_cooldownTime = GameTime::GetGameTimeMS().count() + (goInfo->trap.cooldown ? goInfo->trap.cooldown : uint32(4)) * IN_MILLISECONDS; // template or 4 seconds
 
@@ -1508,8 +1510,10 @@ void GameObject::Use(Unit* user)
         case GAMEOBJECT_TYPE_TRAP:                          //6
             {
                 GameObjectTemplate const* goInfo = GetGOInfo();
+                CastSpellExtraArgs args;
+                args.SetOriginalCaster(GetOwnerGUID());
                 if (goInfo->trap.spellId)
-                    CastSpell(user, goInfo->trap.spellId);
+                    CastSpell(user, goInfo->trap.spellId, args);
 
                 m_cooldownTime = GameTime::GetGameTimeMS().count() + (goInfo->trap.cooldown ? goInfo->trap.cooldown :  uint32(4)) * IN_MILLISECONDS; // template or 4 seconds
 
