@@ -3663,6 +3663,381 @@ Player* WorldObject::GetSpellModOwner() const
     return nullptr;
 }
 
+float WorldObject::ApplyEffectModifiers(SpellInfo const* spellProto, uint8 effect_index, float value) const
+{
+    if (Player* modOwner = GetSpellModOwner())
+    {
+        modOwner->ApplySpellMod(spellProto->Id, SPELLMOD_ALL_EFFECTS, value);
+        switch (effect_index)
+        {
+            case 0:
+                modOwner->ApplySpellMod(spellProto->Id, SPELLMOD_EFFECT1, value);
+                break;
+            case 1:
+                modOwner->ApplySpellMod(spellProto->Id, SPELLMOD_EFFECT2, value);
+                break;
+            case 2:
+                modOwner->ApplySpellMod(spellProto->Id, SPELLMOD_EFFECT3, value);
+                break;
+        }
+    }
+    return value;
+}
+
+int32 WorldObject::CalculateSpellDamage(Unit const* target, SpellInfo const* spellProto, uint8 effect_index, int32 const* basePoints) const
+{
+    return spellProto->Effects[effect_index].CalcValue(this, basePoints, target);
+}
+
+int32 WorldObject::CalcSpellDuration(SpellInfo const* spellProto)
+{
+    int32 minduration = spellProto->GetDuration();
+    int32 maxduration = spellProto->GetMaxDuration();
+
+    int32 duration;
+
+    if (Unit const* unitCaster = ToUnit())
+    {
+        uint8 comboPoints = unitCaster->GetComboPoints();
+        if (comboPoints && minduration != -1 && minduration != maxduration)
+            duration = minduration + int32((maxduration - minduration) * comboPoints / 5);
+        else
+            duration = minduration;
+    }
+    else
+        duration = minduration;
+
+    return duration;
+}
+
+int32 WorldObject::ModSpellDuration(SpellInfo const* spellProto, Unit const* target, int32 duration, bool positive, uint32 effectMask)
+{
+    // don't mod permanent auras duration
+    if (duration < 0)
+        return duration;
+
+    // some auras are not affected by duration modifiers
+    if (spellProto->HasAttribute(SPELL_ATTR7_NO_TARGET_DURATION_MOD))
+        return duration;
+
+    // cut duration only of negative effects
+    // xinef: also calculate self casts, spell can be reflected for example
+    if (!positive)
+    {
+        int32 mechanic = spellProto->GetSpellMechanicMaskByEffectMask(effectMask);
+
+        int32 durationMod;
+        int32 durationMod_always = 0;
+        int32 durationMod_not_stack = 0;
+
+        for (uint8 i = 1; i <= MECHANIC_ENRAGED; ++i)
+        {
+            if (!(mechanic & 1 << i))
+                continue;
+
+            // Xinef: spells affecting movement imparing effects should not reduce duration if disoriented mechanic is present
+            if (i == MECHANIC_SNARE && (mechanic & (1 << MECHANIC_DISORIENTED)))
+                continue;
+
+            // Find total mod value (negative bonus)
+            int32 new_durationMod_always = target->GetTotalAuraModifierByMiscValue(SPELL_AURA_MECHANIC_DURATION_MOD, i);
+            // Find max mod (negative bonus)
+            int32 new_durationMod_not_stack = target->GetMaxNegativeAuraModifierByMiscValue(SPELL_AURA_MECHANIC_DURATION_MOD_NOT_STACK, i);
+            // Check if mods applied before were weaker
+            if (new_durationMod_always < durationMod_always)
+                durationMod_always = new_durationMod_always;
+            if (new_durationMod_not_stack < durationMod_not_stack)
+                durationMod_not_stack = new_durationMod_not_stack;
+        }
+
+        // Select strongest negative mod
+        if (durationMod_always > durationMod_not_stack)
+            durationMod = durationMod_not_stack;
+        else
+            durationMod = durationMod_always;
+
+        if (durationMod != 0)
+            AddPct(duration, durationMod);
+
+        // there are only negative mods currently
+        durationMod_always = target->GetTotalAuraModifierByMiscValue(SPELL_AURA_MOD_AURA_DURATION_BY_DISPEL, spellProto->Dispel);
+        durationMod_not_stack = target->GetMaxNegativeAuraModifierByMiscValue(SPELL_AURA_MOD_AURA_DURATION_BY_DISPEL_NOT_STACK, spellProto->Dispel);
+
+        durationMod = 0;
+        if (durationMod_always > durationMod_not_stack)
+            durationMod += durationMod_not_stack;
+        else
+            durationMod += durationMod_always;
+
+        if (durationMod != 0)
+            AddPct(duration, durationMod);
+    }
+    else
+    {
+        // else positive mods here, there are no currently
+        // when there will be, change GetTotalAuraModifierByMiscValue to GetTotalPositiveAuraModifierByMiscValue
+    }
+
+    // Glyphs which increase duration of selfcasted buffs
+    if (Unit const* unitSelf = ToUnit())
+    {
+        if (target == unitSelf)
+        {
+            switch (spellProto->SpellFamilyName)
+            {
+                case SPELLFAMILY_DRUID:
+                    if (spellProto->SpellFamilyFlags[0] & 0x100)
+                    {
+                        // Glyph of Thorns
+                        if (AuraEffect* aurEff = unitSelf->GetAuraEffect(57862, 0))
+                            duration += aurEff->GetAmount() * MINUTE * IN_MILLISECONDS;
+                    }
+                    break;
+                case SPELLFAMILY_PALADIN:
+                    if ((spellProto->SpellFamilyFlags[0] & 0x00000002) && spellProto->SpellIconID == 298)
+                    {
+                        // Glyph of Blessing of Might
+                        if (AuraEffect* aurEff = unitSelf->GetAuraEffect(57958, 0))
+                            duration += aurEff->GetAmount() * MINUTE * IN_MILLISECONDS;
+                    }
+                    else if ((spellProto->SpellFamilyFlags[0] & 0x00010000) && spellProto->SpellIconID == 306)
+                    {
+                        // Glyph of Blessing of Wisdom
+                        if (AuraEffect* aurEff = unitSelf->GetAuraEffect(57979, 0))
+                            duration += aurEff->GetAmount() * MINUTE * IN_MILLISECONDS;
+                    }
+                    break;
+            }
+        }
+    }
+    return std::max(duration, 0);
+}
+
+void WorldObject::ModSpellCastTime(SpellInfo const* spellInfo, int32& castTime, Spell* spell)
+{
+    if (!spellInfo || castTime < 0)
+        return;
+
+    if (spellInfo->IsChanneled() && spellInfo->HasAura(SPELL_AURA_MOUNTED))
+        return;
+
+    // called from caster
+    if (Player* modOwner = GetSpellModOwner())
+        modOwner->ApplySpellMod(spellInfo->Id, SPELLMOD_CASTING_TIME, castTime, spell);
+}
+
+float WorldObject::GetSpellMaxRangeForTarget(Unit const* target, SpellInfo const* spellInfo) const
+{
+    if (!spellInfo->RangeEntry)
+    {
+        return 0;
+    }
+
+    if (spellInfo->RangeEntry->RangeMax[1] == spellInfo->RangeEntry->RangeMax[0])
+    {
+        return spellInfo->GetMaxRange();
+    }
+
+    if (!target)
+    {
+        return spellInfo->GetMaxRange(true);
+    }
+
+    return spellInfo->GetMaxRange(!IsHostileTo(target));
+}
+
+float WorldObject::GetSpellMinRangeForTarget(Unit const* target, SpellInfo const* spellInfo) const
+{
+    if (!spellInfo->RangeEntry)
+    {
+        return 0;
+    }
+
+    if (spellInfo->RangeEntry->RangeMin[1] == spellInfo->RangeEntry->RangeMin[0])
+    {
+        return spellInfo->GetMinRange();
+    }
+
+    return spellInfo->GetMinRange(!IsHostileTo(target));
+}
+
+SpellMissInfo WorldObject::MeleeSpellHitResult(Unit* /*victim*/, SpellInfo const* /*spellInfo*/)
+{
+    return SPELL_MISS_NONE;
+}
+
+SpellMissInfo WorldObject::MagicSpellHitResult(Unit* /*victim*/, SpellInfo const* /*spellInfo*/)
+{
+    return SPELL_MISS_NONE;
+}
+
+SpellMissInfo WorldObject::SpellHitResult(Unit* victim, SpellInfo const* spell, bool CanReflect)
+{
+    // Check for immune
+    if (victim->IsImmunedToSpell(spell, this))
+        return SPELL_MISS_IMMUNE;
+
+    // All positive spells can`t miss
+    if ((spell->IsPositive() || spell->HasEffect(SPELL_EFFECT_DISPEL))
+            && (!IsHostileTo(victim))) // prevent from affecting enemy by "positive" spell
+        return SPELL_MISS_NONE;
+
+    // Check for immune
+    // xinef: check for school immunity only
+    if (victim->IsImmunedToSchool(spell))
+        return SPELL_MISS_IMMUNE;
+
+    if (this == victim)
+        return SPELL_MISS_NONE;
+
+    // Return evade for units in evade mode
+    if (victim->IsCreature() && victim->ToCreature()->IsEvadingAttacks() && !spell->HasAura(SPELL_AURA_CONTROL_VEHICLE)
+        && !spell->HasAttribute(SPELL_ATTR0_CU_IGNORE_EVADE) && !spell->HasAttribute(SPELL_ATTR1_AURA_STAYS_AFTER_COMBAT))
+        return SPELL_MISS_EVADE;
+
+    // Try victim reflect spell
+    if (CanReflect)
+    {
+        int32 reflectchance = victim->GetTotalAuraModifier(SPELL_AURA_REFLECT_SPELLS);
+        reflectchance += victim->GetTotalAuraModifierByMiscMask(SPELL_AURA_REFLECT_SPELLS_SCHOOL, spell->GetSchoolMask());
+
+        if (reflectchance > 0 && roll_chance_i(reflectchance))
+            return SPELL_MISS_REFLECT;
+    }
+
+    switch (spell->DmgClass)
+    {
+        case SPELL_DAMAGE_CLASS_RANGED:
+        case SPELL_DAMAGE_CLASS_MELEE:
+            return MeleeSpellHitResult(victim, spell);
+        case SPELL_DAMAGE_CLASS_NONE:
+            {
+                if (spell->SpellFamilyName)
+                {
+                    return SPELL_MISS_NONE;
+                }
+                // Xinef: apply DAMAGE_CLASS_MAGIC conditions to damaging DAMAGE_CLASS_NONE spells
+                for (uint8 i = EFFECT_0; i < MAX_SPELL_EFFECTS; ++i)
+                    if (spell->Effects[i].Effect && spell->Effects[i].Effect != SPELL_EFFECT_SCHOOL_DAMAGE)
+                        if (spell->Effects[i].ApplyAuraName != SPELL_AURA_PERIODIC_DAMAGE)
+                            return SPELL_MISS_NONE;
+                [[fallthrough]];
+            }
+        case SPELL_DAMAGE_CLASS_MAGIC:
+            return MagicSpellHitResult(victim, spell);
+    }
+    return SPELL_MISS_NONE;
+}
+
+SpellMissInfo WorldObject::SpellHitResult(Unit* victim, Spell const* spell, bool CanReflect)
+{
+    SpellInfo const* spellInfo = spell->GetSpellInfo();
+
+    // Check for immune
+    if (victim->IsImmunedToSpell(spellInfo, this, spell))
+    {
+        return SPELL_MISS_IMMUNE;
+    }
+
+    // All positive spells can`t miss
+    if ((spellInfo->IsPositive() || spellInfo->HasEffect(SPELL_EFFECT_DISPEL))
+        && (!IsHostileTo(victim))) // prevent from affecting enemy by "positive" spell
+    {
+        return SPELL_MISS_NONE;
+    }
+
+    // Check for immune to spell effects (includes school, mechanics, state, dispel immunities)
+    if (Unit const* unitCaster = ToUnit())
+    {
+        if (victim->IsImmunedToSpell(spellInfo, MAX_EFFECT_MASK, unitCaster))
+        {
+            return SPELL_MISS_IMMUNE;
+        }
+
+        // Damage immunity is only checked if the spell has damage effects, this immunity must not prevent aura apply
+        // returns SPELL_MISS_IMMUNE in that case, for other spells, the SMSG_SPELL_GO must show hit
+        if (spellInfo->HasOnlyDamageEffects() && victim->IsImmunedToDamage(unitCaster, spellInfo))
+            return SPELL_MISS_IMMUNE;
+    }
+    else
+    {
+        // Check for immune - check for school immunity only for non-unit casters
+        if (victim->IsImmunedToSchool(spell))
+        {
+            return SPELL_MISS_IMMUNE;
+        }
+    }
+
+    if (this == victim)
+    {
+        return SPELL_MISS_NONE;
+    }
+
+    // Return evade for units in evade mode
+    if (victim->IsCreature() && victim->ToCreature()->IsEvadingAttacks() && !spellInfo->HasAura(SPELL_AURA_CONTROL_VEHICLE) &&
+        !spellInfo->HasAttribute(SPELL_ATTR0_CU_IGNORE_EVADE) && !spellInfo->HasAttribute(SPELL_ATTR1_AURA_STAYS_AFTER_COMBAT))
+    {
+        return SPELL_MISS_EVADE;
+    }
+
+    // Try victim reflect spell
+    if (CanReflect)
+    {
+        int32 reflectchance = victim->GetTotalAuraModifier(SPELL_AURA_REFLECT_SPELLS);
+        reflectchance += victim->GetTotalAuraModifierByMiscMask(SPELL_AURA_REFLECT_SPELLS_SCHOOL, spellInfo->GetSchoolMask());
+
+        if (reflectchance > 0 && roll_chance_i(reflectchance))
+        {
+            return SPELL_MISS_REFLECT;
+        }
+    }
+
+    switch (spellInfo->DmgClass)
+    {
+        case SPELL_DAMAGE_CLASS_RANGED:
+        case SPELL_DAMAGE_CLASS_MELEE:
+            return MeleeSpellHitResult(victim, spellInfo);
+        case SPELL_DAMAGE_CLASS_NONE:
+        {
+            if (spellInfo->SpellFamilyName)
+            {
+                return SPELL_MISS_NONE;
+            }
+
+            // Xinef: apply DAMAGE_CLASS_MAGIC conditions to damaging DAMAGE_CLASS_NONE spells
+            for (uint8 i = EFFECT_0; i < MAX_SPELL_EFFECTS; ++i)
+            {
+                if (spellInfo->Effects[i].Effect && spellInfo->Effects[i].Effect != SPELL_EFFECT_SCHOOL_DAMAGE)
+                {
+                    if (spellInfo->Effects[i].ApplyAuraName != SPELL_AURA_PERIODIC_DAMAGE)
+                    {
+                        return SPELL_MISS_NONE;
+                    }
+                }
+            }
+            [[fallthrough]];
+        }
+        case SPELL_DAMAGE_CLASS_MAGIC:
+            return MagicSpellHitResult(victim, spellInfo);
+    }
+
+    return SPELL_MISS_NONE;
+}
+
+void WorldObject::SendSpellMiss(Unit* target, uint32 spellID, SpellMissInfo missInfo)
+{
+    WorldPacket data(SMSG_SPELLLOGMISS, (4 + 8 + 1 + 4 + 8 + 1));
+    data << uint32(spellID);
+    data << GetGUID();
+    data << uint8(0);                                       // can be 0 or 1
+    data << uint32(1);                                      // target count
+    // for (i = 0; i < target count; ++i)
+    data << target->GetGUID();                              // target GUID
+    data << uint8(missInfo);
+    // end loop
+    SendMessageToSet(&data, true);
+}
+
 bool WorldObject::IsUpdateNeeded()
 {
     if (isActiveObject())

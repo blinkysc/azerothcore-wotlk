@@ -29,6 +29,7 @@
 #include "ModelIgnoreFlags.h"
 #include "ObjectDefines.h"
 #include "ObjectGuid.h"
+#include "SharedDefines.h"
 #include "SpellDefines.h"
 #include "Optional.h"
 #include "Position.h"
@@ -96,6 +97,7 @@ class Player;
 class Transport;
 class StaticTransport;
 class MotionTransport;
+class Spell;
 class SpellInfo;
 class SpellCastTargets;
 class AuraEffect;
@@ -684,6 +686,22 @@ public:
     SpellCastResult CastCustomSpell(uint32 spellId, SpellValueMod mod, int32 value, Unit* victim = nullptr, TriggerCastFlags triggerFlags = TRIGGERED_NONE, Item* castItem = nullptr, AuraEffect const* triggeredByAura = nullptr, ObjectGuid originalCaster = ObjectGuid::Empty);
     SpellCastResult CastCustomSpell(uint32 spellId, CustomSpellValues const& value, Unit* victim = nullptr, TriggerCastFlags triggerFlags = TRIGGERED_NONE, Item* castItem = nullptr, AuraEffect const* triggeredByAura = nullptr, ObjectGuid originalCaster = ObjectGuid::Empty);
     SpellCastResult CastCustomSpell(SpellInfo const* spellInfo, CustomSpellValues const& value, Unit* victim = nullptr, TriggerCastFlags triggerFlags = TRIGGERED_NONE, Item* castItem = nullptr, AuraEffect const* triggeredByAura = nullptr, ObjectGuid originalCaster = ObjectGuid::Empty);
+
+    // Spell calculation methods (WorldObject level for all caster types including GameObjects)
+    [[nodiscard]] float ApplyEffectModifiers(SpellInfo const* spellProto, uint8 effect_index, float value) const;
+    [[nodiscard]] int32 CalculateSpellDamage(Unit const* target, SpellInfo const* spellProto, uint8 effect_index, int32 const* basePoints = nullptr) const;
+    [[nodiscard]] int32 CalcSpellDuration(SpellInfo const* spellProto);
+    int32 ModSpellDuration(SpellInfo const* spellProto, Unit const* target, int32 duration, bool positive, uint32 effectMask);
+    virtual void ModSpellCastTime(SpellInfo const* spellInfo, int32& castTime, Spell* spell = nullptr);
+    [[nodiscard]] float GetSpellMaxRangeForTarget(Unit const* target, SpellInfo const* spellInfo) const;
+    [[nodiscard]] float GetSpellMinRangeForTarget(Unit const* target, SpellInfo const* spellInfo) const;
+
+    // Spell hit result methods
+    [[nodiscard]] virtual SpellMissInfo MeleeSpellHitResult(Unit* victim, SpellInfo const* spellInfo);
+    [[nodiscard]] virtual SpellMissInfo MagicSpellHitResult(Unit* victim, SpellInfo const* spellInfo);
+    [[nodiscard]] SpellMissInfo SpellHitResult(Unit* victim, SpellInfo const* spell, bool canReflect = false);
+    [[nodiscard]] SpellMissInfo SpellHitResult(Unit* victim, Spell const* spell, bool canReflect = false);
+    void SendSpellMiss(Unit* target, uint32 spellID, SpellMissInfo missInfo);
 
     [[nodiscard]] Creature*   FindNearestCreature(uint32 entry, float range, bool alive = true) const;
     [[nodiscard]] GameObject* FindNearestGameObject(uint32 entry, float range, bool onlySpawned = false) const;

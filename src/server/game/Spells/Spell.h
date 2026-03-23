@@ -481,9 +481,7 @@ public:
 
     int32 CalculateSpellDamage(uint8 i, Unit const* target) const
     {
-        if (Unit* unitCaster = m_caster->ToUnit())
-            return unitCaster->CalculateSpellDamage(target, m_spellInfo, i, &m_spellValue->EffectBasePoints[i]);
-        return m_spellValue->EffectBasePoints[i];
+        return m_caster->CalculateSpellDamage(target, m_spellInfo, i, &m_spellValue->EffectBasePoints[i]);
     }
 
     bool HaveTargetsForEffect(uint8 effect) const;

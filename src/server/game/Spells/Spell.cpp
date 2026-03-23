@@ -2443,9 +2443,9 @@ void Spell::AddUnitTarget(Unit* target, uint32 effectMask, bool checkIfValid /*=
     // If target reflect spell back to caster
     if (targetInfo.missCondition == SPELL_MISS_REFLECT)
     {
-        // Calculate reflected spell result on caster
+        // Calculate reflected spell result on caster (reflect target is the caster itself)
         if (Unit* unitCaster2 = m_caster->ToUnit())
-            targetInfo.reflectResult = unitCaster2->SpellHitResult(unitCaster2, this, m_canReflect);
+            targetInfo.reflectResult = m_caster->SpellHitResult(unitCaster2, this, m_canReflect);
         else
             targetInfo.reflectResult = SPELL_MISS_NONE;
 
@@ -2701,8 +2701,7 @@ void Spell::DoAllEffectOnTarget(TargetInfo* target)
         if (missInfo2 != SPELL_MISS_NONE)
         {
             if (missInfo2 != SPELL_MISS_MISS)
-                if (Unit* unitCaster = m_caster->ToUnit())
-                    unitCaster->SendSpellMiss(spellHitTarget, m_spellInfo->Id, missInfo2);
+                m_caster->SendSpellMiss(spellHitTarget, m_spellInfo->Id, missInfo2);
             m_damage = 0;
             spellHitTarget = nullptr;
 
@@ -7201,14 +7200,14 @@ SpellCastResult Spell::CheckRange(bool strict)
     }
 
     Unit* target = m_targets.GetUnitTarget();
-    float max_range = unitCaster->GetSpellMaxRangeForTarget(target, m_spellInfo);
-    float min_range = unitCaster->GetSpellMinRangeForTarget(target, m_spellInfo);
+    float max_range = m_caster->GetSpellMaxRangeForTarget(target, m_spellInfo);
+    float min_range = m_caster->GetSpellMinRangeForTarget(target, m_spellInfo);
 
     // xinef: hack for npc shooters
     if (min_range && m_caster->IsCreature() && (!unitCaster->GetOwnerGUID().IsPlayer()) && min_range <= 6.0f)
         range_type = SPELL_RANGE_RANGED;
 
-    if (Player* modOwner = unitCaster->GetSpellModOwner())
+    if (Player* modOwner = m_caster->GetSpellModOwner())
         modOwner->ApplySpellMod(m_spellInfo->Id, SPELLMOD_RANGE, max_range, this);
 
     // xinef: dont check max_range to strictly after cast

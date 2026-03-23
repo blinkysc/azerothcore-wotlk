@@ -2768,8 +2768,7 @@ uint32 SpellInfo::CalcCastTime(Spell* spell) const
         castTime += 500;
 
     if (spell)
-        if (Unit* unitCaster = spell->GetCaster()->ToUnit())
-            unitCaster->ModSpellCastTime(this, castTime, spell);
+        spell->GetCaster()->ModSpellCastTime(this, castTime, spell);
 
     return (castTime > 0) ? uint32(castTime) : 0;
 }

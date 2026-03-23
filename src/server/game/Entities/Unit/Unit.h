@@ -1235,7 +1235,6 @@ public:
     virtual void CalculateMinMaxDamage(WeaponAttackType attType, bool normalized, bool addTotalPct, float& minDamage, float& maxDamage, uint8 damageIndex = 0) = 0;
     void CalculateMeleeDamage(Unit* victim, CalcDamageInfo* damageInfo, WeaponAttackType attackType = BASE_ATTACK, const bool sittingVictim = false);
     void CalculateSpellDamageTaken(SpellNonMeleeDamage* damageInfo, int32 damage, SpellInfo const* spellInfo, WeaponAttackType attackType = BASE_ATTACK, bool crit = false);
-    int32 CalculateSpellDamage(Unit const* target, SpellInfo const* spellProto, uint8 effect_index, int32 const* basePoints = nullptr) const;
     float CalculateDefaultCoefficient(SpellInfo const* spellInfo, DamageEffectType damagetype) const;
 
     // Melee damage bonus
@@ -1575,10 +1574,6 @@ public:
     // delayed+channeled spells are always interrupted
     void InterruptNonMeleeSpells(bool withDelayed, uint32 spellid = 0, bool withInstant = true, bool bySelf = false);
 
-    // target dependent range checks
-    float GetSpellMaxRangeForTarget(Unit const* target, SpellInfo const* spellInfo) const;
-    float GetSpellMinRangeForTarget(Unit const* target, SpellInfo const* spellInfo) const;
-
     // Spell interrupt
     [[nodiscard]] uint32 GetInterruptMask() const { return m_interruptMask; }
     void AddInterruptMask(uint32 mask) { m_interruptMask |= mask; }
@@ -1591,10 +1586,8 @@ public:
     Unit* GetMagicHitRedirectTarget(Unit* victim, SpellInfo const* spellInfo);
     Unit* GetMeleeHitRedirectTarget(Unit* victim, SpellInfo const* spellInfo = nullptr);
     [[nodiscard]] float MeleeSpellMissChance(Unit const* victim, WeaponAttackType attType, int32 skillDiff, uint32 spellId) const;
-    [[nodiscard]] SpellMissInfo MeleeSpellHitResult(Unit* victim, SpellInfo const* spell);
-    [[nodiscard]] SpellMissInfo MagicSpellHitResult(Unit* victim, SpellInfo const* spell);
-    [[nodiscard]] SpellMissInfo SpellHitResult(Unit* victim, SpellInfo const* spell, bool canReflect = false);
-    [[nodiscard]] SpellMissInfo SpellHitResult(Unit* victim, Spell const* spell, bool canReflect = false);
+    [[nodiscard]] SpellMissInfo MeleeSpellHitResult(Unit* victim, SpellInfo const* spell) override;
+    [[nodiscard]] SpellMissInfo MagicSpellHitResult(Unit* victim, SpellInfo const* spell) override;
 
     // Healling spells
     static int32 DealHeal(Unit* healer, Unit* victim, uint32 addhealth);
@@ -1640,10 +1633,7 @@ public:
     float SpellTakenCritChance(Unit const* caster, SpellInfo const* spellProto, SpellSchoolMask schoolMask, float doneChance, WeaponAttackType attackType, bool skipEffectCheck) const;
 
     // Others modifiers
-    float ApplyEffectModifiers(SpellInfo const* spellProto, uint8 effect_index, float value) const;
-    int32 CalcSpellDuration(SpellInfo const* spellProto);
-    int32 ModSpellDuration(SpellInfo const* spellProto, Unit const* target, int32 duration, bool positive, uint32 effectMask);
-    void  ModSpellCastTime(SpellInfo const* spellProto, int32& castTime, Spell* spell = nullptr);
+    void ModSpellCastTime(SpellInfo const* spellInfo, int32& castTime, Spell* spell = nullptr) override;
     float CalculateLevelPenalty(SpellInfo const* spellProto) const;
 
     uint32 GetCastingTimeForBonus(SpellInfo const* spellProto, DamageEffectType damagetype, uint32 CastingTime) const;
@@ -2004,7 +1994,6 @@ public:
     void SendSpellNonMeleeDamageLog(SpellNonMeleeDamage* log);
     void SendSpellNonMeleeReflectLog(SpellNonMeleeDamage* log, Unit* attacker);
     void SendSpellNonMeleeDamageLog(Unit* target, SpellInfo const* spellInfo, uint32 Damage, SpellSchoolMask damageSchoolMask, uint32 AbsorbedDamage, uint32 Resist, bool PhysicalDamage, uint32 Blocked, bool CriticalHit = false, bool Split = false);
-    void SendSpellMiss(Unit* target, uint32 spellID, SpellMissInfo missInfo);
     void SendSpellDamageResist(Unit* target, uint32 spellId);
     void SendSpellDamageImmune(Unit* target, uint32 spellId);
 
