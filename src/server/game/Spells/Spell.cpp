@@ -475,7 +475,7 @@ SpellDestination const* SpellCastTargets::GetDstChannel() const
     return &m_dstChannel;
 }
 
-void SpellCastTargets::Update(Unit* caster)
+void SpellCastTargets::Update(WorldObject* caster)
 {
     m_objectTarget = m_objectTargetGUID ? ((m_objectTargetGUID == caster->GetGUID()) ? caster : ObjectAccessor::GetWorldObject(*caster, m_objectTargetGUID)) : nullptr;
 
@@ -8067,7 +8067,7 @@ bool Spell::UpdatePointers()
     else
         m_CastItem = nullptr;
 
-    m_targets.Update(m_caster->ToUnit());
+    m_targets.Update(m_caster);
 
     // further actions done only for dest targets
     if (!m_targets.HasDst())

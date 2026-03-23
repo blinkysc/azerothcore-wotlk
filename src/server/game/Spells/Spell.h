@@ -177,7 +177,7 @@ public:
     float GetSpeedXY() const { return m_speed * cos(m_elevation); }
     float GetSpeedZ() const { return m_speed * std::sin(m_elevation); }
 
-    void Update(Unit* caster);
+    void Update(WorldObject* caster);
     void OutDebug() const;
 
     // Xinef: Channel data
