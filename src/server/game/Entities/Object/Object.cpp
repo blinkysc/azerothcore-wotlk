@@ -3398,10 +3398,10 @@ Player* WorldObject::GetSpellModOwner() const
     if (GetTypeId() == TYPEID_UNIT)
     {
         Creature const* creature = ToCreature();
-        if (Unit* owner = creature->GetOwner())
+        if (creature->IsPet() || creature->IsTotem())
         {
-            if (Player* player = owner->ToPlayer())
-                return player;
+            if (Unit* owner = creature->GetOwner())
+                return owner->ToPlayer();
         }
 
         // Special handling for Eye of Kilrogg

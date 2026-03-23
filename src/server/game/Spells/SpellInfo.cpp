@@ -406,17 +406,19 @@ bool SpellEffectInfo::IsUnitOwnedAuraEffect() const
     return IsAreaAuraEffect() || Effect == SPELL_EFFECT_APPLY_AURA;
 }
 
-int32 SpellEffectInfo::CalcValue(Unit const* caster, int32 const* bp, Unit const* /*target*/) const
+int32 SpellEffectInfo::CalcValue(WorldObject const* caster, int32 const* bp, Unit const* /*target*/) const
 {
     float basePointsPerLevel = RealPointsPerLevel;
     int32 basePoints = bp ? *bp : BasePoints;
     int32 randomPoints = int32(DieSides);
 
+    Unit const* casterUnit = caster ? caster->ToUnit() : nullptr;
+
     // base amount modification based on spell lvl vs caster lvl
     // xinef: added basePointsPerLevel check
-    if (caster && basePointsPerLevel != 0.0f)
+    if (casterUnit && basePointsPerLevel != 0.0f)
     {
-        int32 level = int32(caster->GetLevel());
+        int32 level = int32(casterUnit->GetLevel());
         if (level > int32(_spellInfo->MaxLevel) && _spellInfo->MaxLevel > 0)
             level = int32(_spellInfo->MaxLevel);
         else if (level < int32(_spellInfo->BaseLevel))
@@ -448,19 +450,19 @@ int32 SpellEffectInfo::CalcValue(Unit const* caster, int32 const* bp, Unit const
     float value = float(basePoints);
 
     // random damage
-    if (caster)
+    if (casterUnit)
     {
         // bonus amount from combo points
-        if (uint8 comboPoints = caster->GetComboPoints())
+        if (uint8 comboPoints = casterUnit->GetComboPoints())
         {
             value += PointsPerComboPoint * comboPoints;
         }
 
-        value = caster->ApplyEffectModifiers(_spellInfo, EffectIndex, value);
+        value = casterUnit->ApplyEffectModifiers(_spellInfo, EffectIndex, value);
 
         // amount multiplication based on caster's level
-        if (!caster->IsControlledByPlayer() &&
-                _spellInfo->SpellLevel && _spellInfo->SpellLevel != caster->GetLevel() &&
+        if (!casterUnit->IsControlledByPlayer() &&
+                _spellInfo->SpellLevel && _spellInfo->SpellLevel != casterUnit->GetLevel() &&
                 !basePointsPerLevel && _spellInfo->HasAttribute(SPELL_ATTR0_SCALES_WITH_CREATURE_LEVEL))
         {
             bool canEffectScale = false;
@@ -506,11 +508,11 @@ int32 SpellEffectInfo::CalcValue(Unit const* caster, int32 const* bp, Unit const
 
             if (canEffectScale)
             {
-                CreatureTemplate const* cInfo = caster->ToCreature()->GetCreatureTemplate();
+                CreatureTemplate const* cInfo = casterUnit->ToCreature()->GetCreatureTemplate();
 
-                CreatureBaseStats const* pCBS = sObjectMgr->GetCreatureBaseStats(caster->GetLevel(), caster->getClass());
+                CreatureBaseStats const* pCBS = sObjectMgr->GetCreatureBaseStats(casterUnit->GetLevel(), casterUnit->getClass());
                 float CBSPowerCreature = pCBS->BaseDamage[cInfo->expansion];
-                CreatureBaseStats const* spellCBS = sObjectMgr->GetCreatureBaseStats(_spellInfo->SpellLevel, caster->getClass());
+                CreatureBaseStats const* spellCBS = sObjectMgr->GetCreatureBaseStats(_spellInfo->SpellLevel, casterUnit->getClass());
                 float CBSPowerSpell = spellCBS->BaseDamage[cInfo->expansion];
                 value *= CBSPowerCreature / CBSPowerSpell;
             }
@@ -528,7 +530,7 @@ int32 SpellEffectInfo::CalcBaseValue(int32 value) const
         return value - 1;
 }
 
-float SpellEffectInfo::CalcValueMultiplier(Unit* caster, Spell* spell) const
+float SpellEffectInfo::CalcValueMultiplier(WorldObject* caster, Spell* spell) const
 {
     float multiplier = ValueMultiplier;
     if (Player* modOwner = (caster ? caster->GetSpellModOwner() : nullptr))
@@ -536,7 +538,7 @@ float SpellEffectInfo::CalcValueMultiplier(Unit* caster, Spell* spell) const
     return multiplier;
 }
 
-float SpellEffectInfo::CalcDamageMultiplier(Unit* caster, Spell* spell) const
+float SpellEffectInfo::CalcDamageMultiplier(WorldObject* caster, Spell* spell) const
 {
     float multiplier = DamageMultiplier;
     if (Player* modOwner = (caster ? caster->GetSpellModOwner() : nullptr))
@@ -549,7 +551,7 @@ bool SpellEffectInfo::HasRadius() const
     return RadiusEntry != nullptr;
 }
 
-float SpellEffectInfo::CalcRadius(Unit* caster, Spell* spell) const
+float SpellEffectInfo::CalcRadius(WorldObject* caster, Spell* spell) const
 {
     if (!HasRadius())
         return 0.0f;
@@ -557,8 +559,11 @@ float SpellEffectInfo::CalcRadius(Unit* caster, Spell* spell) const
     float radius = RadiusEntry->RadiusMin;
     if (caster)
     {
-        radius += RadiusEntry->RadiusPerLevel * caster->GetLevel();
+        if (Unit* casterUnit = caster->ToUnit())
+            radius += RadiusEntry->RadiusPerLevel * casterUnit->GetLevel();
+
         radius = std::min(radius, RadiusEntry->RadiusMax);
+
         if (Player* modOwner = caster->GetSpellModOwner())
             modOwner->ApplySpellMod(_spellInfo->Id, SPELLMOD_RADIUS, radius, spell);
     }
@@ -2723,7 +2728,7 @@ float SpellInfo::GetMinRange(bool positive) const
     return RangeEntry->RangeMin[0];
 }
 
-float SpellInfo::GetMaxRange(bool positive, Unit* caster, Spell* spell) const
+float SpellInfo::GetMaxRange(bool positive, WorldObject* caster, Spell* spell) const
 {
     if (!RangeEntry)
         return 0.0f;

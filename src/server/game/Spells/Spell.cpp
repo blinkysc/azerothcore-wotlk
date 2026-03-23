@@ -569,7 +569,7 @@ SpellValue::SpellValue(SpellInfo const* proto)
 
 Spell::Spell(WorldObject* caster, SpellInfo const* info, TriggerCastFlags triggerFlags, ObjectGuid originalCasterGUID, bool skipCheck) :
     m_spellInfo(sSpellMgr->GetSpellForDifficultyFromSpell(info, caster->ToUnit())),
-    m_caster((caster->ToUnit() && info->HasAttribute(SPELL_ATTR6_ORIGINATE_FROM_CONTROLLER) && caster->ToUnit()->GetCharmerOrOwner()) ? caster->ToUnit()->GetCharmerOrOwner() : caster)
+    m_caster((info->HasAttribute(SPELL_ATTR6_ORIGINATE_FROM_CONTROLLER) && caster->GetCharmerOrOwner()) ? caster->GetCharmerOrOwner() : caster)
     , m_spellValue(new SpellValue(m_spellInfo)), _spellEvent(nullptr)
 {
     m_customError = SPELL_CUSTOM_ERROR_NONE;
@@ -1004,7 +1004,7 @@ void Spell::SelectEffectImplicitTargets(SpellEffIndex effIndex, SpellImplicitTar
                     effects[effIndex].TargetA.GetTarget() == effects[j].TargetA.GetTarget() &&
                     effects[effIndex].TargetB.GetTarget() == effects[j].TargetB.GetTarget() &&
                     effects[effIndex].ImplicitTargetConditions == effects[j].ImplicitTargetConditions &&
-                    effects[effIndex].CalcRadius(m_caster->ToUnit()) == effects[j].CalcRadius(m_caster->ToUnit()) &&
+                    effects[effIndex].CalcRadius(m_caster) == effects[j].CalcRadius(m_caster) &&
                     CheckScriptEffectImplicitTargets(effIndex, j))
                 {
                     effectMask |= 1 << j;
@@ -1161,17 +1161,17 @@ void Spell::SelectImplicitNearbyTargets(SpellEffIndex effIndex, SpellImplicitTar
     switch (targetType.GetCheckType())
     {
         case TARGET_CHECK_ENEMY:
-            range = m_spellInfo->GetMaxRange(false, m_caster->ToUnit(), this);
+            range = m_spellInfo->GetMaxRange(false, m_caster, this);
             break;
         case TARGET_CHECK_ALLY:
         case TARGET_CHECK_PARTY:
         case TARGET_CHECK_RAID:
         case TARGET_CHECK_RAID_CLASS:
-            range = m_spellInfo->GetMaxRange(true, m_caster->ToUnit(), this);
+            range = m_spellInfo->GetMaxRange(true, m_caster, this);
             break;
         case TARGET_CHECK_ENTRY:
         case TARGET_CHECK_DEFAULT:
-            range = m_spellInfo->GetMaxRange(m_spellInfo->IsPositive(), m_caster->ToUnit(), this);
+            range = m_spellInfo->GetMaxRange(m_spellInfo->IsPositive(), m_caster, this);
             break;
         default:
             ASSERT(false && "Spell::SelectImplicitNearbyTargets: received not implemented selection check type");
@@ -1275,7 +1275,7 @@ void Spell::SelectImplicitConeTargets(SpellEffIndex effIndex, SpellImplicitTarge
     SpellTargetCheckTypes selectionType = targetType.GetCheckType();
     ConditionList* condList = m_spellInfo->Effects[effIndex].ImplicitTargetConditions;
     float coneAngle = M_PI / 2;
-    float radius = m_spellInfo->Effects[effIndex].CalcRadius(m_caster->ToUnit()) * m_spellValue->RadiusMod;
+    float radius = m_spellInfo->Effects[effIndex].CalcRadius(m_caster) * m_spellValue->RadiusMod;
 
     if (uint32 containerTypeMask = GetSearcherTypeMask(objectType, condList))
     {
@@ -1364,7 +1364,7 @@ void Spell::SelectImplicitAreaTargets(SpellEffIndex effIndex, SpellImplicitTarge
 
     // Xinef: the distance should be increased by caster size, it is neglected in latter calculations
     std::list<WorldObject*> targets;
-    float radius = m_spellInfo->Effects[effIndex].CalcRadius(m_caster->ToUnit()) * m_spellValue->RadiusMod;
+    float radius = m_spellInfo->Effects[effIndex].CalcRadius(m_caster) * m_spellValue->RadiusMod;
     SearchAreaTargets(targets, radius, center, referer, targetType.GetObjectType(), targetType.GetCheckType(), m_spellInfo->Effects[effIndex].ImplicitTargetConditions);
 
     CallScriptObjectAreaTargetSelectHandlers(targets, effIndex, targetType);
@@ -1466,7 +1466,7 @@ void Spell::SelectImplicitCasterDestTargets(SpellEffIndex effIndex, SpellImplici
                 Unit* unitCaster = m_caster->ToUnit();
                 if (!unitCaster)
                     break;
-                float distance = m_spellInfo->Effects[effIndex].CalcRadius(m_caster->ToUnit());
+                float distance = m_spellInfo->Effects[effIndex].CalcRadius(m_caster);
                 Map* map = m_caster->GetMap();
                 uint32 phasemask = m_caster->GetPhaseMask();
                 float collisionHeight = m_caster->GetCollisionHeight();
@@ -1694,7 +1694,7 @@ void Spell::SelectImplicitCasterDestTargets(SpellEffIndex effIndex, SpellImplici
             }
         default:
             {
-                float dist = m_spellInfo->Effects[effIndex].CalcRadius(m_caster->ToUnit());
+                float dist = m_spellInfo->Effects[effIndex].CalcRadius(m_caster);
                 float angle = targetType.CalcDirectionAngle();
                 float objSize = m_caster->GetCombatReach();
 
@@ -1795,7 +1795,7 @@ void Spell::SelectImplicitDestDestTargets(SpellEffIndex effIndex, SpellImplicitT
         default:
         {
             float angle = targetType.CalcDirectionAngle();
-            float dist = m_spellInfo->Effects[effIndex].CalcRadius(m_caster->ToUnit());
+            float dist = m_spellInfo->Effects[effIndex].CalcRadius(m_caster);
             if (targetType.GetTarget() == TARGET_DEST_DEST_RANDOM)
                 dist *= float(rand_norm());
 
@@ -6333,7 +6333,7 @@ SpellCastResult Spell::CheckCast(bool strict, uint32* /*param1*/, uint32* /*para
                             return SPELL_FAILED_LINE_OF_SIGHT;
 
                         float objSize = target->GetCombatReach();
-                        float range = m_spellInfo->GetMaxRange(true, m_caster->ToUnit(), this) * 1.5f + objSize; // can't be overly strict
+                        float range = m_spellInfo->GetMaxRange(true, m_caster, this) * 1.5f + objSize; // can't be overly strict
 
                         m_preGeneratedPath = std::make_unique<PathGenerator>(m_caster);
                         m_preGeneratedPath->SetPathLengthLimit(range);
@@ -6865,7 +6865,7 @@ SpellCastResult Spell::CheckCast(bool strict, uint32* /*param1*/, uint32* /*para
         if (!nonAuraEffectMask && (approximateAuraEffectMask & (1 << i)) && !m_spellInfo->IsTargetingArea())
             if (Unit* target = m_targets.GetUnitTarget())
                 if (!target->IsHighestExclusiveAuraEffect(m_spellInfo, AuraType(m_spellInfo->Effects[i].ApplyAuraName),
-                    m_spellInfo->Effects[i].CalcValue(m_caster->ToUnit(), &m_spellValue->EffectBasePoints[i]), approximateAuraEffectMask, false))
+                    m_spellInfo->Effects[i].CalcValue(m_caster, &m_spellValue->EffectBasePoints[i]), approximateAuraEffectMask, false))
                     return SPELL_FAILED_AURA_BOUNCED;
     }
 
