@@ -4516,12 +4516,12 @@ void Spell::update(uint32 difftime)
 
 void Spell::finish(bool ok)
 {
-    if (!m_caster)
-        return;
-
     if (m_spellState == SPELL_STATE_FINISHED)
         return;
     m_spellState = SPELL_STATE_FINISHED;
+
+    if (!m_caster)
+        return;
 
     Unit* unitCaster = m_caster->ToUnit();
     if (unitCaster)
