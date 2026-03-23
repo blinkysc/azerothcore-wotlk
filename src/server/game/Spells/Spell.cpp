@@ -3540,7 +3540,7 @@ SpellCastResult Spell::prepare(SpellCastTargets const* targets, AuraEffect const
 
     OnSpellLaunch();
 
-    m_powerCost = (m_CastItem || !m_caster->ToUnit()) ? 0 : m_spellInfo->CalcPowerCost(m_caster->ToUnit(), m_spellSchoolMask, this);
+    m_powerCost = m_CastItem ? 0 : m_spellInfo->CalcPowerCost(m_caster, m_spellSchoolMask, this);
 
     // Set combo point requirement
     if (HasTriggeredCastFlag(TRIGGERED_IGNORE_COMBO_POINTS) || m_CastItem)
@@ -3573,7 +3573,7 @@ SpellCastResult Spell::prepare(SpellCastTargets const* targets, AuraEffect const
     prepareDataForTriggerSystem(triggeredByAura);
 
     // calculate cast time (calculated after first CheckCast check to prevent charge counting for first CheckCast fail)
-    m_casttime = HasTriggeredCastFlag(TRIGGERED_CAST_DIRECTLY) ? 0 : m_spellInfo->CalcCastTime(m_caster->ToUnit(), this);
+    m_casttime = HasTriggeredCastFlag(TRIGGERED_CAST_DIRECTLY) ? 0 : m_spellInfo->CalcCastTime(this);
 
     if (m_caster->IsPlayer())
         if (m_caster->ToPlayer()->GetCommandStatus(CHEAT_CASTTIME))
@@ -6945,7 +6945,7 @@ SpellCastResult Spell::CheckPetCast(Unit* target)
     }
 
     // xinef: Calculate power cost here, so funciton checking power can work properly and dont return bad results
-    m_powerCost = m_spellInfo->CalcPowerCost(m_caster->ToUnit(), m_spellSchoolMask, this);
+    m_powerCost = m_spellInfo->CalcPowerCost(m_caster, m_spellSchoolMask, this);
 
     // cooldown
     if (Creature const* creatureCaster = m_caster->ToCreature())

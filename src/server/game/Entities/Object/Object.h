@@ -92,6 +92,7 @@ class Vehicle;
 class CreatureAI;
 class ZoneScript;
 class Unit;
+class Player;
 class Transport;
 class StaticTransport;
 class MotionTransport;
@@ -643,6 +644,18 @@ public:
     Creature*   SummonTrigger(float x, float y, float z, float ang, uint32 dur, bool setLevel = false, CreatureAI * (*GetAI)(Creature*) = nullptr);
     void SummonCreatureGroup(uint8 group, std::list<TempSummon*>* list = nullptr);
     void SummonGameObjectGroup(uint8 group, std::list<GameObject*>* list = nullptr);
+
+    // Owner/charmer helper methods (matches TrinityCore WorldObject API)
+    [[nodiscard]] virtual ObjectGuid GetOwnerGUID() const = 0;
+    [[nodiscard]] virtual ObjectGuid GetCharmerOrOwnerGUID() const { return GetOwnerGUID(); }
+    [[nodiscard]] ObjectGuid GetCharmerOrOwnerOrOwnGUID() const;
+
+    [[nodiscard]] Unit* GetOwner() const;
+    [[nodiscard]] Unit* GetCharmerOrOwner() const;
+    [[nodiscard]] Unit* GetCharmerOrOwnerOrSelf() const;
+    [[nodiscard]] Player* GetCharmerOrOwnerPlayerOrPlayerItself() const;
+    [[nodiscard]] Player* GetAffectingPlayer() const;
+    [[nodiscard]] Player* GetSpellModOwner() const;
 
     // Unified spell casting API (matches TrinityCore pattern)
     SpellCastResult CastSpell(CastSpellTargetArg const& targets, uint32 spellId, CastSpellExtraArgs const& args = {});

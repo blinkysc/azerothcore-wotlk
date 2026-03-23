@@ -33,6 +33,7 @@
 #include "ObjectMgr.h"
 #include "Opcodes.h"
 #include "OutdoorPvPMgr.h"
+#include "PetDefines.h"
 #include "Physics.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -3333,6 +3334,94 @@ GuidUnorderedSet const& WorldObject::GetAllowedLooters() const
 void WorldObject::RemoveAllowedLooter(ObjectGuid guid)
 {
     _allowedLooters.erase(guid);
+}
+
+ObjectGuid WorldObject::GetCharmerOrOwnerOrOwnGUID() const
+{
+    if (ObjectGuid guid = GetCharmerOrOwnerGUID())
+        return guid;
+
+    return GetGUID();
+}
+
+Unit* WorldObject::GetOwner() const
+{
+    if (ObjectGuid ownerGUID = GetOwnerGUID())
+        return ObjectAccessor::GetUnit(*this, ownerGUID);
+
+    return nullptr;
+}
+
+Unit* WorldObject::GetCharmerOrOwner() const
+{
+    if (Unit const* unit = ToUnit())
+        return unit->GetCharmerOrOwner();
+    else if (GameObject const* go = ToGameObject())
+        return go->GetOwner();
+
+    return nullptr;
+}
+
+Unit* WorldObject::GetCharmerOrOwnerOrSelf() const
+{
+    if (Unit* u = GetCharmerOrOwner())
+        return u;
+
+    return const_cast<WorldObject*>(this)->ToUnit();
+}
+
+Player* WorldObject::GetCharmerOrOwnerPlayerOrPlayerItself() const
+{
+    ObjectGuid guid = GetCharmerOrOwnerGUID();
+    if (guid.IsPlayer())
+        return ObjectAccessor::GetPlayer(*this, guid);
+
+    return const_cast<WorldObject*>(this)->ToPlayer();
+}
+
+Player* WorldObject::GetAffectingPlayer() const
+{
+    if (!GetCharmerOrOwnerGUID())
+        return const_cast<WorldObject*>(this)->ToPlayer();
+
+    if (Unit* owner = GetCharmerOrOwner())
+        return owner->GetCharmerOrOwnerPlayerOrPlayerItself();
+
+    return nullptr;
+}
+
+Player* WorldObject::GetSpellModOwner() const
+{
+    if (Player* player = const_cast<WorldObject*>(this)->ToPlayer())
+        return player;
+
+    if (GetTypeId() == TYPEID_UNIT)
+    {
+        Creature const* creature = ToCreature();
+        if (Unit* owner = creature->GetOwner())
+        {
+            if (Player* player = owner->ToPlayer())
+                return player;
+        }
+
+        // Special handling for Eye of Kilrogg
+        if (creature->GetEntry() == NPC_EYE_OF_KILROGG)
+        {
+            if (TempSummon const* tempSummon = creature->ToTempSummon())
+            {
+                if (Unit* summoner = tempSummon->GetSummonerUnit())
+                    return summoner->ToPlayer();
+            }
+        }
+    }
+    else if (GetTypeId() == TYPEID_GAMEOBJECT)
+    {
+        GameObject const* go = ToGameObject();
+        if (Unit* owner = go->GetOwner())
+            return owner->ToPlayer();
+    }
+
+    return nullptr;
 }
 
 bool WorldObject::IsUpdateNeeded()

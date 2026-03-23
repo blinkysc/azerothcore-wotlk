@@ -1211,11 +1211,6 @@ bool GameObject::IsDestructibleBuilding() const
     return gInfo->type == GAMEOBJECT_TYPE_DESTRUCTIBLE_BUILDING;
 }
 
-Unit* GameObject::GetOwner() const
-{
-    return ObjectAccessor::GetUnit(*this, GetOwnerGUID());
-}
-
 void GameObject::SaveRespawnTime(uint32 forceDelay)
 {
     if (m_goData && m_goData->dbData && (forceDelay || m_respawnTime > GameTime::GetGameTime().count()) && m_spawnedByDefault)

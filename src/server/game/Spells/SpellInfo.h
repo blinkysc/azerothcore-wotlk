@@ -25,6 +25,7 @@
 #include <boost/container/flat_set.hpp>
 #include "Util.h"
 
+class WorldObject;
 class Unit;
 class Player;
 class Item;
@@ -540,10 +541,10 @@ public:
 
     uint32 GetMaxTicks() const;
 
-    uint32 CalcCastTime(Unit* caster = nullptr, Spell* spell = nullptr) const;
+    uint32 CalcCastTime(Spell* spell = nullptr) const;
     uint32 GetRecoveryTime() const;
 
-    int32 CalcPowerCost(Unit const* caster, SpellSchoolMask schoolMask, Spell* spell = nullptr) const;
+    int32 CalcPowerCost(WorldObject const* caster, SpellSchoolMask schoolMask, Spell* spell = nullptr) const;
 
     bool IsRanked() const;
     uint8 GetRank() const;

@@ -7527,14 +7527,6 @@ void Unit::SetOwnerGUID(ObjectGuid owner)
     RemoveFieldNotifyFlag(UF_FLAG_OWNER);
 }
 
-Unit* Unit::GetOwner() const
-{
-    if (ObjectGuid ownerGUID = GetOwnerGUID())
-        return ObjectAccessor::GetUnit(*this, ownerGUID);
-
-    return nullptr;
-}
-
 Unit* Unit::GetCharmer() const
 {
     if (ObjectGuid charmerGUID = GetCharmerGUID())
@@ -7543,25 +7535,6 @@ Unit* Unit::GetCharmer() const
     return nullptr;
 }
 
-Player* Unit::GetCharmerOrOwnerPlayerOrPlayerItself() const
-{
-    ObjectGuid guid = GetCharmerOrOwnerGUID();
-    if (guid.IsPlayer())
-        return ObjectAccessor::GetPlayer(*this, guid);
-
-    return const_cast<Unit*>(this)->ToPlayer();
-}
-
-Player* Unit::GetAffectingPlayer() const
-{
-    if (!GetCharmerOrOwnerGUID())
-        return const_cast<Unit*>(this)->ToPlayer();
-
-    if (Unit* owner = GetCharmerOrOwner())
-        return owner->GetCharmerOrOwnerPlayerOrPlayerItself();
-
-    return nullptr;
-}
 
 Minion* Unit::GetFirstMinion() const
 {
@@ -12770,35 +12743,6 @@ void Unit::TriggerAurasProcOnEvent(ProcEventInfo& eventInfo, AuraApplicationProc
         SetCantProc(false);
 }
 
-Player* Unit::GetSpellModOwner() const
-{
-    if (Player* player = const_cast<Unit*>(this)->ToPlayer())
-    {
-        return player;
-    }
-
-    if (Unit* owner = GetOwner())
-    {
-        if (Player* player = owner->ToPlayer())
-        {
-            return player;
-        }
-    }
-
-    // Special handling for Eye of Kilrogg
-    if (GetEntry() == NPC_EYE_OF_KILROGG)
-    {
-        if (TempSummon const* tempSummon = ToTempSummon())
-        {
-            if (Unit* summoner = tempSummon->GetSummonerUnit())
-            {
-                return summoner->ToPlayer();
-            }
-        }
-    }
-
-    return nullptr;
-}
 
 ///----------Pet responses methods-----------------
 void Unit::SendPetActionFeedback(uint8 msg) const

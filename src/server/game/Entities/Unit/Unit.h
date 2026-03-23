@@ -707,10 +707,8 @@ public:
     /*********************************************************/
     void SetUInt32Value(uint16 index, uint32 value); /// @todo: move this in Object class or move GetUInt32value here but keep consistency
 
-    [[nodiscard]] Unit* GetOwner() const;
-
     // GUID Methods
-    [[nodiscard]] ObjectGuid GetOwnerGUID() const { return GetGuidValue(UNIT_FIELD_SUMMONEDBY); }
+    [[nodiscard]] ObjectGuid GetOwnerGUID() const override { return GetGuidValue(UNIT_FIELD_SUMMONEDBY); }
     void SetOwnerGUID(ObjectGuid owner);
     [[nodiscard]] ObjectGuid GetCreatorGUID() const { return GetGuidValue(UNIT_FIELD_CREATEDBY); }
     void SetCreatorGUID(ObjectGuid creator) { SetGuidValue(UNIT_FIELD_CREATEDBY, creator); }
@@ -1284,24 +1282,8 @@ public:
     [[nodiscard]] Unit* GetCharmer() const;
     [[nodiscard]] Unit* GetCharm() const;
     [[nodiscard]] Unit* GetCharmerOrOwner() const { return GetCharmerGUID() ? GetCharmer() : GetOwner(); }
-    [[nodiscard]] Unit* GetCharmerOrOwnerOrSelf() const
-    {
-        if (Unit* u = GetCharmerOrOwner())
-            return u;
+    [[nodiscard]] ObjectGuid GetCharmerOrOwnerGUID() const override { return GetCharmerGUID() ? GetCharmerGUID() : GetOwnerGUID(); }
 
-        return (Unit*)this;
-    }
-    [[nodiscard]] Player* GetCharmerOrOwnerPlayerOrPlayerItself() const;
-    [[nodiscard]] ObjectGuid GetCharmerOrOwnerGUID() const { return GetCharmerGUID() ? GetCharmerGUID() : GetOwnerGUID(); }
-    [[nodiscard]] ObjectGuid GetCharmerOrOwnerOrOwnGUID() const
-    {
-        if (ObjectGuid guid = GetCharmerOrOwnerGUID())
-            return guid;
-
-        return GetGUID();
-    }
-
-    [[nodiscard]] Player* GetAffectingPlayer() const;
     [[nodiscard]] Unit* GetFirstControlled() const;
 
     [[nodiscard]] bool IsControlledByPlayer() const { return m_ControlledByPlayer; }
@@ -1572,7 +1554,6 @@ public:
     /*********************************************************/
     /***            METHODS RELATED TO SPELLS              ***/
     /*********************************************************/
-    [[nodiscard]] Player* GetSpellModOwner() const;
     [[nodiscard]] Spell* GetCurrentSpell(CurrentSpellTypes spellType) const { return m_currentSpells[spellType]; }
     [[nodiscard]] Spell* GetCurrentSpell(uint32 spellType) const { return m_currentSpells[spellType]; }
     [[nodiscard]] Spell* GetFirstCurrentCastingSpell() const;
