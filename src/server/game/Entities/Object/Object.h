@@ -657,6 +657,17 @@ public:
     [[nodiscard]] Player* GetAffectingPlayer() const;
     [[nodiscard]] Player* GetSpellModOwner() const;
 
+    // Faction methods
+    [[nodiscard]] virtual uint32 GetFaction() const { return 0; }
+    virtual void SetFaction(uint32 /*faction*/) { }
+    [[nodiscard]] FactionTemplateEntry const* GetFactionTemplateEntry() const;
+    ReputationRank GetReactionTo(WorldObject const* target, bool checkOriginalFaction = false) const;
+    ReputationRank GetFactionReactionTo(FactionTemplateEntry const* factionTemplateEntry, WorldObject const* target) const;
+    bool IsHostileTo(WorldObject const* target) const;
+    bool IsFriendlyTo(WorldObject const* target) const;
+    [[nodiscard]] bool IsHostileToPlayers() const;
+    [[nodiscard]] bool IsNeutralToAll() const;
+
     // Unified spell casting API (matches TrinityCore pattern)
     SpellCastResult CastSpell(CastSpellTargetArg const& targets, uint32 spellId, CastSpellExtraArgs const& args = {});
 

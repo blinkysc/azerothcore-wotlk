@@ -151,6 +151,10 @@ public:
     [[nodiscard]] int64 GetPackedWorldRotation() const { return m_packedRotation; }
     [[nodiscard]] G3D::Quat GetFinalWorldRotation() const;
 
+    // Faction overrides
+    [[nodiscard]] uint32 GetFaction() const override { return GetUInt32Value(GAMEOBJECT_FACTION); }
+    void SetFaction(uint32 faction) override { SetUInt32Value(GAMEOBJECT_FACTION, faction); }
+
     // overwrite WorldObject function for proper name localization
     [[nodiscard]] std::string const& GetNameForLocaleIdx(LocaleConstant locale_idx) const override;
 

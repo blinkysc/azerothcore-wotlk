@@ -846,9 +846,8 @@ public:
     [[nodiscard]] uint8 getGender() const { return GetByteValue(UNIT_FIELD_BYTES_0, 2); }
 
     // Factions methods
-    [[nodiscard]] uint32 GetFaction() const { return GetUInt32Value(UNIT_FIELD_FACTIONTEMPLATE); }
-    [[nodiscard]] FactionTemplateEntry const* GetFactionTemplateEntry() const;
-    void SetFaction(uint32 faction);
+    [[nodiscard]] uint32 GetFaction() const override { return GetUInt32Value(UNIT_FIELD_FACTIONTEMPLATE); }
+    void SetFaction(uint32 faction) override;
     void RestoreFaction();
     [[nodiscard]] uint32 GetOldFactionId() const { return _oldFactionId; }
 
@@ -1617,7 +1616,8 @@ public:
 
     // Spells immunities
     void ApplySpellImmune(uint32 spellId, uint32 op, uint32 type, bool apply, SpellImmuneBlockType blockType = SPELL_BLOCK_TYPE_ALL);
-    virtual bool IsImmunedToSpell(SpellInfo const* spellInfo, Spell const* spell = nullptr);
+    void ApplySpellDispelImmunity(SpellInfo const* spellProto, DispelType type, bool apply);
+    virtual bool IsImmunedToSpell(SpellInfo const* spellInfo, WorldObject const* caster = nullptr, Spell const* spell = nullptr);
     bool IsImmunedToSpell(SpellInfo const* spellInfo, uint32 effectMask, Unit const* caster = nullptr);
     [[nodiscard]] bool IsImmunedToDamage(SpellSchoolMask schoolMask) const;
     [[nodiscard]] bool IsImmunedToDamage(Unit const* caster, SpellInfo const* spellInfo) const;
@@ -1632,7 +1632,7 @@ public:
     [[nodiscard]] bool IsImmunedToSchool(Spell const* spell) const;
     [[nodiscard]] bool IsImmunedToDamageOrSchool(SpellSchoolMask schoolMask) const;
     [[nodiscard]] bool IsImmunedToAuraPeriodicTick(Unit const* caster, SpellInfo const* spellInfo) const;
-    virtual bool IsImmunedToSpellEffect(SpellInfo const* spellInfo, uint32 index, Unit const* caster = nullptr) const;
+    virtual bool IsImmunedToSpellEffect(SpellInfo const* spellInfo, uint32 index, WorldObject const* caster = nullptr) const;
 
     // Critic chances
     bool isBlockCritical();
@@ -1812,11 +1812,7 @@ public:
     [[nodiscard]] bool HasInvisibilityAura()        const { return HasAuraType(SPELL_AURA_MOD_INVISIBILITY); }
     [[nodiscard]] bool HasInvisibilityDetectAura()  const { return HasAuraType(SPELL_AURA_MOD_INVISIBILITY_DETECT); }
 
-    // React methods
-    bool IsHostileTo(Unit const* unit) const;
-    [[nodiscard]] bool IsHostileToPlayers() const;
-    bool IsFriendlyTo(Unit const* unit) const;
-    [[nodiscard]] bool IsNeutralToAll() const;
+    // React methods (inherited from WorldObject: IsHostileTo, IsFriendlyTo, IsHostileToPlayers, IsNeutralToAll)
 
     // Reactive attacks
     void ClearAllReactives();
@@ -1826,7 +1822,7 @@ public:
     // Diminish returns system
     DiminishingLevels GetDiminishing(DiminishingGroup group);
     void IncrDiminishing(DiminishingGroup group);
-    float ApplyDiminishingToDuration(DiminishingGroup group, int32& duration, Unit* caster, DiminishingLevels Level, int32 limitduration);
+    float ApplyDiminishingToDuration(DiminishingGroup group, int32& duration, WorldObject* caster, DiminishingLevels Level, int32 limitduration);
     void ApplyDiminishingAura(DiminishingGroup group, bool apply);
     void ClearDiminishings() { m_Diminishing.clear(); }
 
@@ -1837,9 +1833,7 @@ public:
     Unit* GetNextRandomRaidMemberOrPet(float radius);
     void UpdateAuraForGroup(uint8 slot);
 
-    // Reputations system
-    ReputationRank GetReactionTo(Unit const* target, bool checkOriginalFaction = false) const;
-    ReputationRank GetFactionReactionTo(FactionTemplateEntry const* factionTemplateEntry, Unit const* target) const;
+    // Reputations system (inherited from WorldObject: GetReactionTo, GetFactionReactionTo)
 
     // Shared vision
     SharedVisionList const& GetSharedVisionList() { return m_sharedVision; }

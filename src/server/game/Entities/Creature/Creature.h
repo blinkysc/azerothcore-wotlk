@@ -105,12 +105,12 @@ public:
     bool isCanInteractWithBattleMaster(Player* player, bool msg) const;
     bool CanResetTalents(Player* player) const;
     bool CanCreatureAttack(Unit const* victim, bool skipDistCheck = false) const;
-    bool IsImmunedToSpell(SpellInfo const* spellInfo, Spell const* spell = nullptr) override;
+    void LoadSpellTemplateImmunity();
+    bool IsImmunedToSpell(SpellInfo const* spellInfo, WorldObject const* caster = nullptr, Spell const* spell = nullptr) override;
 
     [[nodiscard]] bool HasMechanicTemplateImmunity(uint64 mask) const;
-    // redefine Unit::IsImmunedToSpell
-    bool IsImmunedToSpellEffect(SpellInfo const* spellInfo, uint32 index, Unit const* caster = nullptr) const override;
     // redefine Unit::IsImmunedToSpellEffect
+    bool IsImmunedToSpellEffect(SpellInfo const* spellInfo, uint32 index, WorldObject const* caster = nullptr) const override;
     [[nodiscard]] bool isElite() const
     {
         if (IsPet())

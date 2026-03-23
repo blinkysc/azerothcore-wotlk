@@ -3539,7 +3539,7 @@ SpellMissInfo Unit::SpellHitResult(Unit* victim, Spell const* spell, bool CanRef
     SpellInfo const* spellInfo = spell->GetSpellInfo();
 
     // Check for immune
-    if (victim->IsImmunedToSpell(spellInfo, spell))
+    if (victim->IsImmunedToSpell(spellInfo, this, spell))
     {
         return SPELL_MISS_IMMUNE;
     }
@@ -5717,26 +5717,21 @@ void Unit::GetDispellableAuraList(WorldObject const* caster, uint32 dispelMask, 
     if (dispelMask & (1 << DISPEL_DISEASE) && HasAura(50536))
         dispelMask &= ~(1 << DISPEL_DISEASE);
 
-    // If caster is not a Unit (e.g. GameObject), treat as hostile dispel
-    bool positive = false;
-    if (Unit const* unitCaster = caster ? caster->ToUnit() : nullptr)
-    {
-        ReputationRank rank = GetReactionTo(unitCaster, IsCharmed());
-        positive = rank >= REP_FRIENDLY;
+    ReputationRank rank = caster ? GetReactionTo(caster, IsCharmed()) : REP_HOSTILE;
+    bool positive = rank >= REP_FRIENDLY;
 
-        // Neutral unit not at war with caster should be treated as a friendly unit
-        if (rank == REP_NEUTRAL)
+    // Neutral unit not at war with caster should be treated as a friendly unit
+    if (rank == REP_NEUTRAL)
+    {
+        if (Player* casterPlayer = caster ? caster->GetAffectingPlayer() : nullptr)
         {
-            if (Player* casterPlayer = unitCaster->GetAffectingPlayer())
+            if (FactionTemplateEntry const* factionTemplateEntry = GetFactionTemplateEntry())
             {
-                if (FactionTemplateEntry const* factionTemplateEntry = GetFactionTemplateEntry())
+                if (FactionEntry const* factionEntry = sFactionStore.LookupEntry(factionTemplateEntry->faction))
                 {
-                    if (FactionEntry const* factionEntry = sFactionStore.LookupEntry(factionTemplateEntry->faction))
+                    if (factionEntry->CanBeSetAtWar())
                     {
-                        if (factionEntry->CanBeSetAtWar())
-                        {
-                            positive = !casterPlayer->GetReputationMgr().IsAtWar(factionEntry);
-                        }
+                        positive = !casterPlayer->GetReputationMgr().IsAtWar(factionEntry);
                     }
                 }
             }
@@ -6884,27 +6879,7 @@ void Unit::setPowerType(Powers new_powertype)
         }
 }
 
-FactionTemplateEntry const* Unit::GetFactionTemplateEntry() const
-{
-    FactionTemplateEntry const* entry = sFactionTemplateStore.LookupEntry(GetFaction());
-    if (!entry)
-    {
-        static ObjectGuid guid;                             // prevent repeating spam same faction problem
-
-        if (GetGUID() != guid)
-        {
-            if (Player const* player = ToPlayer())
-                LOG_ERROR("entities.unit", "Player {} has invalid faction (faction template id) #{}", player->GetName(), GetFaction());
-            else if (Creature const* creature = ToCreature())
-                LOG_ERROR("entities.unit", "Creature (template id: {}) has invalid faction (faction template id) #{}", creature->GetCreatureTemplate()->Entry, GetFaction());
-            else
-                LOG_ERROR("entities.unit", "Unit (name={}, type={}) has invalid faction (faction template id) #{}", GetName(), uint32(GetTypeId()), GetFaction());
-
-            guid = GetGUID();
-        }
-    }
-    return entry;
-}
+// GetFactionTemplateEntry moved to WorldObject (Object.cpp)
 
 void Unit::SetFaction(uint32 faction)
 {
@@ -6913,214 +6888,8 @@ void Unit::SetFaction(uint32 faction)
         ToCreature()->UpdateMoveInLineOfSightState();
 }
 
-// function based on function Unit::UnitReaction from 13850 client
-ReputationRank Unit::GetReactionTo(Unit const* target, bool checkOriginalFaction /*= false*/) const
-{
-    // always friendly to self
-    if (this == target)
-        return REP_FRIENDLY;
-
-    // always friendly to charmer or owner
-    if (GetCharmerOrOwnerOrSelf() == target->GetCharmerOrOwnerOrSelf())
-        return REP_FRIENDLY;
-
-    Player const* selfPlayerOwner = GetAffectingPlayer();
-    Player const* targetPlayerOwner = target->GetAffectingPlayer();
-
-    // check forced reputation to support SPELL_AURA_FORCE_REACTION
-    if (selfPlayerOwner)
-    {
-        if (FactionTemplateEntry const* targetFactionTemplateEntry = target->GetFactionTemplateEntry())
-            if (ReputationRank const* repRank = selfPlayerOwner->GetReputationMgr().GetForcedRankIfAny(targetFactionTemplateEntry))
-                return *repRank;
-    }
-    else if (targetPlayerOwner)
-    {
-        if (FactionTemplateEntry const* selfFactionTemplateEntry = GetFactionTemplateEntry())
-            if (ReputationRank const* repRank = targetPlayerOwner->GetReputationMgr().GetForcedRankIfAny(selfFactionTemplateEntry))
-                return *repRank;
-    }
-
-    if (HasUnitFlag(UNIT_FLAG_PLAYER_CONTROLLED))
-    {
-        if (target->HasUnitFlag(UNIT_FLAG_PLAYER_CONTROLLED))
-        {
-            if (selfPlayerOwner && targetPlayerOwner)
-            {
-                // always friendly to other unit controlled by player, or to the player himself
-                if (selfPlayerOwner == targetPlayerOwner)
-                    return REP_FRIENDLY;
-
-                // duel - always hostile to opponent
-                if (selfPlayerOwner->duel && selfPlayerOwner->duel->Opponent == targetPlayerOwner && selfPlayerOwner->duel->State == DUEL_STATE_IN_PROGRESS)
-                    return REP_HOSTILE;
-
-                // same group - checks dependant only on our faction - skip FFA_PVP for example
-                if (selfPlayerOwner->IsInRaidWith(targetPlayerOwner))
-                    return REP_FRIENDLY; // return true to allow config option AllowTwoSide.Interaction.Group to work
-                // however client seems to allow mixed group parties, because in 13850 client it works like:
-                // return GetFactionReactionTo(GetFactionTemplateEntry(), target);
-            }
-
-            // check FFA_PVP
-            if (IsFFAPvP() && target->IsFFAPvP())
-                return REP_HOSTILE;
-
-            if (selfPlayerOwner)
-            {
-                if (FactionTemplateEntry const* targetFactionTemplateEntry = target->GetFactionTemplateEntry())
-                {
-                    if (ReputationRank const* repRank = selfPlayerOwner->GetReputationMgr().GetForcedRankIfAny(targetFactionTemplateEntry))
-                        return *repRank;
-                    if (!selfPlayerOwner->HasUnitFlag2(UNIT_FLAG2_IGNORE_REPUTATION))
-                    {
-                        if (FactionEntry const* targetFactionEntry = sFactionStore.LookupEntry(targetFactionTemplateEntry->faction))
-                        {
-                            if (targetFactionEntry->CanHaveReputation())
-                            {
-                                // check contested flags
-                                if (targetFactionTemplateEntry->factionFlags & FACTION_TEMPLATE_FLAG_ATTACK_PVP_ACTIVE_PLAYERS
-                                        && selfPlayerOwner->HasPlayerFlag(PLAYER_FLAGS_CONTESTED_PVP))
-                                    return REP_HOSTILE;
-
-                                // if faction has reputation, hostile state depends only from AtWar state
-                                if (selfPlayerOwner->GetReputationMgr().IsAtWar(targetFactionEntry))
-                                    return REP_HOSTILE;
-                                return REP_FRIENDLY;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    ReputationRank repRank = REP_HATED;
-    if (!sScriptMgr->IfNormalReaction(this, target, repRank))
-    {
-        return ReputationRank(repRank);
-    }
-
-    FactionTemplateEntry const* factionTemplateEntry = nullptr;
-    if (checkOriginalFaction)
-    {
-        if (IsPlayer())
-        {
-            if (ChrRacesEntry const* rEntry = sChrRacesStore.LookupEntry(getRace()))
-            {
-                factionTemplateEntry = sFactionTemplateStore.LookupEntry(rEntry->FactionID);
-            }
-        }
-        else
-        {
-            Unit* owner = GetOwner();
-            if (HasUnitTypeMask(UNIT_MASK_MINION) && owner)
-            {
-                factionTemplateEntry = sFactionTemplateStore.LookupEntry(owner->GetFaction());
-            }
-            else if (CreatureTemplate const* cinfo = ToCreature()->GetCreatureTemplate())
-            {
-                factionTemplateEntry = sFactionTemplateStore.LookupEntry(cinfo->faction);
-            }
-        }
-    }
-
-    if (!factionTemplateEntry)
-    {
-        factionTemplateEntry = GetFactionTemplateEntry();
-    }
-
-    // do checks dependant only on our faction
-    return GetFactionReactionTo(factionTemplateEntry, target);
-}
-
-ReputationRank Unit::GetFactionReactionTo(FactionTemplateEntry const* factionTemplateEntry, Unit const* target) const
-{
-    // always neutral when no template entry found
-    if (!factionTemplateEntry)
-        return REP_NEUTRAL;
-
-    FactionTemplateEntry const* targetFactionTemplateEntry = target->GetFactionTemplateEntry();
-    if (!targetFactionTemplateEntry)
-        return REP_NEUTRAL;
-
-    // xinef: check forced reputation for self also
-    if (Player const* selfPlayerOwner = GetAffectingPlayer())
-        if (ReputationRank const* repRank = selfPlayerOwner->GetReputationMgr().GetForcedRankIfAny(target->GetFactionTemplateEntry()))
-            return *repRank;
-
-    if (Player const* targetPlayerOwner = target->GetAffectingPlayer())
-    {
-        // check contested flags
-        if (factionTemplateEntry->factionFlags & FACTION_TEMPLATE_FLAG_ATTACK_PVP_ACTIVE_PLAYERS
-                && targetPlayerOwner->HasPlayerFlag(PLAYER_FLAGS_CONTESTED_PVP))
-            return REP_HOSTILE;
-        if (ReputationRank const* repRank = targetPlayerOwner->GetReputationMgr().GetForcedRankIfAny(factionTemplateEntry))
-            return *repRank;
-        if (!target->HasUnitFlag2(UNIT_FLAG2_IGNORE_REPUTATION))
-        {
-            if (FactionEntry const* factionEntry = sFactionStore.LookupEntry(factionTemplateEntry->faction))
-            {
-                if (factionEntry->CanHaveReputation())
-                {
-                    // CvP case - check reputation, don't allow state higher than neutral when at war
-                    ReputationRank repRank = targetPlayerOwner->GetReputationMgr().GetRank(factionEntry);
-                    if (targetPlayerOwner->GetReputationMgr().IsAtWar(factionEntry))
-                        repRank = std::min(REP_NEUTRAL, repRank);
-                    return repRank;
-                }
-            }
-        }
-    }
-
-    // common faction based check
-    if (factionTemplateEntry->IsHostileTo(*targetFactionTemplateEntry))
-        return REP_HOSTILE;
-    if (factionTemplateEntry->IsFriendlyTo(*targetFactionTemplateEntry))
-        return REP_FRIENDLY;
-    if (targetFactionTemplateEntry->IsFriendlyTo(*factionTemplateEntry))
-        return REP_FRIENDLY;
-    if (factionTemplateEntry->factionFlags & FACTION_TEMPLATE_FLAG_HATES_ALL_EXCEPT_FRIENDS)
-        return REP_HOSTILE;
-    // neutral by default
-    return REP_NEUTRAL;
-}
-
-bool Unit::IsHostileTo(Unit const* unit) const
-{
-    return GetReactionTo(unit) <= REP_HOSTILE;
-}
-
-bool Unit::IsFriendlyTo(Unit const* unit) const
-{
-    return GetReactionTo(unit) >= REP_FRIENDLY;
-}
-
-bool Unit::IsHostileToPlayers() const
-{
-    FactionTemplateEntry const* my_faction = GetFactionTemplateEntry();
-    if (!my_faction || !my_faction->faction)
-        return false;
-
-    FactionEntry const* raw_faction = sFactionStore.LookupEntry(my_faction->faction);
-    if (raw_faction && raw_faction->reputationListID >= 0)
-        return false;
-
-    return my_faction->IsHostileToPlayers();
-}
-
-bool Unit::IsNeutralToAll() const
-{
-    FactionTemplateEntry const* my_faction = GetFactionTemplateEntry();
-    if (!my_faction || !my_faction->faction)
-        return true;
-
-    FactionEntry const* raw_faction = sFactionStore.LookupEntry(my_faction->faction);
-    if (raw_faction && raw_faction->reputationListID >= 0)
-        return false;
-
-    return my_faction->IsNeutralToAll();
-}
+// Faction methods (GetReactionTo, GetFactionReactionTo, IsHostileTo, IsFriendlyTo,
+// IsHostileToPlayers, IsNeutralToAll, GetFactionTemplateEntry) moved to WorldObject (Object.cpp)
 
 bool Unit::Attack(Unit* victim, bool meleeAttack)
 {
@@ -9805,7 +9574,7 @@ bool Unit::IsImmunedToAuraPeriodicTick(Unit const* caster, SpellInfo const* spel
     return false;
 }
 
-bool Unit::IsImmunedToSpell(SpellInfo const* spellInfo, Spell const* spell)
+bool Unit::IsImmunedToSpell(SpellInfo const* spellInfo, WorldObject const* caster /*= nullptr*/, Spell const* spell /*= nullptr*/)
 {
     if (!spellInfo)
         return false;
@@ -9883,8 +9652,7 @@ bool Unit::IsImmunedToSpell(SpellInfo const* spellInfo, Spell const* spell)
 
                 if (immuneSpellInfo && !immuneSpellInfo->HasAttribute(SPELL_ATTR1_IMMUNITY_TO_HOSTILE_AND_FRIENDLY_EFFECTS))
                 {
-                    Unit const* spellCaster = spell ? spell->GetCaster() : nullptr;
-                    if (spellCaster && spellCaster->IsFriendlyTo(this))
+                    if (caster && caster->IsFriendlyTo(this))
                         continue;
                 }
 
@@ -9899,7 +9667,7 @@ bool Unit::IsImmunedToSpell(SpellInfo const* spellInfo, Spell const* spell)
     return false;
 }
 
-bool Unit::IsImmunedToSpellEffect(SpellInfo const* spellInfo, uint32 index, Unit const* caster /*= nullptr*/) const
+bool Unit::IsImmunedToSpellEffect(SpellInfo const* spellInfo, uint32 index, WorldObject const* caster /*= nullptr*/) const
 {
     if (!spellInfo || !spellInfo->Effects[index].IsEffect())
         return false;
@@ -11577,7 +11345,7 @@ void Unit::IncrDiminishing(DiminishingGroup group)
     m_Diminishing.push_back(DiminishingReturn(group, GameTime::GetGameTimeMS().count(), DIMINISHING_LEVEL_2));
 }
 
-float Unit::ApplyDiminishingToDuration(DiminishingGroup group, int32& duration, Unit* caster, DiminishingLevels Level, int32 limitduration)
+float Unit::ApplyDiminishingToDuration(DiminishingGroup group, int32& duration, WorldObject* caster, DiminishingLevels Level, int32 limitduration)
 {
     // xinef: dont apply diminish to self casts
     if (duration == -1 || group == DIMINISHING_NONE)
@@ -11585,17 +11353,17 @@ float Unit::ApplyDiminishingToDuration(DiminishingGroup group, int32& duration, 
 
     // test pet/charm masters instead pets/charmeds
     Unit const* targetOwner = GetOwner();
-    Unit const* casterOwner = caster->GetOwner();
+    Unit const* casterOwner = caster ? caster->GetOwner() : nullptr;
 
     // Duration of crowd control abilities on pvp target is limited by 10 sec. (2.2.0)
     if (limitduration > 0 && duration > limitduration)
     {
         Unit const* target = targetOwner ? targetOwner : this;
-        Unit const* source = casterOwner ? casterOwner : caster;
+        WorldObject const* source = casterOwner ? static_cast<WorldObject const*>(casterOwner) : caster;
 
         if ((target->IsPlayer()
                 || target->ToCreature()->HasFlagsExtra(CREATURE_FLAG_EXTRA_ALL_DIMINISH))
-                && source->IsPlayer())
+                && source && source->IsPlayer())
             duration = limitduration;
     }
 

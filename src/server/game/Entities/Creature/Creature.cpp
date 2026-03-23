@@ -2183,7 +2183,7 @@ void Creature::LoadTemplateImmunities(int32 creatureImmunitiesId)
         _creatureImmunitiesId = 0;
 }
 
-bool Creature::IsImmunedToSpell(SpellInfo const* spellInfo, Spell const* spell)
+bool Creature::IsImmunedToSpell(SpellInfo const* spellInfo, WorldObject const* caster /*= nullptr*/, Spell const* spell /*= nullptr*/)
 {
     if (!spellInfo)
         return false;
@@ -2204,7 +2204,7 @@ bool Creature::IsImmunedToSpell(SpellInfo const* spellInfo, Spell const* spell)
     // match the runtime immunity set stored in m_spellImmune.
     bool immunedToAllEffects = true;
     for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
-        if (spellInfo->Effects[i].IsEffect() && !IsImmunedToSpellEffect(spellInfo, i))
+        if (spellInfo->Effects[i].IsEffect() && !IsImmunedToSpellEffect(spellInfo, i, caster))
         {
             immunedToAllEffects = false;
             break;
@@ -2212,10 +2212,10 @@ bool Creature::IsImmunedToSpell(SpellInfo const* spellInfo, Spell const* spell)
     if (immunedToAllEffects)
         return true;
 
-    return Unit::IsImmunedToSpell(spellInfo, spell);
+    return Unit::IsImmunedToSpell(spellInfo, caster, spell);
 }
 
-bool Creature::IsImmunedToSpellEffect(SpellInfo const* spellInfo, uint32 index, Unit const* caster /*= nullptr*/) const
+bool Creature::IsImmunedToSpellEffect(SpellInfo const* spellInfo, uint32 index, WorldObject const* caster /*= nullptr*/) const
 {
     // Xinef: this should exclude self casts...
     if (spellInfo->Effects[index].Mechanic > MECHANIC_NONE && HasMechanicTemplateImmunity(UI64LIT(1) << spellInfo->Effects[index].Mechanic))
