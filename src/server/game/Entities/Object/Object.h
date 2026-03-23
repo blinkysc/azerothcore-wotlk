@@ -660,11 +660,11 @@ public:
     [[nodiscard]] Player* GetSpellModOwner() const;
 
     // Faction methods
-    [[nodiscard]] virtual uint32 GetFaction() const { return 0; }
+    [[nodiscard]] virtual uint32 GetFaction() const = 0;
     virtual void SetFaction(uint32 /*faction*/) { }
     [[nodiscard]] FactionTemplateEntry const* GetFactionTemplateEntry() const;
     ReputationRank GetReactionTo(WorldObject const* target, bool checkOriginalFaction = false) const;
-    ReputationRank GetFactionReactionTo(FactionTemplateEntry const* factionTemplateEntry, WorldObject const* target) const;
+    static ReputationRank GetFactionReactionTo(FactionTemplateEntry const* factionTemplateEntry, WorldObject const* target);
     bool IsHostileTo(WorldObject const* target) const;
     bool IsFriendlyTo(WorldObject const* target) const;
     [[nodiscard]] bool IsHostileToPlayers() const;

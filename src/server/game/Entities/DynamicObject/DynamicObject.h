@@ -52,6 +52,7 @@ public:
     void RemoveAura();
     void SetCasterViewpoint(bool updateViewerVisibility);
     void RemoveCasterViewpoint();
+    [[nodiscard]] uint32 GetFaction() const override;
     [[nodiscard]] Unit* GetCaster() const { return _caster; }
     void BindToCaster();
     void UnbindFromCaster();

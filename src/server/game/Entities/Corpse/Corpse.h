@@ -65,6 +65,7 @@ public:
     void DeleteFromDB(CharacterDatabaseTransaction trans);
     static void DeleteFromDB(ObjectGuid const& ownerGuid, CharacterDatabaseTransaction trans);
 
+    [[nodiscard]] uint32 GetFaction() const override;
     [[nodiscard]] ObjectGuid GetOwnerGUID() const override { return GetGuidValue(CORPSE_FIELD_OWNER); }
 
     [[nodiscard]] time_t const& GetGhostTime() const { return m_time; }

@@ -2647,7 +2647,7 @@ ReputationRank WorldObject::GetReactionTo(WorldObject const* target, bool checkO
     return GetFactionReactionTo(factionTemplateEntry, target);
 }
 
-ReputationRank WorldObject::GetFactionReactionTo(FactionTemplateEntry const* factionTemplateEntry, WorldObject const* target) const
+/*static*/ ReputationRank WorldObject::GetFactionReactionTo(FactionTemplateEntry const* factionTemplateEntry, WorldObject const* target)
 {
     // always neutral when no template entry found
     if (!factionTemplateEntry)
@@ -2656,11 +2656,6 @@ ReputationRank WorldObject::GetFactionReactionTo(FactionTemplateEntry const* fac
     FactionTemplateEntry const* targetFactionTemplateEntry = target->GetFactionTemplateEntry();
     if (!targetFactionTemplateEntry)
         return REP_NEUTRAL;
-
-    // xinef: check forced reputation for self also
-    if (Player const* selfPlayerOwner = GetAffectingPlayer())
-        if (ReputationRank const* repRank = selfPlayerOwner->GetReputationMgr().GetForcedRankIfAny(target->GetFactionTemplateEntry()))
-            return *repRank;
 
     if (Player const* targetPlayerOwner = target->GetAffectingPlayer())
     {
