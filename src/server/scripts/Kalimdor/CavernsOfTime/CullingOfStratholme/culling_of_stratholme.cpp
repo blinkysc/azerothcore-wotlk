@@ -183,6 +183,10 @@ enum Misc
     SAY_STEPHANIE_CROWD_3                   = 6,
     SAY_STEPHANIE_RESPONSE_1                = 0,
     SAY_STEPHANIE_RESPONSE_2                = 1,
+
+    // Brandon Eiredeck crowd
+    NPC_BRANDON_EIREDECK                    = 31023,
+    SAY_BRANDON_CROWD_AMBIENT               = 3,
 };
 
 enum Events
@@ -1533,6 +1537,9 @@ public:
             isStephanieCrowd = me->GetEntry() == NPC_CITY_MAN3 && me->GetDistance(2149.56f, 1339.46f, 132.531f) < 10.0f;
             stephanieDialogueTimer = isStephanieCrowd ? urand(5000, 15000) : 0;
             stephanieDialoguePhase = 0;
+
+            isBrandonCrowd = me->GetDistance(2267.86f, 1144.93f, 138.403f) < 10.0f;
+            ambientTalkTimer = isBrandonCrowd ? urand(5000, 15000) : 0;
         }
 
         bool locked;
@@ -1542,6 +1549,8 @@ public:
         bool isStephanieCrowd;
         uint32 stephanieDialogueTimer;
         uint8 stephanieDialoguePhase;
+        bool isBrandonCrowd;
+        uint32 ambientTalkTimer;
 
         void Reset() override
         {
@@ -1640,6 +1649,19 @@ public:
                 }
                 else
                     stephanieDialogueTimer -= diff;
+
+                return;
+            }
+
+            if (isBrandonCrowd && ambientTalkTimer)
+            {
+                if (ambientTalkTimer <= diff)
+                {
+                    Talk(SAY_BRANDON_CROWD_AMBIENT);
+                    ambientTalkTimer = urand(15000, 25000);
+                }
+                else
+                    ambientTalkTimer -= diff;
 
                 return;
             }
