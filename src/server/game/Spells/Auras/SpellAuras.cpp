@@ -310,7 +310,10 @@ Aura* Aura::Create(SpellInfo const* spellproto, uint8 effMask, WorldObject* owne
     // try to get caster of aura
     if (casterGUID)
     {
-        if (owner->GetGUID() == casterGUID)
+        // GameObjects are not Units, so they can't be resolved as casters here
+        if (casterGUID.IsGameObject())
+            caster = nullptr;
+        else if (owner->GetGUID() == casterGUID)
             caster = owner->ToUnit();
         else
             caster = ObjectAccessor::GetUnit(*owner, casterGUID);
