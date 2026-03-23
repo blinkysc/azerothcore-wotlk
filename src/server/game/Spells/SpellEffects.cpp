@@ -283,7 +283,7 @@ void Spell::EffectInstaKill(SpellEffIndex /*effIndex*/)
         if (unitTarget->ToPlayer()->GetCommandStatus(CHEAT_GOD))
             return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -309,7 +309,7 @@ void Spell::EffectEnvironmentalDMG(SpellEffIndex /*effIndex*/)
 
     if (unitTarget->IsPlayer())
         unitTarget->ToPlayer()->EnvironmentalDamage(DAMAGE_FIRE, damage);
-    else if (Unit* unitCaster = m_caster->ToUnit())
+    else if (Unit* unitCaster = GetUnitCasterForEffectHandlers())
     {
         DamageInfo dmgInfo(unitCaster, unitTarget, damage, m_spellInfo, m_spellInfo->GetSchoolMask(), SPELL_DIRECT_DAMAGE);
 
@@ -329,7 +329,7 @@ void Spell::EffectSchoolDMG(SpellEffIndex effIndex)
     if (effectHandleMode != SPELL_EFFECT_HANDLE_LAUNCH_TARGET)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
     if (unitTarget && unitTarget->IsAlive())
@@ -674,7 +674,7 @@ void Spell::EffectDummy(SpellEffIndex effIndex)
     if (!unitTarget && !gameObjTarget && !itemTarget)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -799,7 +799,7 @@ void Spell::EffectTriggerSpell(SpellEffIndex effIndex)
             && effectHandleMode != SPELL_EFFECT_HANDLE_LAUNCH)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -960,7 +960,7 @@ void Spell::EffectTriggerMissileSpell(SpellEffIndex effIndex)
             && effectHandleMode != SPELL_EFFECT_HANDLE_HIT)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -1020,7 +1020,7 @@ void Spell::EffectForceCast(SpellEffIndex effIndex)
     if (!unitTarget)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -1075,7 +1075,7 @@ void Spell::EffectTriggerRitualOfSummoning(SpellEffIndex effIndex)
     if (effectHandleMode != SPELL_EFFECT_HANDLE_HIT)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -1098,7 +1098,7 @@ void Spell::EffectJump(SpellEffIndex effIndex)
     if (effectHandleMode != SPELL_EFFECT_HANDLE_LAUNCH_TARGET)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -1123,7 +1123,7 @@ void Spell::EffectJumpDest(SpellEffIndex effIndex)
     if (effectHandleMode != SPELL_EFFECT_HANDLE_LAUNCH)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -1188,7 +1188,7 @@ void Spell::EffectJumpDest(SpellEffIndex effIndex)
 void Spell::CalculateJumpSpeeds(uint8 i, float dist, float& speedXY, float& speedZ)
 {
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
     float runSpeed = unitCaster->IsControlledByPlayer() ? playerBaseMoveSpeed[MOVE_RUN] : baseMoveSpeed[MOVE_RUN];
@@ -1224,7 +1224,7 @@ void Spell::EffectTeleportUnits(SpellEffIndex /*effIndex*/)
     if (!unitTarget || unitTarget->IsInFlight())
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -1404,7 +1404,7 @@ void Spell::EffectPowerDrain(SpellEffIndex effIndex)
     if (!unitTarget || !unitTarget->IsAlive() || !unitTarget->HasActivePowerType(PowerType) || damage < 0)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -1440,7 +1440,7 @@ void Spell::EffectSendEvent(SpellEffIndex effIndex)
             && effectHandleMode != SPELL_EFFECT_HANDLE_HIT)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -1491,7 +1491,7 @@ void Spell::EffectPowerBurn(SpellEffIndex effIndex)
     if (!unitTarget || !unitTarget->IsAlive() || !unitTarget->HasActivePowerType(PowerType) || damage < 0)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -1529,7 +1529,7 @@ void Spell::EffectHeal(SpellEffIndex effIndex)
     if (effectHandleMode != SPELL_EFFECT_HANDLE_LAUNCH_TARGET)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -1686,7 +1686,7 @@ void Spell::EffectHealthLeech(SpellEffIndex  effIndex)
     if (!unitTarget || !unitTarget->IsAlive() || damage < 0)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -1913,7 +1913,7 @@ void Spell::EffectPersistentAA(SpellEffIndex effIndex)
     if (effectHandleMode != SPELL_EFFECT_HANDLE_HIT)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -1956,7 +1956,7 @@ void Spell::EffectEnergize(SpellEffIndex effIndex)
     if (!unitTarget->IsAlive())
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -2068,7 +2068,7 @@ void Spell::EffectEnergizePct(SpellEffIndex effIndex)
     if (!unitTarget->IsAlive())
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -2100,7 +2100,7 @@ void Spell::SendLoot(ObjectGuid guid, LootType loottype)
     if (!player)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -2435,7 +2435,7 @@ void Spell::EffectSummonType(SpellEffIndex effIndex)
     if (!m_originalCaster)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -2668,7 +2668,7 @@ void Spell::EffectDispel(SpellEffIndex effIndex)
     if (!unitTarget)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -2829,7 +2829,7 @@ void Spell::EffectAddFarsight(SpellEffIndex effIndex)
     if (!m_caster->IsInWorld())
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -3191,7 +3191,7 @@ void Spell::EffectTameCreature(SpellEffIndex /*effIndex*/)
     if (effectHandleMode != SPELL_EFFECT_HANDLE_HIT_TARGET)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -3394,7 +3394,7 @@ void Spell::EffectTaunt(SpellEffIndex /*effIndex*/)
     if (!unitTarget)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -3427,7 +3427,7 @@ void Spell::EffectWeaponDmg(SpellEffIndex effIndex)
     if (!unitTarget || !unitTarget->IsAlive())
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -3765,7 +3765,7 @@ void Spell::EffectThreat(SpellEffIndex /*effIndex*/)
     if (effectHandleMode != SPELL_EFFECT_HANDLE_HIT_TARGET)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -3788,7 +3788,7 @@ void Spell::EffectHealMaxHealth(SpellEffIndex /*effIndex*/)
     if (!unitTarget || !unitTarget->IsAlive())
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -3849,7 +3849,7 @@ void Spell::EffectSummonObjectWild(SpellEffIndex effIndex)
     if (effectHandleMode != SPELL_EFFECT_HANDLE_HIT)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -3904,7 +3904,7 @@ void Spell::EffectScriptEffect(SpellEffIndex effIndex)
     if (effectHandleMode != SPELL_EFFECT_HANDLE_HIT_TARGET)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -4196,7 +4196,7 @@ void Spell::EffectDuel(SpellEffIndex effIndex)
     if (caster->duel || target->duel || !target->GetSocial() || target->GetSocial()->HasIgnore(caster->GetGUID()))
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -4322,7 +4322,7 @@ void Spell::EffectSummonPlayer(SpellEffIndex /*effIndex*/)
     if (unitTarget->HasAura(23445))
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -4357,11 +4357,11 @@ void Spell::EffectActivateObject(SpellEffIndex effIndex)
             break;
         case GameObjectActions::Disturb: // What's the difference with Open?
         case GameObjectActions::Open:
-            if (Unit* unitCaster = m_caster->ToUnit())
+            if (Unit* unitCaster = GetUnitCasterForEffectHandlers())
                 gameObjTarget->Use(unitCaster);
             break;
         case GameObjectActions::OpenAndUnlock:
-            if (Unit* unitCaster = m_caster->ToUnit())
+            if (Unit* unitCaster = GetUnitCasterForEffectHandlers())
                 gameObjTarget->UseDoorOrButton(0, false, unitCaster);
             [[fallthrough]];
         case GameObjectActions::Unlock:
@@ -4384,7 +4384,7 @@ void Spell::EffectActivateObject(SpellEffIndex effIndex)
             gameObjTarget->SetFlag(GAMEOBJECT_FLAGS, GO_FLAG_LOCKED);
             break;
         case GameObjectActions::Destroy:
-            if (Unit* unitCaster = m_caster->ToUnit())
+            if (Unit* unitCaster = GetUnitCasterForEffectHandlers())
                 gameObjTarget->UseDoorOrButton(0, true, unitCaster);
             break;
         case GameObjectActions::UseArtKit0:
@@ -4424,7 +4424,7 @@ void Spell::EffectApplyGlyph(SpellEffIndex effIndex)
     if (!m_caster->IsPlayer() || m_glyphIndex >= MAX_GLYPH_SLOT_INDEX)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -4634,7 +4634,7 @@ void Spell::EffectFeedPet(SpellEffIndex effIndex)
     if (benefit <= 0)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -4666,7 +4666,7 @@ void Spell::EffectSummonObject(SpellEffIndex effIndex)
     if (effectHandleMode != SPELL_EFFECT_HANDLE_HIT)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -4880,7 +4880,7 @@ void Spell::EffectForceDeselect(SpellEffIndex /*effIndex*/)
     if (effectHandleMode != SPELL_EFFECT_HANDLE_HIT)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -4957,7 +4957,7 @@ void Spell::EffectSelfResurrect(SpellEffIndex effIndex)
     if (effectHandleMode != SPELL_EFFECT_HANDLE_HIT)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -5026,7 +5026,7 @@ void Spell::EffectSkinning(SpellEffIndex /*effIndex*/)
 void Spell::EffectCharge(SpellEffIndex /*effIndex*/)
 {
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
     if (effectHandleMode == SPELL_EFFECT_HANDLE_LAUNCH_TARGET)
@@ -5071,7 +5071,7 @@ void Spell::EffectChargeDest(SpellEffIndex /*effIndex*/)
     if (effectHandleMode != SPELL_EFFECT_HANDLE_LAUNCH)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -5295,7 +5295,7 @@ void Spell::EffectDispelMechanic(SpellEffIndex effIndex)
     if (!unitTarget)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -5391,7 +5391,7 @@ void Spell::EffectDestroyAllTotems(SpellEffIndex /*effIndex*/)
     if (effectHandleMode != SPELL_EFFECT_HANDLE_HIT)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -5497,7 +5497,7 @@ void Spell::EffectModifyThreatPercent(SpellEffIndex /*effIndex*/)
     if (!unitTarget)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -5509,7 +5509,7 @@ void Spell::EffectTransmitted(SpellEffIndex effIndex)
     if (effectHandleMode != SPELL_EFFECT_HANDLE_HIT)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -5778,7 +5778,7 @@ void Spell::EffectStealBeneficialBuff(SpellEffIndex effIndex)
     if (steal_list.empty())
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -5936,7 +5936,7 @@ void Spell::EffectActivateRune(SpellEffIndex effIndex)
     if (!player->IsClass(CLASS_DEATH_KNIGHT, CLASS_CONTEXT_ABILITY))
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -6052,7 +6052,7 @@ void Spell::EffectTitanGrip(SpellEffIndex /*effIndex*/)
     if (effectHandleMode != SPELL_EFFECT_HANDLE_HIT)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -6072,7 +6072,7 @@ void Spell::EffectRedirectThreat(SpellEffIndex /*effIndex*/)
     if (effectHandleMode != SPELL_EFFECT_HANDLE_HIT_TARGET)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -6107,7 +6107,7 @@ void Spell::EffectGameObjectRepair(SpellEffIndex /*effIndex*/)
     if (!gameObjTarget)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -6132,7 +6132,7 @@ void Spell::SummonGuardian(uint32 i, uint32 entry, SummonPropertiesEntry const* 
     if (!caster)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -6386,7 +6386,7 @@ void Spell::EffectCastButtons(SpellEffIndex effIndex)
     if (!m_caster->IsPlayer())
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 
@@ -6513,7 +6513,7 @@ void Spell::EffectSummonRaFFriend(SpellEffIndex  /*effIndex*/)
     if (!unitTarget)
         return;
 
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = GetUnitCasterForEffectHandlers();
     if (!unitCaster)
         return;
 

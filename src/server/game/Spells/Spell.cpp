@@ -8041,6 +8041,11 @@ Unit* Spell::GetOriginalTarget() const
     return ObjectAccessor::GetUnit(*m_caster, m_originalTargetGUID);
 }
 
+Unit* Spell::GetUnitCasterForEffectHandlers() const
+{
+    return m_originalCaster ? m_originalCaster : m_caster->ToUnit();
+}
+
 bool Spell::UpdatePointers()
 {
     if (m_originalCasterGUID == m_caster->GetGUID())

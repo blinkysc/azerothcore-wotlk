@@ -585,6 +585,7 @@ public:
 
     WorldObject* GetCaster() const { return m_caster; }
     Unit* GetOriginalCaster() const { return m_originalCaster; }
+    Unit* GetUnitCasterForEffectHandlers() const;
     Unit* GetOriginalTarget() const;
     SpellInfo const* GetSpellInfo() const { return m_spellInfo; }
     int32 GetPowerCost() const { return m_powerCost; }
