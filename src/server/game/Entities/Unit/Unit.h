@@ -859,10 +859,6 @@ public:
     virtual void SetTarget(ObjectGuid /*guid*/ = ObjectGuid::Empty) = 0;
 
     bool isTargetableForAttack(bool checkFakeDeath = true, Unit const* byWho = nullptr) const;
-    bool IsValidAttackTarget(Unit const* target, SpellInfo const* bySpell = nullptr) const;
-    bool _IsValidAttackTarget(Unit const* target, SpellInfo const* bySpell, WorldObject const* obj = nullptr) const;
-    bool IsValidAssistTarget(Unit const* target) const;
-    bool _IsValidAssistTarget(Unit const* target, SpellInfo const* bySpell) const;
 
     // Client controlled: check if unit currently is under client control (has active "mover"), optionally check for specific client (server-side)
     bool IsClientControlled(Player const* exactClient = nullptr) const;
@@ -1587,7 +1583,6 @@ public:
     Unit* GetMeleeHitRedirectTarget(Unit* victim, SpellInfo const* spellInfo = nullptr);
     [[nodiscard]] float MeleeSpellMissChance(Unit const* victim, WeaponAttackType attType, int32 skillDiff, uint32 spellId) const;
     [[nodiscard]] SpellMissInfo MeleeSpellHitResult(Unit* victim, SpellInfo const* spell) override;
-    [[nodiscard]] SpellMissInfo MagicSpellHitResult(Unit* victim, SpellInfo const* spell) override;
 
     // Healling spells
     static int32 DealHeal(Unit* healer, Unit* victim, uint32 addhealth);

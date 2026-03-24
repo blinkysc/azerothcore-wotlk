@@ -1865,12 +1865,12 @@ SpellCastResult SpellInfo::CheckExplicitTarget(WorldObject const* caster, WorldO
         {
             Unit const* unitCaster = caster->ToUnit();
             if (neededTargets & TARGET_FLAG_UNIT_ENEMY)
-                if (unitCaster && unitCaster->_IsValidAttackTarget(unitTarget, this))
+                if (caster->_IsValidAttackTarget(unitTarget, this))
                     return SPELL_CAST_OK;
             if (neededTargets & TARGET_FLAG_UNIT_ALLY
                     || (unitCaster && (neededTargets & TARGET_FLAG_UNIT_PARTY) && unitCaster->IsInPartyWith(unitTarget))
                     || (unitCaster && (neededTargets & TARGET_FLAG_UNIT_RAID) && unitCaster->IsInRaidWith(unitTarget)))
-                if (unitCaster && unitCaster->_IsValidAssistTarget(unitTarget, this))
+                if (caster->_IsValidAssistTarget(unitTarget, this))
                     return SPELL_CAST_OK;
             if (neededTargets & TARGET_FLAG_UNIT_MINIPET)
                 if (unitCaster && unitTarget->GetGUID() == unitCaster->GetCritterGUID())

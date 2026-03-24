@@ -696,9 +696,15 @@ public:
     [[nodiscard]] float GetSpellMaxRangeForTarget(Unit const* target, SpellInfo const* spellInfo) const;
     [[nodiscard]] float GetSpellMinRangeForTarget(Unit const* target, SpellInfo const* spellInfo) const;
 
+    // Target validation
+    bool IsValidAttackTarget(Unit const* target, SpellInfo const* bySpell = nullptr) const;
+    bool _IsValidAttackTarget(Unit const* target, SpellInfo const* bySpell, WorldObject const* obj = nullptr) const;
+    bool IsValidAssistTarget(Unit const* target) const;
+    bool _IsValidAssistTarget(Unit const* target, SpellInfo const* bySpell) const;
+
     // Spell hit result methods
     [[nodiscard]] virtual SpellMissInfo MeleeSpellHitResult(Unit* victim, SpellInfo const* spellInfo);
-    [[nodiscard]] virtual SpellMissInfo MagicSpellHitResult(Unit* victim, SpellInfo const* spellInfo);
+    [[nodiscard]] SpellMissInfo MagicSpellHitResult(Unit* victim, SpellInfo const* spellInfo);
     [[nodiscard]] SpellMissInfo SpellHitResult(Unit* victim, SpellInfo const* spell, bool canReflect = false);
     [[nodiscard]] SpellMissInfo SpellHitResult(Unit* victim, Spell const* spell, bool canReflect = false);
     void SendSpellMiss(Unit* target, uint32 spellID, SpellMissInfo missInfo);

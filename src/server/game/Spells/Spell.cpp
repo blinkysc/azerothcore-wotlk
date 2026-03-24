@@ -3067,7 +3067,7 @@ SpellMissInfo Spell::DoSpellHitOnUnit(Unit* unit, uint32 effectMask, bool scaleA
                 return SPELL_MISS_EVADE;
         }
 
-        if (m_caster->ToUnit() && m_caster->ToUnit()->_IsValidAttackTarget(unit, m_spellInfo) && /*Intervene Trigger*/ m_spellInfo->Id != 59667)
+        if (m_caster->_IsValidAttackTarget(unit, m_spellInfo) && /*Intervene Trigger*/ m_spellInfo->Id != 59667)
         {
             unit->RemoveAurasWithInterruptFlags(AURA_INTERRUPT_FLAG_HITBYSPELL);
         }
@@ -9211,13 +9211,13 @@ namespace Acore
                 case TARGET_CHECK_ENEMY:
                     if (unitTarget->IsTotem())
                         return false;
-                    if (!unitCaster || !unitCaster->_IsValidAttackTarget(unitTarget, _spellInfo))
+                    if (!_caster->_IsValidAttackTarget(unitTarget, _spellInfo))
                         return false;
                     break;
                 case TARGET_CHECK_ALLY:
                     if (unitTarget->IsTotem())
                         return false;
-                    if (!unitCaster || !unitCaster->_IsValidAssistTarget(unitTarget, _spellInfo))
+                    if (!_caster->_IsValidAssistTarget(unitTarget, _spellInfo))
                         return false;
                     break;
                 case TARGET_CHECK_PARTY:
@@ -9225,7 +9225,7 @@ namespace Acore
                         return false;
                     if (unitTarget->IsGuardian() && !unitTarget->IsControllableGuardian())
                         return false;
-                    if (!unitCaster || !unitCaster->_IsValidAssistTarget(unitTarget, _spellInfo))
+                    if (!_caster->_IsValidAssistTarget(unitTarget, _spellInfo))
                         return false;
                     if (!unitReferer || !unitReferer->IsInPartyWith(unitTarget))
                         return false;
@@ -9239,7 +9239,7 @@ namespace Acore
                         return false;
                     if (unitTarget->IsGuardian() && !unitTarget->IsControllableGuardian())
                         return false;
-                    if (!unitCaster || !unitCaster->_IsValidAssistTarget(unitTarget, _spellInfo))
+                    if (!_caster->_IsValidAssistTarget(unitTarget, _spellInfo))
                         return false;
                     if (!unitReferer || !unitReferer->IsInRaidWith(unitTarget))
                         return false;
