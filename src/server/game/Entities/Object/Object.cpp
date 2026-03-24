@@ -2503,7 +2503,8 @@ void WorldObject::SummonGameObjectGroup(uint8 group, std::list<GameObject*>* lis
 
 FactionTemplateEntry const* WorldObject::GetFactionTemplateEntry() const
 {
-    FactionTemplateEntry const* entry = sFactionTemplateStore.LookupEntry(GetFaction());
+    uint32 factionId = GetFaction();
+    FactionTemplateEntry const* entry = sFactionTemplateStore.LookupEntry(factionId);
     if (!entry)
     {
         static ObjectGuid guid;                             // prevent repeating spam same faction problem
@@ -2511,11 +2512,16 @@ FactionTemplateEntry const* WorldObject::GetFactionTemplateEntry() const
         if (GetGUID() != guid)
         {
             if (Player const* player = ToPlayer())
-                LOG_ERROR("entities.object", "Player {} has invalid faction (faction template id) #{}", player->GetName(), GetFaction());
+                LOG_ERROR("entities.object", "Player {} has invalid faction (faction template id) #{}", player->GetName(), factionId);
             else if (Creature const* creature = ToCreature())
-                LOG_ERROR("entities.object", "Creature (template id: {}) has invalid faction (faction template id) #{}", creature->GetCreatureTemplate()->Entry, GetFaction());
+                LOG_ERROR("entities.object", "Creature (template id: {}) has invalid faction (faction template id) #{}", creature->GetCreatureTemplate()->Entry, factionId);
+            else if (GameObject const* go = ToGameObject())
+            {
+                if (factionId) // GameObjects may have faction template id 0
+                    LOG_ERROR("entities.object", "GameObject (template id: {}) has invalid faction (faction template id) #{}", go->GetGOInfo()->entry, factionId);
+            }
             else
-                LOG_ERROR("entities.object", "WorldObject (name={}, type={}) has invalid faction (faction template id) #{}", GetName(), uint32(GetTypeId()), GetFaction());
+                LOG_ERROR("entities.object", "WorldObject (name={}, type={}) has invalid faction (faction template id) #{}", GetName(), uint32(GetTypeId()), factionId);
 
             guid = GetGUID();
         }

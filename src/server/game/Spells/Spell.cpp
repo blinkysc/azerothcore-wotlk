@@ -6085,7 +6085,7 @@ SpellCastResult Spell::CheckCast(bool strict, uint32* /*param1*/, uint32* /*para
                 return SPELL_FAILED_NOT_IN_ARENA;
 
     // zone check
-    if (m_caster->IsCreature() || !m_caster->ToPlayer()->IsGameMaster())
+    if (!m_caster->IsPlayer() || !m_caster->ToPlayer()->IsGameMaster())
     {
         uint32 zone, area;
         m_caster->GetZoneAndAreaId(zone, area);
