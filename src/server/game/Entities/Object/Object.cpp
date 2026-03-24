@@ -2551,8 +2551,8 @@ ReputationRank WorldObject::GetReactionTo(WorldObject const* target, bool checkO
                 return *repRank;
     }
 
-    Unit const* selfUnit = ToUnit();
-    Unit const* targetUnit = target->ToUnit();
+    Unit const* selfUnit = ToUnit() ? ToUnit() : selfPlayerOwner;
+    Unit const* targetUnit = target->ToUnit() ? target->ToUnit() : targetPlayerOwner;
 
     if (selfUnit && selfUnit->HasUnitFlag(UNIT_FLAG_PLAYER_CONTROLLED))
     {

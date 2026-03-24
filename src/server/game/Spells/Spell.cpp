@@ -6969,7 +6969,7 @@ SpellCastResult Spell::CheckPetCast(Unit* target)
 
 SpellCastResult Spell::CheckCasterAuras(bool preventionOnly) const
 {
-    Unit* unitCaster = m_caster->ToUnit();
+    Unit* unitCaster = (m_originalCaster ? m_originalCaster : m_caster->ToUnit());
     if (!unitCaster)
         return SPELL_CAST_OK;
 
