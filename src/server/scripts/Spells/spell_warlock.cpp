@@ -1037,7 +1037,9 @@ class spell_warl_unstable_affliction : public AuraScript
                 int32 damage = aurEff->GetBaseAmount();
                 damage = aurEff->GetSpellInfo()->Effects[EFFECT_0].CalcValue(caster, &damage, nullptr) * 9;
                 // backfire damage and silence
-                caster->CastCustomSpell(dispelInfo->GetDispeller(), SPELL_WARLOCK_UNSTABLE_AFFLICTION_DISPEL, &damage, nullptr, nullptr, true, nullptr, aurEff);
+                CastSpellExtraArgs args(aurEff);
+                args.AddSpellMod(SPELLVALUE_BASE_POINT0, damage);
+                caster->CastSpell(dispelInfo->GetDispeller(), SPELL_WARLOCK_UNSTABLE_AFFLICTION_DISPEL, args);
             }
     }
 

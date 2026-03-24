@@ -2150,7 +2150,7 @@ void Spell::SearchAreaTargets(std::list<WorldObject*>& targets, float range, Pos
     uint32 containerTypeMask = GetSearcherTypeMask(objectType, condList);
     if (!containerTypeMask)
         return;
-    Acore::WorldObjectSpellAreaTargetCheck check(range, position, m_caster, referer, m_spellInfo, selectionType, condList, searchReason);
+    Acore::WorldObjectSpellAreaTargetCheck check(range, position, m_caster, referer, m_spellInfo, selectionType, condList);
     Acore::WorldObjectListSearcher<Acore::WorldObjectSpellAreaTargetCheck> searcher(m_caster, targets, check, containerTypeMask);
     SearchTargets<Acore::WorldObjectListSearcher<Acore::WorldObjectSpellAreaTargetCheck> > (searcher, containerTypeMask, m_caster, position, range);
 }
@@ -8489,7 +8489,7 @@ void Spell::HandleLaunchPhase()
 
         if (m_originalCaster && target.missCondition != SPELL_MISS_EVADE)
         {
-            Unit* targetUnit = m_caster->GetGUID() == target.targetGUID ? m_caster : ObjectAccessor::GetUnit(*m_caster, target.targetGUID);
+            Unit* targetUnit = m_caster->GetGUID() == target.targetGUID ? m_caster->ToUnit() : ObjectAccessor::GetUnit(*m_caster, target.targetGUID);
             if (targetUnit && !m_originalCaster->IsFriendlyTo(targetUnit) && (!m_spellInfo->IsPositive() || m_spellInfo->HasEffect(SPELL_EFFECT_DISPEL)) && (m_spellInfo->HasInitialAggro() || targetUnit->IsEngaged()))
                 m_originalCaster->SetInCombatWith(targetUnit, true);
         }

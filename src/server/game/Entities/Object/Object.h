@@ -104,6 +104,7 @@ class AuraEffect;
 class Item;
 class CustomSpellValues;
 enum SpellCastResult : uint8;
+enum WeaponAttackType : uint8;
 
 struct PositionFullTerrainStatus;
 

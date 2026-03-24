@@ -468,7 +468,7 @@ class spell_hexlord_unstable_affliction : public AuraScript
     void HandleDispel(DispelInfo* dispelInfo)
     {
         if (Unit* caster = GetCaster())
-            caster->CastSpell(dispelInfo->GetDispeller(), SPELL_WL_UNSTABLE_AFFL_DISPEL, true, nullptr, GetEffect(EFFECT_0));
+            caster->CastSpell(dispelInfo->GetDispeller(), SPELL_WL_UNSTABLE_AFFL_DISPEL, CastSpellExtraArgs(GetEffect(EFFECT_0)));
     }
 
     void Register() override
