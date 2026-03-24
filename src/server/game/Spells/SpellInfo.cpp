@@ -457,9 +457,13 @@ int32 SpellEffectInfo::CalcValue(WorldObject const* caster, int32 const* bp, Uni
         {
             value += PointsPerComboPoint * comboPoints;
         }
+    }
 
-        value = casterUnit->ApplyEffectModifiers(_spellInfo, EffectIndex, value);
+    if (caster)
+        value = caster->ApplyEffectModifiers(_spellInfo, EffectIndex, value);
 
+    if (casterUnit)
+    {
         // amount multiplication based on caster's level
         if (!casterUnit->IsControlledByPlayer() &&
                 _spellInfo->SpellLevel && _spellInfo->SpellLevel != casterUnit->GetLevel() &&
@@ -1106,7 +1110,8 @@ bool SpellInfo::NeedsToBeTriggeredByCaster(SpellInfo const* triggeringSpell, uin
         uint32 mask = 0;
         for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
         {
-            if (Effects[i].TargetA.GetTarget() != TARGET_UNIT_CASTER && Effects[i].TargetA.GetTarget() != TARGET_DEST_CASTER)
+            if (Effects[i].TargetA.GetTarget() != TARGET_UNIT_CASTER && Effects[i].TargetA.GetTarget() != TARGET_DEST_CASTER
+                && Effects[i].TargetB.GetTarget() != TARGET_UNIT_CASTER && Effects[i].TargetB.GetTarget() != TARGET_DEST_CASTER)
                 mask |= Effects[i].GetProvidedTargetMask();
         }
 

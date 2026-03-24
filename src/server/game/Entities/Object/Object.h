@@ -703,6 +703,7 @@ public:
     bool _IsValidAssistTarget(Unit const* target, SpellInfo const* bySpell) const;
 
     // Spell hit result methods
+    [[nodiscard]] virtual float MeleeSpellMissChance(Unit const* victim, WeaponAttackType attType, int32 skillDiff, uint32 spellId) const;
     [[nodiscard]] virtual SpellMissInfo MeleeSpellHitResult(Unit* victim, SpellInfo const* spellInfo);
     [[nodiscard]] SpellMissInfo MagicSpellHitResult(Unit* victim, SpellInfo const* spellInfo);
     [[nodiscard]] SpellMissInfo SpellHitResult(Unit* victim, SpellInfo const* spell, bool canReflect = false);
