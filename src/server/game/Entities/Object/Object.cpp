@@ -3684,7 +3684,7 @@ int32 WorldObject::CalculateSpellDamage(Unit const* target, SpellInfo const* spe
     return spellProto->Effects[effect_index].CalcValue(this, basePoints, target);
 }
 
-int32 WorldObject::CalcSpellDuration(SpellInfo const* spellProto)
+int32 WorldObject::CalcSpellDuration(SpellInfo const* spellProto) const
 {
     int32 minduration = spellProto->GetDuration();
     int32 maxduration = spellProto->GetMaxDuration();
@@ -3705,7 +3705,7 @@ int32 WorldObject::CalcSpellDuration(SpellInfo const* spellProto)
     return duration;
 }
 
-int32 WorldObject::ModSpellDuration(SpellInfo const* spellProto, Unit const* target, int32 duration, bool positive, uint32 effectMask)
+int32 WorldObject::ModSpellDuration(SpellInfo const* spellProto, WorldObject const* target, int32 duration, bool positive, uint32 effectMask) const
 {
     // don't mod permanent auras duration
     if (duration < 0)
@@ -3717,6 +3717,10 @@ int32 WorldObject::ModSpellDuration(SpellInfo const* spellProto, Unit const* tar
 
     // cut duration only of negative effects
     // xinef: also calculate self casts, spell can be reflected for example
+    Unit const* unitTarget = target->ToUnit();
+    if (!unitTarget)
+        return duration;
+
     if (!positive)
     {
         int32 mechanic = spellProto->GetSpellMechanicMaskByEffectMask(effectMask);
@@ -3735,9 +3739,9 @@ int32 WorldObject::ModSpellDuration(SpellInfo const* spellProto, Unit const* tar
                 continue;
 
             // Find total mod value (negative bonus)
-            int32 new_durationMod_always = target->GetTotalAuraModifierByMiscValue(SPELL_AURA_MECHANIC_DURATION_MOD, i);
+            int32 new_durationMod_always = unitTarget->GetTotalAuraModifierByMiscValue(SPELL_AURA_MECHANIC_DURATION_MOD, i);
             // Find max mod (negative bonus)
-            int32 new_durationMod_not_stack = target->GetMaxNegativeAuraModifierByMiscValue(SPELL_AURA_MECHANIC_DURATION_MOD_NOT_STACK, i);
+            int32 new_durationMod_not_stack = unitTarget->GetMaxNegativeAuraModifierByMiscValue(SPELL_AURA_MECHANIC_DURATION_MOD_NOT_STACK, i);
             // Check if mods applied before were weaker
             if (new_durationMod_always < durationMod_always)
                 durationMod_always = new_durationMod_always;
@@ -3755,8 +3759,8 @@ int32 WorldObject::ModSpellDuration(SpellInfo const* spellProto, Unit const* tar
             AddPct(duration, durationMod);
 
         // there are only negative mods currently
-        durationMod_always = target->GetTotalAuraModifierByMiscValue(SPELL_AURA_MOD_AURA_DURATION_BY_DISPEL, spellProto->Dispel);
-        durationMod_not_stack = target->GetMaxNegativeAuraModifierByMiscValue(SPELL_AURA_MOD_AURA_DURATION_BY_DISPEL_NOT_STACK, spellProto->Dispel);
+        durationMod_always = unitTarget->GetTotalAuraModifierByMiscValue(SPELL_AURA_MOD_AURA_DURATION_BY_DISPEL, spellProto->Dispel);
+        durationMod_not_stack = unitTarget->GetMaxNegativeAuraModifierByMiscValue(SPELL_AURA_MOD_AURA_DURATION_BY_DISPEL_NOT_STACK, spellProto->Dispel);
 
         durationMod = 0;
         if (durationMod_always > durationMod_not_stack)
@@ -3808,7 +3812,7 @@ int32 WorldObject::ModSpellDuration(SpellInfo const* spellProto, Unit const* tar
     return std::max(duration, 0);
 }
 
-void WorldObject::ModSpellCastTime(SpellInfo const* spellInfo, int32& castTime, Spell* spell)
+void WorldObject::ModSpellCastTime(SpellInfo const* spellInfo, int32& castTime, Spell* spell) const
 {
     if (!spellInfo || castTime < 0)
         return;
@@ -3861,7 +3865,7 @@ float WorldObject::MeleeSpellMissChance(Unit const* /*victim*/, WeaponAttackType
     return 0.0f;
 }
 
-SpellMissInfo WorldObject::MeleeSpellHitResult(Unit* /*victim*/, SpellInfo const* /*spellInfo*/)
+SpellMissInfo WorldObject::MeleeSpellHitResult(Unit* /*victim*/, SpellInfo const* /*spellInfo*/) const
 {
     return SPELL_MISS_NONE;
 }
@@ -4132,7 +4136,7 @@ bool WorldObject::_IsValidAssistTarget(Unit const* target, SpellInfo const* bySp
     return true;
 }
 
-SpellMissInfo WorldObject::MagicSpellHitResult(Unit* victim, SpellInfo const* spellInfo)
+SpellMissInfo WorldObject::MagicSpellHitResult(Unit* victim, SpellInfo const* spellInfo) const
 {
     // Can`t miss on dead target (on skinning for example)
     if (!victim->IsAlive() && !victim->IsPlayer())
@@ -4270,7 +4274,7 @@ SpellMissInfo WorldObject::MagicSpellHitResult(Unit* victim, SpellInfo const* sp
     return SPELL_MISS_NONE;
 }
 
-SpellMissInfo WorldObject::SpellHitResult(Unit* victim, SpellInfo const* spell, bool CanReflect)
+SpellMissInfo WorldObject::SpellHitResult(Unit* victim, SpellInfo const* spell, bool CanReflect) const
 {
     // Check for immune
     if (victim->IsImmunedToSpell(spell, this))
@@ -4328,7 +4332,7 @@ SpellMissInfo WorldObject::SpellHitResult(Unit* victim, SpellInfo const* spell, 
     return SPELL_MISS_NONE;
 }
 
-SpellMissInfo WorldObject::SpellHitResult(Unit* victim, Spell const* spell, bool CanReflect)
+SpellMissInfo WorldObject::SpellHitResult(Unit* victim, Spell const* spell, bool CanReflect) const
 {
     SpellInfo const* spellInfo = spell->GetSpellInfo();
 

@@ -3158,7 +3158,7 @@ int32 Unit::GetMechanicResistChance(SpellInfo const* spell)
 }
 
 // Melee based spells hit result calculations
-SpellMissInfo Unit::MeleeSpellHitResult(Unit* victim, SpellInfo const* spellInfo)
+SpellMissInfo Unit::MeleeSpellHitResult(Unit* victim, SpellInfo const* spellInfo) const
 {
     // Spells with SPELL_ATTR3_ALWAYS_HIT will additionally fully ignore
     // resist and deflect chances
@@ -10590,7 +10590,7 @@ Unit* Creature::SelectVictim()
 //======================================================================
 //======================================================================
 
-void Unit::ModSpellCastTime(SpellInfo const* spellInfo, int32& castTime, Spell* spell)
+void Unit::ModSpellCastTime(SpellInfo const* spellInfo, int32& castTime, Spell* spell) const
 {
     if (!spellInfo || castTime < 0)
         return;

@@ -1582,7 +1582,7 @@ public:
     Unit* GetMagicHitRedirectTarget(Unit* victim, SpellInfo const* spellInfo);
     Unit* GetMeleeHitRedirectTarget(Unit* victim, SpellInfo const* spellInfo = nullptr);
     [[nodiscard]] float MeleeSpellMissChance(Unit const* victim, WeaponAttackType attType, int32 skillDiff, uint32 spellId) const override;
-    [[nodiscard]] SpellMissInfo MeleeSpellHitResult(Unit* victim, SpellInfo const* spell) override;
+    [[nodiscard]] SpellMissInfo MeleeSpellHitResult(Unit* victim, SpellInfo const* spell) const override;
 
     // Healling spells
     static int32 DealHeal(Unit* healer, Unit* victim, uint32 addhealth);
@@ -1628,7 +1628,7 @@ public:
     float SpellTakenCritChance(Unit const* caster, SpellInfo const* spellProto, SpellSchoolMask schoolMask, float doneChance, WeaponAttackType attackType, bool skipEffectCheck) const;
 
     // Others modifiers
-    void ModSpellCastTime(SpellInfo const* spellInfo, int32& castTime, Spell* spell = nullptr) override;
+    void ModSpellCastTime(SpellInfo const* spellInfo, int32& castTime, Spell* spell = nullptr) const override;
     float CalculateLevelPenalty(SpellInfo const* spellProto) const;
 
     uint32 GetCastingTimeForBonus(SpellInfo const* spellProto, DamageEffectType damagetype, uint32 CastingTime) const;

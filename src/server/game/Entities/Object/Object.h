@@ -690,9 +690,9 @@ public:
     // Spell calculation methods (WorldObject level for all caster types including GameObjects)
     [[nodiscard]] float ApplyEffectModifiers(SpellInfo const* spellProto, uint8 effect_index, float value) const;
     [[nodiscard]] int32 CalculateSpellDamage(Unit const* target, SpellInfo const* spellProto, uint8 effect_index, int32 const* basePoints = nullptr) const;
-    [[nodiscard]] int32 CalcSpellDuration(SpellInfo const* spellProto);
-    int32 ModSpellDuration(SpellInfo const* spellProto, Unit const* target, int32 duration, bool positive, uint32 effectMask);
-    virtual void ModSpellCastTime(SpellInfo const* spellInfo, int32& castTime, Spell* spell = nullptr);
+    [[nodiscard]] int32 CalcSpellDuration(SpellInfo const* spellProto) const;
+    int32 ModSpellDuration(SpellInfo const* spellProto, WorldObject const* target, int32 duration, bool positive, uint32 effectMask) const;
+    virtual void ModSpellCastTime(SpellInfo const* spellInfo, int32& castTime, Spell* spell = nullptr) const;
     [[nodiscard]] float GetSpellMaxRangeForTarget(Unit const* target, SpellInfo const* spellInfo) const;
     [[nodiscard]] float GetSpellMinRangeForTarget(Unit const* target, SpellInfo const* spellInfo) const;
 
@@ -704,10 +704,10 @@ public:
 
     // Spell hit result methods
     [[nodiscard]] virtual float MeleeSpellMissChance(Unit const* victim, WeaponAttackType attType, int32 skillDiff, uint32 spellId) const;
-    [[nodiscard]] virtual SpellMissInfo MeleeSpellHitResult(Unit* victim, SpellInfo const* spellInfo);
-    [[nodiscard]] SpellMissInfo MagicSpellHitResult(Unit* victim, SpellInfo const* spellInfo);
-    [[nodiscard]] SpellMissInfo SpellHitResult(Unit* victim, SpellInfo const* spell, bool canReflect = false);
-    [[nodiscard]] SpellMissInfo SpellHitResult(Unit* victim, Spell const* spell, bool canReflect = false);
+    [[nodiscard]] virtual SpellMissInfo MeleeSpellHitResult(Unit* victim, SpellInfo const* spellInfo) const;
+    [[nodiscard]] SpellMissInfo MagicSpellHitResult(Unit* victim, SpellInfo const* spellInfo) const;
+    [[nodiscard]] SpellMissInfo SpellHitResult(Unit* victim, SpellInfo const* spell, bool canReflect = false) const;
+    [[nodiscard]] SpellMissInfo SpellHitResult(Unit* victim, Spell const* spell, bool canReflect = false) const;
     void SendSpellMiss(Unit* target, uint32 spellID, SpellMissInfo missInfo);
 
     [[nodiscard]] Creature*   FindNearestCreature(uint32 entry, float range, bool alive = true) const;
