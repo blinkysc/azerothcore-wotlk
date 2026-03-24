@@ -1096,10 +1096,6 @@ void Spell::EffectTriggerRitualOfSummoning(SpellEffIndex effIndex)
     if (effectHandleMode != SPELL_EFFECT_HANDLE_HIT)
         return;
 
-    Unit* unitCaster = GetUnitCasterForEffectHandlers();
-    if (!unitCaster)
-        return;
-
     uint32 triggered_spell_id = m_spellInfo->Effects[effIndex].TriggerSpell;
     SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(triggered_spell_id);
 
@@ -1111,7 +1107,7 @@ void Spell::EffectTriggerRitualOfSummoning(SpellEffIndex effIndex)
 
     finish();
 
-    unitCaster->CastSpell((Unit*)nullptr, spellInfo, true);
+    m_caster->CastSpell((Unit*)nullptr, spellInfo, true);
 }
 
 void Spell::EffectJump(SpellEffIndex effIndex)
@@ -4649,17 +4645,13 @@ void Spell::EffectFeedPet(SpellEffIndex effIndex)
     if (benefit <= 0)
         return;
 
-    Unit* unitCaster = GetUnitCasterForEffectHandlers();
-    if (!unitCaster)
-        return;
-
     ExecuteLogEffectDestroyItem(effIndex, foodItem->GetEntry());
 
     uint32 count = 1;
     player->DestroyItemCount(foodItem, count, true);
     /// @todo: fix crash when a spell has two effects, both pointed at the same item target
 
-    unitCaster->CastCustomSpell(pet, m_spellInfo->Effects[effIndex].TriggerSpell, &benefit, nullptr, nullptr, true);
+    m_caster->CastCustomSpell(pet, m_spellInfo->Effects[effIndex].TriggerSpell, &benefit, nullptr, nullptr, true);
 }
 
 void Spell::EffectDismissPet(SpellEffIndex effIndex)
@@ -6436,7 +6428,7 @@ void Spell::EffectCastButtons(SpellEffIndex effIndex)
             continue;
 
         TriggerCastFlags triggerFlags = TriggerCastFlags(TRIGGERED_IGNORE_GCD | TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_CAST_DIRECTLY);
-        unitCaster->CastSpell(unitCaster, spell_id, triggerFlags);
+        m_caster->CastSpell(unitCaster, spell_id, triggerFlags);
     }
 }
 
