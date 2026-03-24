@@ -3927,7 +3927,9 @@ bool WorldObject::_IsValidAttackTarget(Unit const* target, SpellInfo const* bySp
     if (target->HasUnitFlag(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_TAXI_FLIGHT | UNIT_FLAG_NOT_ATTACKABLE_1 | UNIT_FLAG_NON_ATTACKABLE_2))
         return false;
 
-    if (unitOrOwner)
+    // ignore immunity flags when assisting (positive spells with SPELL_ATTR6_CAN_ASSIST_IMMUNE_PC)
+    bool isPositiveSpell = bySpell && bySpell->IsPositive();
+    if (unitOrOwner && !(isPositiveSpell && bySpell->HasAttribute(SPELL_ATTR6_CAN_ASSIST_IMMUNE_PC)))
     {
         if (!unitOrOwner->HasUnitFlag(UNIT_FLAG_PLAYER_CONTROLLED) && target->IsImmuneToNPC())
             return false;
@@ -4037,9 +4039,9 @@ bool WorldObject::_IsValidAttackTarget(Unit const* target, SpellInfo const* bySp
     return true;
 }
 
-bool WorldObject::IsValidAssistTarget(Unit const* target) const
+bool WorldObject::IsValidAssistTarget(Unit const* target, SpellInfo const* bySpell) const
 {
-    return _IsValidAssistTarget(target, nullptr);
+    return _IsValidAssistTarget(target, bySpell);
 }
 
 // function based on function Unit::CanAssist from 13850 client

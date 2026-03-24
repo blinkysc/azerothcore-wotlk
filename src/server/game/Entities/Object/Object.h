@@ -699,7 +699,7 @@ public:
     // Target validation
     bool IsValidAttackTarget(Unit const* target, SpellInfo const* bySpell = nullptr) const;
     bool _IsValidAttackTarget(Unit const* target, SpellInfo const* bySpell, WorldObject const* obj = nullptr) const;
-    bool IsValidAssistTarget(Unit const* target) const;
+    bool IsValidAssistTarget(Unit const* target, SpellInfo const* bySpell = nullptr) const;
     bool _IsValidAssistTarget(Unit const* target, SpellInfo const* bySpell) const;
 
     // Spell hit result methods

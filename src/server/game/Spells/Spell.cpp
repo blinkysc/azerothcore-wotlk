@@ -1884,7 +1884,7 @@ void Spell::SelectImplicitTargetObjectTargets(SpellEffIndex effIndex, SpellImpli
 void Spell::SelectImplicitChainTargets(SpellEffIndex effIndex, SpellImplicitTargetInfo const& targetType, WorldObject* target, uint32 effMask)
 {
     uint32 maxTargets = m_spellInfo->Effects[effIndex].ChainTarget;
-    if (Player* modOwner = (m_caster->ToUnit() ? m_caster->ToUnit()->GetSpellModOwner() : nullptr))
+    if (Player* modOwner = m_caster->GetSpellModOwner())
         modOwner->ApplySpellMod(m_spellInfo->Id, SPELLMOD_JUMP_TARGETS, maxTargets, this);
 
     if (maxTargets > 1)
@@ -3404,7 +3404,7 @@ bool Spell::UpdateChanneledTargetList()
                     break;
                 }
 
-        if (Player* modOwner = (m_caster->ToUnit() ? m_caster->ToUnit()->GetSpellModOwner() : nullptr))
+        if (Player* modOwner = m_caster->GetSpellModOwner())
             modOwner->ApplySpellMod(m_spellInfo->Id, SPELLMOD_RANGE, range, this);
 
         // xinef: add little tolerance level
@@ -3765,7 +3765,7 @@ void Spell::cancel(bool bySelf)
                 ArenaSpectator::SendCommand_Spell(m_caster->FindMap(), m_caster->GetGUID(), "SPE", m_spellInfo->Id, bySelf ? 99998 : 99999);
 
             // spell is canceled-take mods and clear list
-            if (Player* player = (m_caster->ToUnit() ? m_caster->ToUnit()->GetSpellModOwner() : nullptr))
+            if (Player* player = m_caster->GetSpellModOwner())
                 player->RemoveSpellMods(this);
 
             m_appliedMods.clear();
@@ -3799,7 +3799,7 @@ void Spell::cancel(bool bySelf)
 void Spell::cast(bool skipCheck)
 {
     Unit* unitCaster = m_caster->ToUnit();
-    Player* modOwner = unitCaster ? unitCaster->GetSpellModOwner() : nullptr;
+    Player* modOwner = m_caster->GetSpellModOwner();
     Spell* lastMod = nullptr;
     if (modOwner)
     {
@@ -3868,7 +3868,7 @@ void Spell::_cast(bool skipCheck)
 
     CallScriptBeforeCastHandlers();
 
-    Player* modOwner = m_caster->ToUnit() ? m_caster->ToUnit()->GetSpellModOwner() : nullptr;
+    Player* modOwner = m_caster->GetSpellModOwner();
     // skip check if done already (for instant cast spells for example)
     if (!skipCheck)
     {
@@ -4209,7 +4209,7 @@ uint64 Spell::handle_delayed(uint64 t_offset)
         return 0;
     }
 
-    Player* modOwner = m_caster->ToUnit() ? m_caster->ToUnit()->GetSpellModOwner() : nullptr;
+    Player* modOwner = m_caster->GetSpellModOwner();
     if (modOwner)
         modOwner->SetSpellModTakingSpell(this, true);
 
@@ -4596,7 +4596,7 @@ void Spell::finish(bool ok)
 
     // Take mods after trigger spell (needed for 14177 to affect 48664)
     // mods are taken only on succesfull cast and independantly from targets of the spell
-    if (Player* player = unitCaster ? unitCaster->GetSpellModOwner() : nullptr)
+    if (Player* player = m_caster->GetSpellModOwner())
         player->RemoveSpellMods(this);
 
     // xinef: clear reactive auras states after spell cast
