@@ -568,7 +568,7 @@ SpellValue::SpellValue(SpellInfo const* proto)
 }
 
 Spell::Spell(WorldObject* caster, SpellInfo const* info, TriggerCastFlags triggerFlags, ObjectGuid originalCasterGUID, bool skipCheck) :
-    m_spellInfo(sSpellMgr->GetSpellForDifficultyFromSpell(info, caster->ToUnit())),
+    m_spellInfo(sSpellMgr->GetSpellForDifficultyFromSpell(info, caster)),
     m_caster((info->HasAttribute(SPELL_ATTR6_ORIGINATE_FROM_CONTROLLER) && caster->GetCharmerOrOwner()) ? caster->GetCharmerOrOwner() : caster)
     , m_spellValue(new SpellValue(m_spellInfo)), _spellEvent(nullptr)
 {
@@ -1430,7 +1430,7 @@ void Spell::SelectImplicitCasterDestTargets(SpellEffIndex effIndex, SpellImplici
 
                 float ground = m_caster->GetMapHeight(x, y, z, true);
                 float liquidLevel = VMAP_INVALID_HEIGHT_VALUE;
-                LiquidData const& liquidData = m_caster->GetMap()->GetLiquidData(m_caster->ToUnit() ? m_caster->ToUnit()->GetPhaseMask() : 0, x, y, z, m_caster->ToUnit() ? m_caster->ToUnit()->GetCollisionHeight() : DEFAULT_COLLISION_HEIGHT, {});
+                LiquidData const& liquidData = m_caster->GetMap()->GetLiquidData(m_caster->GetPhaseMask(), x, y, z, m_caster->GetCollisionHeight(), {});
                 if (liquidData.Status)
                     liquidLevel = liquidData.Level;
 
@@ -2444,7 +2444,10 @@ void Spell::AddUnitTarget(Unit* target, uint32 effectMask, bool checkIfValid /*=
     if (targetInfo.missCondition == SPELL_MISS_REFLECT)
     {
         // Calculate reflected spell result on caster
-        targetInfo.reflectResult = m_caster->ToUnit() ? m_caster->ToUnit()->SpellHitResult(m_caster->ToUnit(), this, m_canReflect) : SPELL_MISS_NONE;
+        if (Unit* unitCaster2 = m_caster->ToUnit())
+            targetInfo.reflectResult = unitCaster2->SpellHitResult(unitCaster2, this, m_canReflect);
+        else
+            targetInfo.reflectResult = SPELL_MISS_NONE;
 
         if (targetInfo.reflectResult == SPELL_MISS_REFLECT)     // Impossible reflect again, so simply deflect spell
             targetInfo.reflectResult = SPELL_MISS_PARRY;
@@ -2458,7 +2461,7 @@ void Spell::AddUnitTarget(Unit* target, uint32 effectMask, bool checkIfValid /*=
 
         // HACK: workaround check for succubus seduction case
         /// @todo: seduction should be casted only on humanoids (not demons)
-        if (m_caster->ToUnit() && m_caster->ToUnit()->IsPet())
+        if (Unit* petCaster = m_caster->ToUnit(); petCaster && petCaster->IsPet())
         {
             CreatureTemplate const* ci = sObjectMgr->GetCreatureTemplate(m_caster->GetEntry());
             switch (ci->family)
@@ -3529,7 +3532,8 @@ SpellCastResult Spell::prepare(SpellCastTargets const* targets, AuraEffect const
     }
 
     //Prevent casting at cast another spell (ServerSide check)
-    if (!HasTriggeredCastFlag(TRIGGERED_IGNORE_CAST_IN_PROGRESS) && m_caster->ToUnit() && m_caster->ToUnit()->IsNonMeleeSpellCast(false, true, true, m_spellInfo->Id == 75) && m_cast_count)
+    Unit* castInProgressUnit = m_caster->ToUnit();
+    if (!HasTriggeredCastFlag(TRIGGERED_IGNORE_CAST_IN_PROGRESS) && castInProgressUnit && castInProgressUnit->IsNonMeleeSpellCast(false, true, true, m_spellInfo->Id == 75) && m_cast_count)
     {
         SendCastResult(SPELL_FAILED_SPELL_IN_PROGRESS);
         finish(false);
@@ -3998,8 +4002,9 @@ void Spell::_cast(bool skipCheck)
         m_spellState = SPELL_STATE_DELAYED;
         SetDelayStart(0);
 
-        if (m_caster->ToUnit() && m_caster->ToUnit()->HasUnitState(UNIT_STATE_CASTING) && !m_caster->ToUnit()->IsNonMeleeSpellCast(false, false, true))
-            m_caster->ToUnit()->ClearUnitState(UNIT_STATE_CASTING);
+        if (Unit* delayUnitCaster = m_caster->ToUnit())
+            if (delayUnitCaster->HasUnitState(UNIT_STATE_CASTING) && !delayUnitCaster->IsNonMeleeSpellCast(false, false, true))
+                delayUnitCaster->ClearUnitState(UNIT_STATE_CASTING);
 
         // remove all applied mods at this point
         // dont allow user to use them twice in case spell did not reach current target
@@ -6190,7 +6195,7 @@ SpellCastResult Spell::CheckCast(bool strict, uint32* /*param1*/, uint32* /*para
             }
 
             DispelChargesList dispelList;
-            target->GetDispellableAuraList(m_caster->ToUnit(), dispelMask, dispelList, m_spellInfo);
+            target->GetDispellableAuraList(m_caster, dispelMask, dispelList, m_spellInfo);
 
             if (dispelList.empty())
                 return SPELL_FAILED_NOTHING_TO_DISPEL;

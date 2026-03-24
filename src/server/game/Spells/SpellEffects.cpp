@@ -2688,7 +2688,7 @@ void Spell::EffectDispel(SpellEffIndex effIndex)
     uint32 dispelMask  = SpellInfo::GetDispelMask(DispelType(dispel_type));
 
     DispelChargesList dispel_list;
-    unitTarget->GetDispellableAuraList(unitCaster, dispelMask, dispel_list, m_spellInfo); // GetDispellableAuraList requires Unit*
+    unitTarget->GetDispellableAuraList(unitCaster, dispelMask, dispel_list, m_spellInfo);
     if (dispel_list.empty())
         return;
 

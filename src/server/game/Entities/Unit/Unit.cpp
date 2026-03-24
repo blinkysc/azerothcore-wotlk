@@ -5035,7 +5035,7 @@ void Unit::RemoveAuraFromStack(uint32 spellId, ObjectGuid casterGUID, AuraRemove
     }
 }
 
-void Unit::RemoveAurasDueToSpellByDispel(uint32 spellId, uint32 dispellerSpellId, ObjectGuid casterGUID, Unit* dispeller, uint8 chargesRemoved/*= 1*/)
+void Unit::RemoveAurasDueToSpellByDispel(uint32 spellId, uint32 dispellerSpellId, ObjectGuid casterGUID, WorldObject* dispeller, uint8 chargesRemoved/*= 1*/)
 {
     AuraMapBoundsNonConst range = m_ownedAuras.equal_range(spellId);
     for (AuraMap::iterator iter = range.first; iter != range.second;)
@@ -5711,27 +5711,32 @@ Aura* Unit::GetAuraOfRankedSpell(uint32 spellId, ObjectGuid casterGUID, ObjectGu
     return aurApp ? aurApp->GetBase() : nullptr;
 }
 
-void Unit::GetDispellableAuraList(Unit* caster, uint32 dispelMask, DispelChargesList& dispelList, SpellInfo const* dispelSpell)
+void Unit::GetDispellableAuraList(WorldObject const* caster, uint32 dispelMask, DispelChargesList& dispelList, SpellInfo const* dispelSpell)
 {
     // we should not be able to dispel diseases if the target is affected by unholy blight
     if (dispelMask & (1 << DISPEL_DISEASE) && HasAura(50536))
         dispelMask &= ~(1 << DISPEL_DISEASE);
 
-    ReputationRank rank = GetReactionTo(caster, IsCharmed());
-    bool positive = rank >= REP_FRIENDLY;
-
-    // Neutral unit not at war with caster should be treated as a friendly unit
-    if (rank == REP_NEUTRAL)
+    // If caster is not a Unit (e.g. GameObject), treat as hostile dispel
+    bool positive = false;
+    if (Unit const* unitCaster = caster ? caster->ToUnit() : nullptr)
     {
-        if (Player* casterPlayer = caster->GetAffectingPlayer())
+        ReputationRank rank = GetReactionTo(unitCaster, IsCharmed());
+        positive = rank >= REP_FRIENDLY;
+
+        // Neutral unit not at war with caster should be treated as a friendly unit
+        if (rank == REP_NEUTRAL)
         {
-            if (FactionTemplateEntry const* factionTemplateEntry = GetFactionTemplateEntry())
+            if (Player* casterPlayer = unitCaster->GetAffectingPlayer())
             {
-                if (FactionEntry const* factionEntry = sFactionStore.LookupEntry(factionTemplateEntry->faction))
+                if (FactionTemplateEntry const* factionTemplateEntry = GetFactionTemplateEntry())
                 {
-                    if (factionEntry->CanBeSetAtWar())
+                    if (FactionEntry const* factionEntry = sFactionStore.LookupEntry(factionTemplateEntry->faction))
                     {
-                        positive = !casterPlayer->GetReputationMgr().IsAtWar(factionEntry);
+                        if (factionEntry->CanBeSetAtWar())
+                        {
+                            positive = !casterPlayer->GetReputationMgr().IsAtWar(factionEntry);
+                        }
                     }
                 }
             }
