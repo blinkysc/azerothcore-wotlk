@@ -59,7 +59,7 @@ class MMapData
     friend class MapCollisionData;
 
 public:
-    dtNavMesh const* GetNavMesh() { return _navMesh.get(); }
+    dtNavMesh const* GetNavMesh() const { return _navMesh.get(); }
     dtNavMeshQuery const* GetNavMeshQuery();
 
 protected:
@@ -73,7 +73,7 @@ protected:
 class MapCollisionData
 {
 public:
-    MapCollisionData(Map const& map, Map const* parentMap, std::string const& basePath);
+    MapCollisionData(Map const& map, Map const* parentMap);
     ~MapCollisionData() = default;
 
     int LoadVMapTile(uint32 tileX, uint32 tileY);

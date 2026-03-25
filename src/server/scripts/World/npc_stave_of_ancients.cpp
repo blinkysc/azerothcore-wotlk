@@ -233,7 +233,7 @@ void NPCStaveQuestAI::ResetState(uint32 aura = 0)
 
     if (InNormalForm())
     {
-        me->m_Events.KillAllEvents(true);
+        me->m_Events.KillAllEvents(false);
         me->SetNpcFlag(UNIT_NPC_FLAG_GOSSIP);
     }
 
