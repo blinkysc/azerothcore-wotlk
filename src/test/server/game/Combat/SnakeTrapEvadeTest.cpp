@@ -122,6 +122,7 @@ protected:
 
 // Verify that ending all combat on a creature with multiple refs completes
 // without hanging or leaving stale state (regression: recursive EnterEvadeMode)
+// cppcheck-suppress syntaxError
 TEST_F(SnakeTrapEvadeTest, EndAllCombat_WithMultipleRefs_DoesNotRecurse)
 {
     // Put the snake in combat with both targets
