@@ -67,6 +67,11 @@ struct npc_pet_hunter_snake_trap : public ScriptedAI
 
         if (!_isViper && !me->HasAura(SPELL_HUNTER_DEADLY_POISON_PASSIVE))
             DoCast(me, SPELL_HUNTER_DEADLY_POISON_PASSIVE, true);
+
+        // Glyph of Snake Trap — apply AoE damage reduction scaling
+        if (Unit* owner = me->GetOwner())
+            if (owner->GetAuraEffectDummy(SPELL_HUNTER_GLYPH_OF_SNAKE_TRAP))
+                me->CastSpell(me, SPELL_HUNTER_PET_SCALING, true);
     }
 
     // Redefined for random target selection:
