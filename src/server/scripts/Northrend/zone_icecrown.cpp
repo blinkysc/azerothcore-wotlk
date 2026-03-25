@@ -1771,18 +1771,18 @@ public:
 
         void MoveInLineOfSight(Unit* /*who*/) override { }
 
-        void JustSummoned(Creature* Summoned) override
+        void JustSummoned(Creature* summon) override
         {
-            Summons.Summon(Summoned);
-            if (Summoned->GetEntry() == NPC_SCOURGE_DRUDGE || Summoned->GetEntry() == NPC_REANIMATED_CAPTAIN ||
-                Summoned->GetEntry() == NPC_HIDEOUS_PLAGUEBRINGER || Summoned->GetEntry() == NPC_HALOF_THE_DEATHBRINGER)
+            Summons.Summon(summon);
+            if (summon->GetEntry() == NPC_SCOURGE_DRUDGE || summon->GetEntry() == NPC_REANIMATED_CAPTAIN ||
+                summon->GetEntry() == NPC_HIDEOUS_PLAGUEBRINGER || summon->GetEntry() == NPC_HALOF_THE_DEATHBRINGER)
             {
-                Summoned->SetHomePosition(DalforsPos[2]);
-                Summoned->SetReactState(REACT_PASSIVE);
-                Summoned->EngageWithTarget(me);
-                Summoned->m_Events.AddEventAtOffset([Summoned]()
+                summon->SetHomePosition(DalforsPos[2]);
+                summon->SetReactState(REACT_PASSIVE);
+                summon->EngageWithTarget(me);
+                summon->m_Events.AddEventAtOffset([summon]()
                 {
-                    Summoned->SetReactState(REACT_AGGRESSIVE);
+                    summon->SetReactState(REACT_AGGRESSIVE);
                 }, 2s);
             }
         }
