@@ -68,14 +68,13 @@ struct npc_pet_hunter_snake_trap : public ScriptedAI
     void EnterEvadeMode(EvadeReason /*why*/) override
     {
         // _EnterEvadeMode();
+        me->AddUnitState(UNIT_STATE_EVADE);
         me->GetThreatMgr().ClearAllThreat();
         me->CombatStop(true);
         me->LoadCreaturesAddon(true);
         me->SetLootRecipient(nullptr);
         me->ResetPlayerDamageReq();
         me->ClearLastLeashExtensionTimePtr();
-
-        me->AddUnitState(UNIT_STATE_EVADE);
         me->GetMotionMaster()->MoveTargetedHome();
 
         Reset();
@@ -184,7 +183,7 @@ class spell_pet_guard_dog : public AuraScript
             return;
 
         float addThreat = CalculatePct(static_cast<float>(procSpellInfo->Effects[EFFECT_0].CalcValue(caster)), aurEff->GetAmount());
-        target->GetThreatMgr().AddThreat(caster, addThreat, SPELL_SCHOOL_MASK_NORMAL, GetSpellInfo());
+        target->GetThreatMgr().AddThreat(caster, addThreat, GetSpellInfo());
     }
 
     void Register() override
