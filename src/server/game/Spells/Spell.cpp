@@ -7090,7 +7090,7 @@ SpellCastResult Spell::CheckRange(bool strict)
             if (m_caster->IsWithinRange(target, minRangeCombined))
                 return SPELL_FAILED_TOO_CLOSE;
         }
-        else if (min_range && m_caster->IsWithinCombatRange(target, min_range)) // skip this check if min_range = 0
+        else if (min_range > 0 && m_caster->IsWithinCombatRange(target, min_range))
             return SPELL_FAILED_TOO_CLOSE;
     }
 
