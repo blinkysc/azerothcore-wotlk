@@ -42,20 +42,19 @@ enum Spells
 enum Events
 {
     EVENT_DISRUPTION                = 1,
-    EVENT_DECEPIT_FEVER             = 2,
+    EVENT_DECREPIT_FEVER            = 2,
     EVENT_ERUPT_SECTION             = 3,
-    EVENT_SWITCH_PHASE              = 4,
-    EVENT_SAFETY_DANCE              = 5,
-    EVENT_PLAGUE_CLOUD              = 6
+    EVENT_DANCE                     = 4,
+    EVENT_DANCE_END                 = 5,
+    EVENT_SAFETY_DANCE              = 6,
+    EVENT_PLAGUE_CLOUD              = 7
 };
 
-enum Misc
+enum Phases
 {
-    PHASE_SLOW_DANCE                = 0,
-    PHASE_FAST_DANCE                = 1
+    PHASE_FIGHT                     = 1,
+    PHASE_DANCE                     = 2
 };
-
-float const heiganFastDanceFaceDirection = 2.40f;
 
 struct boss_heigan : public BossAI
 {
@@ -64,10 +63,9 @@ struct boss_heigan : public BossAI
     void Reset() override
     {
         BossAI::Reset();
-        _currentPhase = 0;
+        me->SetReactState(REACT_AGGRESSIVE);
         _currentSection = 3;
         _moveRight = true;
-        _eruptionScheduler.CancelAll();
     }
 
     void KilledUnit(Unit* who) override
@@ -81,7 +79,6 @@ struct boss_heigan : public BossAI
 
     void JustDied(Unit*  killer) override
     {
-        _eruptionScheduler.CancelAll();
         BossAI::JustDied(killer);
         Talk(EMOTE_DEATH);
     }
@@ -91,81 +88,86 @@ struct boss_heigan : public BossAI
         BossAI::JustEngagedWith(who);
         me->SetInCombatWithZone();
         Talk(SAY_AGGRO);
-        StartFightPhase(PHASE_SLOW_DANCE);
-    }
 
-    void StartFightPhase(uint8 phase)
-    {
         _currentSection = 3;
-        _currentPhase = phase;
-        scheduler.CancelAll();
-        _eruptionScheduler.CancelAll();
-        if (phase == PHASE_SLOW_DANCE)
-        {
-            me->CastStop();
-            me->SetReactState(REACT_AGGRESSIVE);
-            DoZoneInCombat();
-            ScheduleTimedEvent(12s, 15s, [&] {
-                DoCastSelf(SPELL_SPELL_DISRUPTION);
-            }, 10s);
-            ScheduleTimedEvent(17s, [&] {
-                DoCastSelf(SPELL_DECREPIT_FEVER);
-            }, 22s, 25s);
-            _eruptionScheduler.Schedule(15s, [this](TaskContext context){
-                instance->SetData(DATA_HEIGAN_ERUPTION, _currentSection);
-                if (_currentSection == 3)
-                    _moveRight = false;
-                else if (_currentSection == 0)
-                    _moveRight = true;
-
-                _moveRight ? _currentSection++ : _currentSection--;
-                Talk(SAY_TAUNT);
-                context.Repeat(10s);
-            }).Schedule(90s, [this](TaskContext /*context*/) {
-                StartFightPhase(PHASE_FAST_DANCE);
-            });
-        }
-        else // if (phase == PHASE_FAST_DANCE)
-        {
-            Talk(EMOTE_DANCE);
-            Talk(SAY_DANCE);
-            me->AttackStop();
-            me->StopMoving();
-            me->SetReactState(REACT_PASSIVE);
-            me->CastSpell(me, SPELL_TELEPORT_SELF, false);
-            me->SetFacingTo(heiganFastDanceFaceDirection);
-            scheduler.Schedule(1s, [this](TaskContext /*context*/) {
-                DoCastSelf(SPELL_PLAGUE_CLOUD);
-            });
-            _eruptionScheduler.Schedule(7s, [this](TaskContext context){
-                instance->SetData(DATA_HEIGAN_ERUPTION, _currentSection);
-                if (_currentSection == 3)
-                    _moveRight = false;
-                else if (_currentSection == 0)
-                    _moveRight = true;
-
-                _moveRight ? _currentSection++ : _currentSection--;
-                context.Repeat(4s);
-            }).Schedule(45s, [this](TaskContext /*context*/) {
-                StartFightPhase(PHASE_SLOW_DANCE);
-                Talk(EMOTE_DANCE_END); // avoid play the emote on aggro
-            });
-        }
-        ScheduleTimedEvent(5s, [&] {
-            CheckSafetyDance();
-        }, 5s);
+        events.SetPhase(PHASE_FIGHT);
+        events.ScheduleEvent(EVENT_DISRUPTION, randtime(12s, 15s), 0, PHASE_FIGHT);
+        events.ScheduleEvent(EVENT_DECREPIT_FEVER, 17s, 0, PHASE_FIGHT);
+        events.ScheduleEvent(EVENT_DANCE, 90s, 0, PHASE_FIGHT);
+        events.ScheduleEvent(EVENT_ERUPT_SECTION, 15s);
+        events.ScheduleEvent(EVENT_SAFETY_DANCE, 5s);
     }
 
     void UpdateAI(uint32 diff) override
     {
         if (!UpdateVictim())
-        {
             return;
+
+        events.Update(diff);
+
+        while (uint32 eventId = events.ExecuteEvent())
+        {
+            switch (eventId)
+            {
+                case EVENT_DISRUPTION:
+                    DoCastSelf(SPELL_SPELL_DISRUPTION);
+                    events.Repeat(10s);
+                    break;
+                case EVENT_DECREPIT_FEVER:
+                    DoCastSelf(SPELL_DECREPIT_FEVER);
+                    events.Repeat(randtime(22s, 25s));
+                    break;
+                case EVENT_DANCE:
+                    events.SetPhase(PHASE_DANCE);
+                    Talk(SAY_DANCE);
+                    Talk(EMOTE_DANCE);
+                    _currentSection = 3;
+                    me->SetReactState(REACT_PASSIVE);
+                    me->AttackStop();
+                    me->StopMoving();
+                    me->CastSpell(me, SPELL_TELEPORT_SELF, false);
+                    me->SetFacingTo(2.40f);
+                    events.ScheduleEvent(EVENT_PLAGUE_CLOUD, 1s, 0, PHASE_DANCE);
+                    events.ScheduleEvent(EVENT_DANCE_END, 45s, 0, PHASE_DANCE);
+                    events.RescheduleEvent(EVENT_ERUPT_SECTION, 7s);
+                    break;
+                case EVENT_PLAGUE_CLOUD:
+                    DoCastSelf(SPELL_PLAGUE_CLOUD);
+                    break;
+                case EVENT_DANCE_END:
+                    events.SetPhase(PHASE_FIGHT);
+                    Talk(EMOTE_DANCE_END);
+                    _currentSection = 3;
+                    me->CastStop();
+                    me->SetReactState(REACT_AGGRESSIVE);
+                    DoZoneInCombat();
+                    events.ScheduleEvent(EVENT_DISRUPTION, randtime(12s, 15s), 0, PHASE_FIGHT);
+                    events.ScheduleEvent(EVENT_DECREPIT_FEVER, 17s, 0, PHASE_FIGHT);
+                    events.ScheduleEvent(EVENT_DANCE, 90s, 0, PHASE_FIGHT);
+                    events.RescheduleEvent(EVENT_ERUPT_SECTION, 15s);
+                    break;
+                case EVENT_ERUPT_SECTION:
+                    instance->SetData(DATA_HEIGAN_ERUPTION, _currentSection);
+                    if (_currentSection == 3)
+                        _moveRight = false;
+                    else if (_currentSection == 0)
+                        _moveRight = true;
+
+                    _moveRight ? _currentSection++ : _currentSection--;
+                    Talk(SAY_TAUNT);
+                    events.Repeat(events.IsInPhase(PHASE_DANCE) ? 4s : 10s);
+                    break;
+                case EVENT_SAFETY_DANCE:
+                    CheckSafetyDance();
+                    events.Repeat(5s);
+                    break;
+            }
+
+            if (me->HasUnitState(UNIT_STATE_CASTING))
+                return;
         }
 
-        _eruptionScheduler.Update(diff);
-
-        BossAI::UpdateAI(diff);
+        DoMeleeAttackIfReady();
     }
 
     void CheckSafetyDance()
@@ -184,10 +186,8 @@ struct boss_heigan : public BossAI
         }
     }
 private:
-    uint8 _currentPhase{};
-    uint8 _currentSection{};
+    uint8 _currentSection{3};
     bool _moveRight{true};
-    TaskScheduler _eruptionScheduler;
 };
 
 void AddSC_boss_heigan()
