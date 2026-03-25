@@ -1659,7 +1659,7 @@ enum BlessedBanner
     NPC_ARGENT_MASON                    = 30900,
     NPC_REANIMATED_CAPTAIN              = 30986,
     NPC_SCOURGE_DRUDGE                  = 30984,
-    NPC_HIDEOUS_PLAGEBRINGER            = 30987,
+    NPC_HIDEOUS_PLAGUEBRINGER           = 30987,
     NPC_HALOF_THE_DEATHBRINGER          = 30989,
     NPC_LK                              = 31013,
 
@@ -1775,7 +1775,7 @@ public:
         {
             Summons.Summon(Summoned);
             if (Summoned->GetEntry() == NPC_SCOURGE_DRUDGE || Summoned->GetEntry() == NPC_REANIMATED_CAPTAIN ||
-                Summoned->GetEntry() == NPC_HIDEOUS_PLAGEBRINGER || Summoned->GetEntry() == NPC_HALOF_THE_DEATHBRINGER)
+                Summoned->GetEntry() == NPC_HIDEOUS_PLAGUEBRINGER || Summoned->GetEntry() == NPC_HALOF_THE_DEATHBRINGER)
             {
                 Summoned->SetHomePosition(DalforsPos[2]);
                 Summoned->SetReactState(REACT_PASSIVE);
@@ -1940,8 +1940,8 @@ public:
                         DoSummon(NPC_SCOURGE_DRUDGE, Mason3Pos[0]);
                         if (urand(0, 1) == 0)
                         {
-                            DoSummon(NPC_HIDEOUS_PLAGEBRINGER, Mason1Pos[0]);
-                            DoSummon(NPC_HIDEOUS_PLAGEBRINGER, Mason2Pos[0]);
+                            DoSummon(NPC_HIDEOUS_PLAGUEBRINGER, Mason1Pos[0]);
+                            DoSummon(NPC_HIDEOUS_PLAGUEBRINGER, Mason2Pos[0]);
                         }
                         else
                         {
@@ -1983,7 +1983,7 @@ public:
                     if (Halof->isDead())
                     {
                         DoCast(me, SPELL_CRUSADERS_SPIRE_VICTORY, true);
-                        Summons.DespawnEntry(NPC_HIDEOUS_PLAGEBRINGER);
+                        Summons.DespawnEntry(NPC_HIDEOUS_PLAGUEBRINGER);
                         Summons.DespawnEntry(NPC_REANIMATED_CAPTAIN);
                         Summons.DespawnEntry(NPC_SCOURGE_DRUDGE);
                         Summons.DespawnEntry(NPC_HALOF_THE_DEATHBRINGER);
