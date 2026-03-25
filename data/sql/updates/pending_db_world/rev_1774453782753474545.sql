@@ -333,4 +333,3 @@ UPDATE `waypoint_data` SET `smoothTransition` = 1 WHERE `id` IN (2008870, 200960
 
 -- Argent Hippogryph (37968)
 UPDATE `waypoint_data` SET `smoothTransition` = 1 WHERE `id` IN (887940, 887960, 887980, 887990);
-
