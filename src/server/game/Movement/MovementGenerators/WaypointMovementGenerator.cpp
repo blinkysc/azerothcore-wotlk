@@ -187,10 +187,11 @@ void WaypointMovementGenerator<Creature>::ProcessWaypointArrival(Creature* creat
         creature->UpdateCurrentWaypointInfo(0, 0);
 
         if (CreatureAI* AI = creature->AI())
-        {
             AI->PathEndReached(i_path->Id);
+
+        // Re-fetch AI — PathEndReached may have despawned the creature or swapped its AI
+        if (CreatureAI* AI = creature->AI())
             AI->WaypointPathEnded(waypoint.Id, i_path->Id);
-        }
     }
 
     // All hooks called and infos updated. Time to increment the waypoint node id
@@ -426,10 +427,11 @@ bool WaypointMovementGenerator<Creature>::DoUpdate(Creature* creature, uint32 di
                 _smoothSplineLaunched = false;
                 creature->UpdateCurrentWaypointInfo(0, 0);
                 if (CreatureAI* AI = creature->AI())
-                {
                     AI->PathEndReached(i_path->Id);
+
+                // Re-fetch AI — PathEndReached may have despawned the creature or swapped its AI
+                if (CreatureAI* AI = creature->AI())
                     AI->WaypointPathEnded(i_path->Nodes.at(i_currentNode).Id, i_path->Id);
-                }
             }
             else
             {
