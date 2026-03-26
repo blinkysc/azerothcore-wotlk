@@ -141,6 +141,8 @@ public:
     void EndCombatBeyondRange(float range, bool includingPvP = false);
     // flags any pvp refs for suppression on owner's side - these refs will not generate combat until refreshed
     void SuppressPvPCombat();
+    // flags any pve refs for suppression on owner's side - used by feign death in dungeons
+    void SuppressPvECombat();
     void EndAllPvECombat();
     void RevalidateCombat();
     void EndAllPvPCombat();

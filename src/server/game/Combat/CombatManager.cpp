@@ -331,6 +331,15 @@ void CombatManager::SuppressPvPCombat()
             ownerAI->JustExitedCombat();
 }
 
+void CombatManager::SuppressPvECombat()
+{
+    for (auto const& pair : _pveRefs)
+        pair.second->Suppress(_owner);
+    if (UpdateOwnerCombatState())
+        if (UnitAI* ownerAI = _owner->GetAI())
+            ownerAI->JustExitedCombat();
+}
+
 void CombatManager::EndAllPvECombat()
 {
     // cannot have threat without combat

@@ -2990,6 +2990,8 @@ void AuraEffect::HandleFeignDeath(AuraApplication const* aurApp, uint8 mode, boo
         if (target->GetMap()->IsDungeon()) // feign death does not remove combat in dungeons
         {
             target->AttackStop();
+            target->GetCombatManager().SuppressPvECombat();
+            target->GetCombatManager().SuppressPvPCombat(); // edge case: PvP combat in dungeons (e.g. cross-faction mods)
             if (Player* targetPlayer = target->ToPlayer())
                 targetPlayer->SendAttackSwingCancelAttack();
         }
