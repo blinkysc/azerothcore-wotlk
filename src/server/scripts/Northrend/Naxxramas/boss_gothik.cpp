@@ -384,7 +384,7 @@ public:
                 return;
 
             // Safety net: if our victim is on the wrong side, find a
-            // same-side target or open the gate (ported from TrinityCore)
+            // same-side target or open the gate
             if (secondPhase && me->HasReactState(REACT_AGGRESSIVE) && !gateOpened
                 && !IN_LIVE_SIDE(me) != !IN_LIVE_SIDE(me->GetVictim()))
             {
