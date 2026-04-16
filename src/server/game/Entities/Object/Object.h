@@ -29,6 +29,8 @@
 #include "ModelIgnoreFlags.h"
 #include "ObjectDefines.h"
 #include "ObjectGuid.h"
+#include "SharedDefines.h"
+#include "SpellDefines.h"
 #include "Optional.h"
 #include "Position.h"
 #include "UnitDefines.h"
@@ -91,9 +93,18 @@ class Vehicle;
 class CreatureAI;
 class ZoneScript;
 class Unit;
+class Player;
 class Transport;
 class StaticTransport;
 class MotionTransport;
+class Spell;
+class SpellInfo;
+class SpellCastTargets;
+class AuraEffect;
+class Item;
+class CustomSpellValues;
+enum SpellCastResult : uint8;
+enum WeaponAttackType : uint8;
 
 struct PositionFullTerrainStatus;
 
@@ -636,6 +647,69 @@ public:
     Creature*   SummonTrigger(float x, float y, float z, float ang, uint32 dur, bool setLevel = false, CreatureAI * (*GetAI)(Creature*) = nullptr);
     void SummonCreatureGroup(uint8 group, std::list<TempSummon*>* list = nullptr);
     void SummonGameObjectGroup(uint8 group, std::list<GameObject*>* list = nullptr);
+
+    // Owner/charmer helper methods (matches TrinityCore WorldObject API)
+    [[nodiscard]] virtual ObjectGuid GetOwnerGUID() const = 0;
+    [[nodiscard]] virtual ObjectGuid GetCharmerOrOwnerGUID() const { return GetOwnerGUID(); }
+    [[nodiscard]] ObjectGuid GetCharmerOrOwnerOrOwnGUID() const;
+
+    [[nodiscard]] Unit* GetOwner() const;
+    [[nodiscard]] Unit* GetCharmerOrOwner() const;
+    [[nodiscard]] Unit* GetCharmerOrOwnerOrSelf() const;
+    [[nodiscard]] Player* GetCharmerOrOwnerPlayerOrPlayerItself() const;
+    [[nodiscard]] Player* GetAffectingPlayer() const;
+    [[nodiscard]] Player* GetSpellModOwner() const;
+
+    // Faction methods
+    [[nodiscard]] virtual uint32 GetFaction() const = 0;
+    virtual void SetFaction(uint32 /*faction*/) { }
+    [[nodiscard]] FactionTemplateEntry const* GetFactionTemplateEntry() const;
+    ReputationRank GetReactionTo(WorldObject const* target, bool checkOriginalFaction = false) const;
+    static ReputationRank GetFactionReactionTo(FactionTemplateEntry const* factionTemplateEntry, WorldObject const* target);
+    bool IsHostileTo(WorldObject const* target) const;
+    bool IsFriendlyTo(WorldObject const* target) const;
+    [[nodiscard]] bool IsHostileToPlayers() const;
+    [[nodiscard]] bool IsNeutralToAll() const;
+
+    // Unified spell casting API (matches TrinityCore pattern)
+    SpellCastResult CastSpell(CastSpellTargetArg const& targets, uint32 spellId, CastSpellExtraArgs const& args = {});
+
+    // Legacy spell casting overloads (backward compatibility)
+    SpellCastResult CastSpell(SpellCastTargets const& targets, SpellInfo const* spellInfo, CustomSpellValues const* value, TriggerCastFlags triggerFlags = TRIGGERED_NONE, Item* castItem = nullptr, AuraEffect const* triggeredByAura = nullptr, ObjectGuid originalCaster = ObjectGuid::Empty);
+    SpellCastResult CastSpell(Unit* victim, uint32 spellId, bool triggered, Item* castItem = nullptr, AuraEffect const* triggeredByAura = nullptr, ObjectGuid originalCaster = ObjectGuid::Empty);
+    SpellCastResult CastSpell(Unit* victim, uint32 spellId, TriggerCastFlags triggerFlags = TRIGGERED_NONE, Item* castItem = nullptr, AuraEffect const* triggeredByAura = nullptr, ObjectGuid originalCaster = ObjectGuid::Empty);
+    SpellCastResult CastSpell(Unit* victim, SpellInfo const* spellInfo, bool triggered, Item* castItem = nullptr, AuraEffect const* triggeredByAura = nullptr, ObjectGuid originalCaster = ObjectGuid::Empty);
+    SpellCastResult CastSpell(Unit* victim, SpellInfo const* spellInfo, TriggerCastFlags triggerFlags = TRIGGERED_NONE, Item* castItem = nullptr, AuraEffect const* triggeredByAura = nullptr, ObjectGuid originalCaster = ObjectGuid::Empty);
+    SpellCastResult CastSpell(float x, float y, float z, uint32 spellId, bool triggered, Item* castItem = nullptr, AuraEffect const* triggeredByAura = nullptr, ObjectGuid originalCaster = ObjectGuid::Empty);
+    SpellCastResult CastSpell(GameObject* go, uint32 spellId, bool triggered, Item* castItem = nullptr, AuraEffect* triggeredByAura = nullptr, ObjectGuid originalCaster = ObjectGuid::Empty);
+    SpellCastResult CastCustomSpell(Unit* victim, uint32 spellId, int32 const* bp0, int32 const* bp1, int32 const* bp2, bool triggered, Item* castItem = nullptr, AuraEffect const* triggeredByAura = nullptr, ObjectGuid originalCaster = ObjectGuid::Empty);
+    SpellCastResult CastCustomSpell(uint32 spellId, SpellValueMod mod, int32 value, Unit* victim, bool triggered, Item* castItem = nullptr, AuraEffect const* triggeredByAura = nullptr, ObjectGuid originalCaster = ObjectGuid::Empty);
+    SpellCastResult CastCustomSpell(uint32 spellId, SpellValueMod mod, int32 value, Unit* victim = nullptr, TriggerCastFlags triggerFlags = TRIGGERED_NONE, Item* castItem = nullptr, AuraEffect const* triggeredByAura = nullptr, ObjectGuid originalCaster = ObjectGuid::Empty);
+    SpellCastResult CastCustomSpell(uint32 spellId, CustomSpellValues const& value, Unit* victim = nullptr, TriggerCastFlags triggerFlags = TRIGGERED_NONE, Item* castItem = nullptr, AuraEffect const* triggeredByAura = nullptr, ObjectGuid originalCaster = ObjectGuid::Empty);
+    SpellCastResult CastCustomSpell(SpellInfo const* spellInfo, CustomSpellValues const& value, Unit* victim = nullptr, TriggerCastFlags triggerFlags = TRIGGERED_NONE, Item* castItem = nullptr, AuraEffect const* triggeredByAura = nullptr, ObjectGuid originalCaster = ObjectGuid::Empty);
+
+    // Spell calculation methods (WorldObject level for all caster types including GameObjects)
+    [[nodiscard]] float ApplyEffectModifiers(SpellInfo const* spellProto, uint8 effect_index, float value) const;
+    [[nodiscard]] int32 CalculateSpellDamage(Unit const* target, SpellInfo const* spellProto, uint8 effect_index, int32 const* basePoints = nullptr) const;
+    [[nodiscard]] int32 CalcSpellDuration(SpellInfo const* spellProto) const;
+    int32 ModSpellDuration(SpellInfo const* spellProto, WorldObject const* target, int32 duration, bool positive, uint32 effectMask) const;
+    virtual void ModSpellCastTime(SpellInfo const* spellInfo, int32& castTime, Spell* spell = nullptr) const;
+    [[nodiscard]] float GetSpellMaxRangeForTarget(Unit const* target, SpellInfo const* spellInfo) const;
+    [[nodiscard]] float GetSpellMinRangeForTarget(Unit const* target, SpellInfo const* spellInfo) const;
+
+    // Target validation
+    bool IsValidAttackTarget(Unit const* target, SpellInfo const* bySpell = nullptr) const;
+    bool _IsValidAttackTarget(Unit const* target, SpellInfo const* bySpell, WorldObject const* obj = nullptr) const;
+    bool IsValidAssistTarget(Unit const* target, SpellInfo const* bySpell = nullptr) const;
+    bool _IsValidAssistTarget(Unit const* target, SpellInfo const* bySpell) const;
+
+    // Spell hit result methods
+    [[nodiscard]] virtual float MeleeSpellMissChance(Unit const* victim, WeaponAttackType attType, int32 skillDiff, uint32 spellId) const;
+    [[nodiscard]] virtual SpellMissInfo MeleeSpellHitResult(Unit* victim, SpellInfo const* spellInfo) const;
+    [[nodiscard]] SpellMissInfo MagicSpellHitResult(Unit* victim, SpellInfo const* spellInfo) const;
+    [[nodiscard]] SpellMissInfo SpellHitResult(Unit* victim, SpellInfo const* spell, bool canReflect = false) const;
+    [[nodiscard]] SpellMissInfo SpellHitResult(Unit* victim, Spell const* spell, bool canReflect = false) const;
+    void SendSpellMiss(Unit* target, uint32 spellID, SpellMissInfo missInfo);
 
     [[nodiscard]] Creature*   FindNearestCreature(uint32 entry, float range, bool alive = true) const;
     [[nodiscard]] GameObject* FindNearestGameObject(uint32 entry, float range, bool onlySpawned = false) const;

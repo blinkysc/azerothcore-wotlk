@@ -16,6 +16,8 @@
  */
 
 #include "SpellScript.h"
+#include "GameObject.h"
+#include "ObjectAccessor.h"
 #include "Spell.h"
 #include "SpellAuras.h"
 #include "SpellMgr.h"
@@ -400,7 +402,17 @@ bool SpellScript::IsInEffectHook() const
 
 Unit* SpellScript::GetCaster()
 {
+    return m_spell->GetCaster()->ToUnit();
+}
+
+WorldObject* SpellScript::GetCastingObject()
+{
     return m_spell->GetCaster();
+}
+
+GameObject* SpellScript::GetGObjCaster()
+{
+    return m_spell->GetCaster()->ToGameObject();
 }
 
 Unit* SpellScript::GetOriginalCaster()
@@ -1035,6 +1047,13 @@ ObjectGuid AuraScript::GetCasterGUID() const
 Unit* AuraScript::GetCaster() const
 {
     return m_aura->GetCaster();
+}
+
+GameObject* AuraScript::GetGObjCaster() const
+{
+    if (WorldObject* caster = ObjectAccessor::GetWorldObject(*m_aura->GetOwner(), m_aura->GetCasterGUID()))
+        return caster->ToGameObject();
+    return nullptr;
 }
 
 WorldObject* AuraScript::GetOwner() const

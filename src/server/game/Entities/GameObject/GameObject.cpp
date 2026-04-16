@@ -795,8 +795,10 @@ void GameObject::Update(uint32 diff)
                         }
                         else if (Unit* target = ObjectAccessor::GetUnit(*this, _lootStateUnitGUID))
                         {
+                            CastSpellExtraArgs args;
+                            args.SetOriginalCaster(GetOwnerGUID());
                             if (goInfo->trap.spellId)
-                                CastSpell(target, goInfo->trap.spellId);
+                                CastSpell(target, goInfo->trap.spellId, args);
 
                             m_cooldownTime = GameTime::GetGameTimeMS().count() + (goInfo->trap.cooldown ? goInfo->trap.cooldown : uint32(4)) * IN_MILLISECONDS; // template or 4 seconds
 
@@ -1121,11 +1123,6 @@ bool GameObject::LoadGameObjectFromDB(ObjectGuid::LowType spawnId, Map* map, boo
     m_goData = data;
     m_spawnId = spawnId;
 
-    // Set respawn compatibility mode based on spawn group flags
-    SpawnGroupTemplateData const* groupData = sObjectMgr->GetSpawnGroupData(data->spawnGroupId);
-    _respawnCompatibilityMode = sWorld->getBoolConfig(CONFIG_RESPAWN_FORCE_COMPATIBILITY_MODE)
-        || !groupData || (groupData->flags & SPAWNGROUP_FLAG_COMPATIBILITY_MODE);
-
     if (!Create(map->GenerateLowGuid<HighGuid::GameObject>(), entry, map, phaseMask, x, y, z, ang, data->rotation, animprogress, go_state, artKit))
         return false;
 
@@ -1214,11 +1211,6 @@ bool GameObject::IsDestructibleBuilding() const
     GameObjectTemplate const* gInfo = GetGOInfo();
     if (!gInfo) return false;
     return gInfo->type == GAMEOBJECT_TYPE_DESTRUCTIBLE_BUILDING;
-}
-
-Unit* GameObject::GetOwner() const
-{
-    return ObjectAccessor::GetUnit(*this, GetOwnerGUID());
 }
 
 void GameObject::SaveRespawnTime(uint32 forceDelay)
@@ -1518,8 +1510,10 @@ void GameObject::Use(Unit* user)
         case GAMEOBJECT_TYPE_TRAP:                          //6
             {
                 GameObjectTemplate const* goInfo = GetGOInfo();
+                CastSpellExtraArgs args;
+                args.SetOriginalCaster(GetOwnerGUID());
                 if (goInfo->trap.spellId)
-                    CastSpell(user, goInfo->trap.spellId);
+                    CastSpell(user, goInfo->trap.spellId, args);
 
                 m_cooldownTime = GameTime::GetGameTimeMS().count() + (goInfo->trap.cooldown ? goInfo->trap.cooldown :  uint32(4)) * IN_MILLISECONDS; // template or 4 seconds
 
@@ -2071,71 +2065,9 @@ void GameObject::Use(Unit* user)
             AddUse();
     }
     else
-        CastSpell(user, spellId);
-}
-
-void GameObject::CastSpell(Unit* target, uint32 spellId)
-{
-    SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spellId);
-    if (!spellInfo)
-        return;
-
-    bool self = true;
-    for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
     {
-        if (spellInfo->Effects[i].TargetA.GetReferenceType() != TARGET_REFERENCE_TYPE_CASTER || spellInfo->Effects[i].TargetB.GetTarget())
-        {
-            self = false;
-            break;
-        }
-    }
-
-    if (self && target && target->GetGUID() != GetGUID())
-    {
-        target->CastSpell(target, spellInfo, true);
-        return;
-    }
-
-    //summon world trigger
-    Creature* trigger = SummonTrigger(GetPositionX(), GetPositionY(), GetPositionZ(), 0, spellInfo->CalcCastTime() + 2000, true);
-    if (!trigger)
-        return;
-
-    if (Unit* owner = GetOwner())
-    {
-        trigger->SetLevel(owner->GetLevel(), false);
-        trigger->SetFaction(owner->GetFaction());
-        // needed for GO casts for proper target validation checks
-        trigger->SetOwnerGUID(owner->GetGUID());
-        // xinef: fixes some duel bugs with traps]
-        if (owner->HasUnitFlag(UNIT_FLAG_PLAYER_CONTROLLED))
-            trigger->SetUnitFlag(UNIT_FLAG_PLAYER_CONTROLLED);
-        if (owner->IsFFAPvP())
-        {
-            if (!trigger->HasByteFlag(UNIT_FIELD_BYTES_2, 1, UNIT_BYTE2_FLAG_FFA_PVP))
-            {
-                sScriptMgr->OnFfaPvpStateUpdate(trigger, true);
-                trigger->SetByteFlag(UNIT_FIELD_BYTES_2, 1, UNIT_BYTE2_FLAG_FFA_PVP);
-            }
-
-        }
-        // xinef: Remove Immunity flags
-        trigger->SetImmuneToNPC(false);
-        // xinef: set proper orientation, fixes cast against stealthed targets
-        if (target)
-            trigger->SetInFront(target);
-        trigger->CastSpell(target ? target : trigger, spellInfo, true, 0, 0, owner->GetGUID());
-    }
-    else
-    {
-        // xinef: set faction of gameobject, if no faction - assume hostile
-        trigger->SetFaction(GetTemplateAddon() && GetTemplateAddon()->faction ? GetTemplateAddon()->faction : 14);
-        // Set owner guid for target if no owner availble - needed by trigger auras
-        // - trigger gets despawned and there's no caster avalible (see AuraEffect::TriggerSpell())
-        // xinef: set proper orientation, fixes cast against stealthed targets
-        if (target)
-            trigger->SetInFront(target);
-        trigger->CastSpell(target ? target : trigger, spellInfo, true, 0, 0, target ? target->GetGUID() : ObjectGuid::Empty);
+        Unit* owner = GetOwner();
+        CastSpell(user, spellId, true, nullptr, nullptr, owner ? owner->GetGUID() : ObjectGuid::Empty);
     }
 }
 

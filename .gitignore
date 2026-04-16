@@ -21,6 +21,11 @@
 /apps/joiner
 /deps/deno
 /data/sql/custom/*
+/data/Cameras/
+/data/dbc/
+/data/maps/
+/data/mmaps/
+/data/vmaps/
 /src/server/scripts/Custom/*
 !/src/server/scripts/Custom/README.md
 

@@ -384,6 +384,8 @@ public:
     //
     // methods useable during all spell handling phases
     Unit* GetCaster();
+    WorldObject* GetCastingObject();
+    GameObject* GetGObjCaster();
     Unit* GetOriginalCaster();
     SpellInfo const* GetSpellInfo();
     SpellValue const* GetSpellValue();
@@ -880,6 +882,8 @@ public:
     ObjectGuid GetCasterGUID() const;
     // returns unit which casted the aura or nullptr if not avalible (caster logged out for example)
     Unit* GetCaster() const;
+    // returns gameobject which casted the aura or nullptr
+    GameObject* GetGObjCaster() const;
     // returns object on which aura was casted, target for non-area auras, area aura source for area auras
     WorldObject* GetOwner() const;
     // returns owner if it's unit or unit derived object, nullptr otherwise (only for persistent area auras nullptr is returned)

@@ -927,7 +927,7 @@ class spell_warl_demonic_circle_teleport : public AuraScript
             if (GameObject* circle = player->GetGameObject(SPELL_WARLOCK_DEMONIC_CIRCLE_SUMMON))
             {
                 player->NearTeleportTo(circle->GetPositionX(), circle->GetPositionY(), circle->GetPositionZ(), circle->GetOrientation(), false, false, false, true);
-                player->RemoveAurasWithMechanic(1ULL << MECHANIC_SNARE);
+                player->RemoveAurasWithMechanic(1 << MECHANIC_SNARE);
             }
         }
     }
@@ -1037,7 +1037,9 @@ class spell_warl_unstable_affliction : public AuraScript
                 int32 damage = aurEff->GetBaseAmount();
                 damage = aurEff->GetSpellInfo()->Effects[EFFECT_0].CalcValue(caster, &damage, nullptr) * 9;
                 // backfire damage and silence
-                caster->CastCustomSpell(dispelInfo->GetDispeller(), SPELL_WARLOCK_UNSTABLE_AFFLICTION_DISPEL, &damage, nullptr, nullptr, true, nullptr, aurEff);
+                CastSpellExtraArgs args(aurEff);
+                args.AddSpellMod(SPELLVALUE_BASE_POINT0, damage);
+                caster->CastSpell(dispelInfo->GetDispeller(), SPELL_WARLOCK_UNSTABLE_AFFLICTION_DISPEL, args);
             }
     }
 

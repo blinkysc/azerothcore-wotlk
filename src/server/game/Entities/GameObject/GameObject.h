@@ -151,6 +151,10 @@ public:
     [[nodiscard]] int64 GetPackedWorldRotation() const { return m_packedRotation; }
     [[nodiscard]] G3D::Quat GetFinalWorldRotation() const;
 
+    // Faction overrides
+    [[nodiscard]] uint32 GetFaction() const override { return GetUInt32Value(GAMEOBJECT_FACTION); }
+    void SetFaction(uint32 faction) override { SetUInt32Value(GAMEOBJECT_FACTION, faction); }
+
     // overwrite WorldObject function for proper name localization
     [[nodiscard]] std::string const& GetNameForLocaleIdx(LocaleConstant locale_idx) const override;
 
@@ -158,7 +162,6 @@ public:
     void SaveToDB(uint32 mapid, uint8 spawnMask, uint32 phaseMask, bool saveAddon = false);
     virtual bool LoadFromDB(ObjectGuid::LowType guid, Map* map) { return LoadGameObjectFromDB(guid, map, false); }
     virtual bool LoadGameObjectFromDB(ObjectGuid::LowType guid, Map* map, bool addToMap = true);
-    [[nodiscard]] bool IsRespawnCompatibilityMode() const { return _respawnCompatibilityMode; }
     void DeleteFromDB();
 
     void SetOwnerGUID(ObjectGuid owner)
@@ -171,8 +174,7 @@ public:
         m_spawnedByDefault = false;                     // all object with owner is despawned after delay
         SetGuidValue(OBJECT_FIELD_CREATED_BY, owner);
     }
-    [[nodiscard]] ObjectGuid GetOwnerGUID() const { return GetGuidValue(OBJECT_FIELD_CREATED_BY); }
-    [[nodiscard]] Unit* GetOwner() const;
+    [[nodiscard]] ObjectGuid GetOwnerGUID() const override { return GetGuidValue(OBJECT_FIELD_CREATED_BY); }
 
     void SetSpellId(uint32 id)
     {
@@ -283,7 +285,6 @@ public:
 
     GameObject* LookupFishingHoleAround(float range);
 
-    void CastSpell(Unit* target, uint32 spell);
     void SendCustomAnim(uint32 anim);
     bool IsInRange2d(float x, float y, float radius) const;
     bool IsInRange3d(float x, float y, float z, float radius) const;
@@ -370,7 +371,6 @@ protected:
     bool AIM_Initialize();
     GameObjectModel* CreateModel();
     void UpdateModel();                                 // updates model in case displayId were changed
-    bool        _respawnCompatibilityMode{true};
     uint32      m_spellId;
     time_t      m_respawnTime;                          // (secs) time of next respawn (or despawn if GO have owner()),
     uint32      m_respawnDelayTime;                     // (secs) if 0 then current GO state no dependent from timer
