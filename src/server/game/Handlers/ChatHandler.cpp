@@ -202,8 +202,8 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recvData)
             lang = LANG_UNIVERSAL;
         else
         {
-            // send in universal language in two side iteration allowed mode
-            if (sWorld->getBoolConfig(CONFIG_ALLOW_TWO_SIDE_INTERACTION_CHAT))
+            // send in universal language for players with the cross-faction chat permission
+            if (HasPermission(rbac::RBAC_PERM_TWO_SIDE_INTERACTION_CHAT))
                 lang = LANG_UNIVERSAL;
             else
             {
@@ -398,7 +398,7 @@ void WorldSession::HandleMessagechatOpcode(WorldPacket& recvData)
                     return;
                 }
 
-                if (!sWorld->getBoolConfig(CONFIG_ALLOW_TWO_SIDE_INTERACTION_CHAT) && senderIsPlayer && receiverIsPlayer)
+                if (senderIsPlayer && receiverIsPlayer)
                     if (GetPlayer()->GetTeamId() != receiver->GetTeamId())
                     {
                         SendWrongFactionNotice();
