@@ -1039,7 +1039,16 @@ void SmartScript::ProcessAction(SmartScriptHolder& e, Unit* unit, uint32 var0, u
             if (!me)
                 break;
 
+            // Suppress evade during script-initiated combat stop so
+            // JustExitedCombat does not trigger EnterEvadeMode.
+            if (SmartAI* sai = CAST_AI(SmartAI, me->AI()))
+                sai->SetSuppressEvade(true);
+
             me->CombatStop(true);
+
+            if (SmartAI* sai = CAST_AI(SmartAI, me->AI()))
+                sai->SetSuppressEvade(false);
+
             break;
         }
         case SMART_ACTION_CALL_GROUPEVENTHAPPENS:
@@ -2959,6 +2968,27 @@ void SmartScript::ProcessAction(SmartScriptHolder& e, Unit* unit, uint32 var0, u
             }
             break;
         }
+        case SMART_ACTION_SPAWN_SPAWNGROUP:
+        {
+            WorldObject* obj = GetBaseObject();
+            if (!obj)
+                break;
+
+            obj->GetMap()->SpawnGroupSpawn(e.action.groupSpawn.groupId,
+                e.action.groupSpawn.ignoreRespawn != 0,
+                e.action.groupSpawn.force != 0);
+            break;
+        }
+        case SMART_ACTION_DESPAWN_SPAWNGROUP:
+        {
+            WorldObject* obj = GetBaseObject();
+            if (!obj)
+                break;
+
+            obj->GetMap()->SpawnGroupDespawn(e.action.groupSpawn.groupId,
+                e.action.groupSpawn.ignoreRespawn != 0); // reuse ignoreRespawn as deleteRespawnTimes
+            break;
+        }
         case SMART_ACTION_SET_GUID:
         {
             for (WorldObject* target : targets)
@@ -3052,9 +3082,9 @@ void SmartScript::ProcessAction(SmartScriptHolder& e, Unit* unit, uint32 var0, u
             for (WorldObject* target : targets)
             {
                 if (IsUnit(target))
-                {
                     target->ToUnit()->SetObjectScale(scale);
-                }
+                else if (IsGameObject(target))
+                    target->ToGameObject()->SetObjectScale(scale);
             }
             break;
         }

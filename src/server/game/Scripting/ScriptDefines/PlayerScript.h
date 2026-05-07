@@ -216,6 +216,8 @@ enum PlayerHook
     PLAYERHOOK_ON_SEND_LIST_INVENTORY,
     PLAYERHOOK_ON_GIVE_REPUTATION,
     PLAYERHOOK_ON_GET_REPUTATION_PRICE_DISCOUNT,
+    PLAYERHOOK_ON_LEARN_TAXI_NODE,
+    PLAYERHOOK_ON_BEFORE_GET_LEVEL_FOR_XP_GAIN,
     PLAYERHOOK_END
 };
 
@@ -633,7 +635,7 @@ public:
 
     virtual void OnPlayerSetServerSideVisibilityDetect(Player* /*player*/, ServerSideVisibilityType& /*type*/, AccountTypes& /*sec*/) { }
 
-    virtual void OnPlayerResurrect(Player* /*player*/, float /*restore_percent*/, bool /*applySickness*/) { }
+    virtual void OnPlayerResurrect(Player* /*player*/, float /*restore_percent*/, bool& /*applySickness*/) { }
 
     // Called before selecting the graveyard when releasing spirit
     virtual void OnPlayerBeforeChooseGraveyard(Player* /*player*/, TeamId /*teamId*/, bool /*nearCorpse*/, uint32& /*graveyardOverride*/) { }
@@ -827,6 +829,22 @@ public:
      * @param discount Float value of the discount, as a multiplier of the base price
      */
     virtual void OnPlayerGetReputationPriceDiscount(Player const* /*player*/, FactionTemplateEntry const* /*factionTemplate*/, float& /*discount*/) {}
+
+    /**
+     * @brief This hook is called when a player learns a new flight path node.
+     *
+     * @param player Contains information about the Player
+     * @param nodeId The id of the learned taxi node
+     */
+    virtual void OnPlayerLearnTaxiNode(Player const* /*player*/, uint32 /*nodeId*/) {}
+
+    /**
+     * @brief This hook is called when XP is calculated for the player, and is used to modify the player level used in the XP formulas.
+     *
+     * @param player Contains information about the Player
+     * @param level The level that should be used for XP gain calculations
+     */
+    virtual void OnPlayerBeforeGetLevelForXPGain(Player const* /*player*/, uint8& /*level*/) {}
 };
 
 #endif
