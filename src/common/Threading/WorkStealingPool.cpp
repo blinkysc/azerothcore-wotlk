@@ -93,15 +93,14 @@ void WorkStealingPool::Activate()
 
 void WorkStealingPool::Deactivate()
 {
-    if (!_active.exchange(false, std::memory_order_acq_rel))
-        return; // Already inactive
-
-    // Signal workers to stop
-    _stopping.store(true, std::memory_order_release);
-
-    // Wake all workers
+    // Hold _wakeMutex across the exchange so a Submit cannot pass its
+    // active-check and land a task in a queue we're about to clear.
     {
         std::lock_guard<std::mutex> lock(_wakeMutex);
+        if (!_active.exchange(false, std::memory_order_acq_rel))
+            return; // Already inactive
+
+        _stopping.store(true, std::memory_order_release);
         _wakeCondition.notify_all();
     }
 
@@ -118,6 +117,9 @@ void WorkStealingPool::Deactivate()
 
 void WorkStealingPool::Submit(Task task)
 {
+    // Take _wakeMutex before checking _active so we cannot race with
+    // Deactivate's exchange + queue clear.
+    std::lock_guard<std::mutex> lock(_wakeMutex);
     if (!_active.load(std::memory_order_acquire))
         return;
 
@@ -127,16 +129,16 @@ void WorkStealingPool::Submit(Task task)
     _pendingTasks.fetch_add(1, std::memory_order_release);
     _queues[queueIndex]->Push(std::move(task));
 
-    // Wake a worker
-    {
-        std::lock_guard<std::mutex> lock(_wakeMutex);
-        _wakeCondition.notify_one();
-    }
+    _wakeCondition.notify_one();
 }
 
 void WorkStealingPool::SubmitBatch(std::vector<Task>& tasks)
 {
-    if (!_active.load(std::memory_order_acquire) || tasks.empty())
+    if (tasks.empty())
+        return;
+
+    std::lock_guard<std::mutex> lock(_wakeMutex);
+    if (!_active.load(std::memory_order_acquire))
         return;
 
     std::size_t tasksPerQueue = (tasks.size() + _numThreads - 1) / _numThreads;
@@ -152,11 +154,7 @@ void WorkStealingPool::SubmitBatch(std::vector<Task>& tasks)
             _queues[q]->Push(std::move(tasks[taskIndex]));
     }
 
-    // Wake all workers for batch
-    {
-        std::lock_guard<std::mutex> lock(_wakeMutex);
-        _wakeCondition.notify_all();
-    }
+    _wakeCondition.notify_all();
 }
 
 void WorkStealingPool::WaitForAll()

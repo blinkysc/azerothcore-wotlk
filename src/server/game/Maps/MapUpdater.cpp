@@ -205,11 +205,11 @@ void MapUpdater::update_finished()
     if (_useWorkStealing)
     {
         // Work-stealing pool handles completion tracking internally
-        pending_requests.fetch_sub(1, std::memory_order_acquire);
+        pending_requests.fetch_sub(1, std::memory_order_release);
     }
     else
     {
-        if (pending_requests.fetch_sub(1, std::memory_order_acquire) == 1)
+        if (pending_requests.fetch_sub(1, std::memory_order_release) == 1)
         {
             std::lock_guard<std::mutex> lock(_lock);
             _condition.notify_all();
