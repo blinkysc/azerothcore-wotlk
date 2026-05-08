@@ -951,6 +951,13 @@ class spell_mage_fingers_of_frost : public AuraScript
 {
     PrepareAuraScript(spell_mage_fingers_of_frost);
 
+    // Brief delay before AURASTATE aura is dropped after the last charge is
+    // consumed. Reproduces the retail "ghost charge" window that came from
+    // client-server latency: an instant follow-up cast (Deep Freeze, Ice
+    // Lance, Brain Freeze combo) chained off the consuming spell still
+    // benefits from FoF.
+    static constexpr Milliseconds GHOST_CHARGE_GRACE = 400ms;
+
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
         return ValidateSpellInfo({ SPELL_MAGE_FINGERS_OF_FROST_AURASTATE_AURA });
@@ -979,7 +986,8 @@ class spell_mage_fingers_of_frost : public AuraScript
 
     void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
     {
-        GetTarget()->RemoveAurasDueToSpell(SPELL_MAGE_FINGERS_OF_FROST_AURASTATE_AURA);
+        if (Aura* aurastate = GetTarget()->GetAura(SPELL_MAGE_FINGERS_OF_FROST_AURASTATE_AURA))
+            aurastate->SetDuration(GHOST_CHARGE_GRACE.count());
     }
 
     void Register() override
