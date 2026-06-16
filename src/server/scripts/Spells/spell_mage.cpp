@@ -1042,6 +1042,15 @@ class spell_mage_combustion : public AuraScript
 
     bool CheckProc(ProcEventInfo& eventInfo)
     {
+        // Ignore fire damage from reactive shields (e.g. Molten Armor), which
+        // is cast from a proc-trigger aura. Fire the mage triggers by other
+        // means (e.g. Living Bomb's explosion) still counts.
+        if (Spell const* procSpell = eventInfo.GetProcSpell())
+            if (SpellInfo const* triggeredBy = procSpell->GetTriggeredByAuraSpellInfo())
+                if (triggeredBy->HasAura(SPELL_AURA_PROC_TRIGGER_SPELL) ||
+                    triggeredBy->HasAura(SPELL_AURA_PROC_TRIGGER_DAMAGE))
+                    return false;
+
         // Do not take charges, add a stack of crit buff
         if (!(eventInfo.GetHitMask() & PROC_HIT_CRITICAL))
         {
