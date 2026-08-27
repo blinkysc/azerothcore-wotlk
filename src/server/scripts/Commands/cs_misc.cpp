@@ -24,6 +24,7 @@
 #include "CommandScript.h"
 #include "Common.h"
 #include "GameGraveyard.h"
+#include "GameObject.h"
 #include "GameTime.h"
 #include "GridNotifiers.h"
 #include "GridTerrainLoader.h"
@@ -59,49 +60,6 @@
 
 constexpr auto SPELL_STUCK = 7355;
 constexpr auto SPELL_FREEZE = 9454;
-
-struct AccountFlagText
-{
-    AccountFlag flag;
-    std::string text;
-};
-
-AccountFlagText const accountFlagText[MAX_ACCOUNT_FLAG] =
-{
-    { ACCOUNT_FLAG_GM, "ACCOUNT_FLAG_GM" },
-    { ACCOUNT_FLAG_NOKICK, "ACCOUNT_FLAG_NOKICK" },
-    { ACCOUNT_FLAG_COLLECTOR, "ACCOUNT_FLAG_COLLECTOR" },
-    { ACCOUNT_FLAG_TRIAL, "ACCOUNT_FLAG_TRIAL" },
-    { ACCOUNT_FLAG_CANCELLED, "ACCOUNT_FLAG_CANCELLED" },
-    { ACCOUNT_FLAG_IGR, "ACCOUNT_FLAG_IGR" },
-    { ACCOUNT_FLAG_WHOLESALER, "ACCOUNT_FLAG_WHOLESALER" },
-    { ACCOUNT_FLAG_PRIVILEGED, "ACCOUNT_FLAG_PRIVILEGED" },
-    { ACCOUNT_FLAG_EU_FORBID_ELV, "ACCOUNT_FLAG_EU_FORBID_ELV" },
-    { ACCOUNT_FLAG_EU_FORBID_BILLING, "ACCOUNT_FLAG_EU_FORBID_BILLING" },
-    { ACCOUNT_FLAG_RESTRICTED, "ACCOUNT_FLAG_RESTRICTED" },
-    { ACCOUNT_FLAG_REFERRAL, "ACCOUNT_FLAG_REFERRAL" },
-    { ACCOUNT_FLAG_BLIZZARD, "ACCOUNT_FLAG_BLIZZARD" },
-    { ACCOUNT_FLAG_RECURRING_BILLING, "ACCOUNT_FLAG_RECURRING_BILLING" },
-    { ACCOUNT_FLAG_NOELECTUP, "ACCOUNT_FLAG_NOELECTUP" },
-    { ACCOUNT_FLAG_KR_CERTIFICATE, "ACCOUNT_FLAG_KR_CERTIFICATE" },
-    { ACCOUNT_FLAG_EXPANSION_COLLECTOR, "ACCOUNT_FLAG_EXPANSION_COLLECTOR" },
-    { ACCOUNT_FLAG_DISABLE_VOICE, "ACCOUNT_FLAG_DISABLE_VOICE" },
-    { ACCOUNT_FLAG_DISABLE_VOICE_SPEAK, "ACCOUNT_FLAG_DISABLE_VOICE_SPEAK" },
-    { ACCOUNT_FLAG_REFERRAL_RESURRECT, "ACCOUNT_FLAG_REFERRAL_RESURRECT" },
-    { ACCOUNT_FLAG_EU_FORBID_CC, "ACCOUNT_FLAG_EU_FORBID_CC" },
-    { ACCOUNT_FLAG_OPENBETA_DELL, "ACCOUNT_FLAG_OPENBETA_DELL" },
-    { ACCOUNT_FLAG_PROPASS, "ACCOUNT_FLAG_PROPASS" },
-    { ACCOUNT_FLAG_PROPASS_LOCK, "ACCOUNT_FLAG_PROPASS_LOCK" },
-    { ACCOUNT_FLAG_PENDING_UPGRADE, "ACCOUNT_FLAG_PENDING_UPGRADE" },
-    { ACCOUNT_FLAG_RETAIL_FROM_TRIAL, "ACCOUNT_FLAG_RETAIL_FROM_TRIAL" },
-    { ACCOUNT_FLAG_EXPANSION2_COLLECTOR, "ACCOUNT_FLAG_EXPANSION2_COLLECTOR" },
-    { ACCOUNT_FLAG_OVERMIND_LINKED, "ACCOUNT_FLAG_OVERMIND_LINKED" },
-    { ACCOUNT_FLAG_DEMOS, "ACCOUNT_FLAG_DEMOS" },
-    { ACCOUNT_FLAG_DEATH_KNIGHT_OK, "ACCOUNT_FLAG_DEATH_KNIGHT_OK" },
-    { ACCOUNT_FLAG_S2_REQUIRE_IGR, "ACCOUNT_FLAG_S2_REQUIRE_IGR" },
-    { ACCOUNT_FLAG_S2_TRIAL, "ACCOUNT_FLAG_S2_TRIAL" },
-    // { ACCOUNT_FLAG_S2_RESTRICTED, "ACCOUNT_FLAG_S2_RESTRICTED" }
-};
 
 std::string const GetLocalizeCreatureName(Creature* creature, LocaleConstant locale)
 {
@@ -177,6 +135,10 @@ public:
             { "pinfo",             HandlePInfoCommand,             rbac::RBAC_PERM_COMMAND_PINFO,             Console::Yes },
             { "respawn",           HandleRespawnCommand,           rbac::RBAC_PERM_COMMAND_RESPAWN,           Console::No  },
             { "respawn all",       HandleRespawnAllCommand,        rbac::RBAC_PERM_COMMAND_RESPAWN_ALL,       Console::No  },
+            { "respawn creature guid",    HandleRespawnCreatureByGuidCommand,    rbac::RBAC_PERM_COMMAND_RESPAWN_CREATURE_GUID,    Console::Yes },
+            { "respawn gameobject guid",  HandleRespawnGameObjectByGuidCommand,  rbac::RBAC_PERM_COMMAND_RESPAWN_GAMEOBJECT_GUID,  Console::Yes },
+            { "respawn creature entry",   HandleRespawnCreatureByEntryCommand,   rbac::RBAC_PERM_COMMAND_RESPAWN_CREATURE_ENTRY,   Console::Yes },
+            { "respawn gameobject entry", HandleRespawnGameObjectByEntryCommand, rbac::RBAC_PERM_COMMAND_RESPAWN_GAMEOBJECT_ENTRY, Console::Yes },
             { "mute",              HandleMuteCommand,              rbac::RBAC_PERM_COMMAND_MUTE,              Console::Yes },
             { "mutehistory",       HandleMuteInfoCommand,          rbac::RBAC_PERM_COMMAND_MUTEHISTORY,       Console::Yes },
             { "unmute",            HandleUnmuteCommand,            rbac::RBAC_PERM_COMMAND_UNMUTE,            Console::Yes },
@@ -354,7 +316,7 @@ public:
                 break;
             }
 
-            const Group* g = plr->GetGroup();
+            Group const* g = plr->GetGroup();
 
             if (hcnt > 1)
             {
@@ -494,8 +456,21 @@ public:
             // Remove from LFG queues
             sLFGMgr->LeaveAllLfgQueues(player->GetGUID(), false);
 
+            // Book the reservation like the queue path does, so it is symmetric
+            // with RemovePlayerAtLeave's decrement and the 0-players/0-invited
+            // state can't let Battleground::Update delete the arena while players
+            // are still on the loading screen.
+            bg->IncreaseInvitedCount(teamId);
             player->SetBattlegroundId(bg->GetInstanceID(), bgTypeId, queueSlot, true, false, teamId);
-            sBattlegroundMgr->SendToBattleground(player, bg->GetInstanceID(), bgTypeId);
+
+            // A synchronous teleport failure would strand that reservation (the
+            // player never enters and never reaches RemovePlayerAtLeave), leaving
+            // the arena undeletable; release it and reset his bg data.
+            if (!sBattlegroundMgr->SendToBattleground(player, bg->GetInstanceID(), bgTypeId))
+            {
+                bg->DecreaseInvitedCount(teamId);
+                player->SetBattlegroundId(0, BATTLEGROUND_TYPE_NONE, PLAYER_MAX_BATTLEGROUND_QUEUES, false, false, TEAM_NEUTRAL);
+            }
         }
 
         handler->PSendSysMessage("Success! Players are now being teleported to the arena.");
@@ -1771,34 +1746,123 @@ public:
 
         Player* playerTarget = player->GetConnectedPlayer();
 
-        if (!playerTarget)
-            return false;
-
         // Subtract
         if (count < 0)
         {
-            // Only have scam check on player accounts
-            if (playerTarget->GetSession()->GetSecurity() == SEC_PLAYER)
+            uint32 removeCount = uint32(-count);
+
+            if (playerTarget)
             {
-                if (!playerTarget->HasItemCount(itemId, 0))
+                // Only have scam check on player accounts
+                if (playerTarget->GetSession()->GetSecurity() == SEC_PLAYER)
                 {
-                    // output that player don't have any items to destroy
-                    handler->SendErrorMessage(LANG_REMOVEITEM_FAILURE, handler->GetNameLink(playerTarget), itemId);
-                    return false;
+                    if (!playerTarget->HasItemCount(itemId, 0))
+                    {
+                        // output that player don't have any items to destroy
+                        handler->SendErrorMessage(LANG_REMOVEITEM_FAILURE, handler->GetNameLink(playerTarget), itemId);
+                        return false;
+                    }
+
+                    if (!playerTarget->HasItemCount(itemId, removeCount))
+                    {
+                        // output that player don't have as many items that you want to destroy
+                        handler->SendErrorMessage(LANG_REMOVEITEM_ERROR, handler->GetNameLink(playerTarget), itemId);
+                        return false;
+                    }
                 }
 
-                if (!playerTarget->HasItemCount(itemId, -count))
-                {
-                    // output that player don't have as many items that you want to destroy
-                    handler->SendErrorMessage(LANG_REMOVEITEM_ERROR, handler->GetNameLink(playerTarget), itemId);
-                    return false;
-                }
+                // output successful amount of destroyed items
+                playerTarget->DestroyItemCount(itemId, removeCount, true, false);
+                handler->PSendSysMessage(LANG_REMOVEITEM, itemId, removeCount, handler->GetNameLink(playerTarget));
+                return true;
             }
 
-            // output successful amount of destroyed items
-            playerTarget->DestroyItemCount(itemId, -count, true, false);
-            handler->PSendSysMessage(LANG_REMOVEITEM, itemId, -count, handler->GetNameLink(playerTarget));
+            // offline target: remove the items directly from the DB
+            if (handler->HasLowerSecurity(nullptr, player->GetGUID()))
+                return false;
+
+            std::string nameLink = handler->playerLink(player->GetName());
+
+            CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHAR_INVENTORY_STACKS_BY_ENTRY_AND_OWNER);
+            stmt->SetData(0, itemId);
+            stmt->SetData(1, player->GetGUID().GetCounter());
+            PreparedQueryResult result = CharacterDatabase.Query(stmt);
+
+            std::vector<std::pair<ObjectGuid::LowType, uint32>> stacks;
+            uint32 totalCount = 0;
+            if (result)
+            {
+                do
+                {
+                    Field* fields = result->Fetch();
+                    stacks.emplace_back(fields[0].Get<uint32>(), fields[1].Get<uint32>());
+                    totalCount += fields[1].Get<uint32>();
+                } while (result->NextRow());
+            }
+
+            if (!totalCount)
+            {
+                handler->SendErrorMessage(LANG_REMOVEITEM_FAILURE, nameLink, itemId);
+                return false;
+            }
+
+            // Only have scam check on player accounts
+            uint32 accountId = sCharacterCache->GetCharacterAccountIdByGuid(player->GetGUID());
+            if (AccountMgr::GetSecurity(accountId, realm.Id.Realm) == SEC_PLAYER && totalCount < removeCount)
+            {
+                handler->SendErrorMessage(LANG_REMOVEITEM_ERROR, nameLink, itemId);
+                return false;
+            }
+
+            CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+            uint32 remaining = removeCount;
+            for (auto const& [itemGuid, stackCount] : stacks)
+            {
+                if (!remaining)
+                    break;
+
+                if (stackCount <= remaining)
+                {
+                    remaining -= stackCount;
+                    Item::DeleteFromInventoryDB(trans, itemGuid);
+                    Item::DeleteFromDB(trans, itemGuid);
+
+                    stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_GIFT);
+                    stmt->SetData(0, itemGuid);
+                    trans->Append(stmt);
+
+                    stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_ITEM_REFUND_INSTANCE);
+                    stmt->SetData(0, itemGuid);
+                    trans->Append(stmt);
+
+                    stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_ITEM_BOP_TRADE);
+                    stmt->SetData(0, itemGuid);
+                    trans->Append(stmt);
+
+                    stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_ITEMCONTAINER_CONTAINER);
+                    stmt->SetData(0, itemGuid);
+                    trans->Append(stmt);
+                }
+                else
+                {
+                    stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_ITEM_COUNT);
+                    stmt->SetData(0, stackCount - remaining);
+                    stmt->SetData(1, itemGuid);
+                    trans->Append(stmt);
+                    remaining = 0;
+                }
+            }
+            CharacterDatabase.CommitTransaction(trans);
+
+            handler->PSendSysMessage(LANG_REMOVEITEM, itemId, removeCount - remaining, nameLink);
             return true;
+        }
+
+        // Adding items requires the target to be online
+        if (!playerTarget)
+        {
+            handler->SendErrorMessage(LANG_PLAYER_NOT_FOUND);
+            return false;
         }
 
         // Adding items
@@ -2262,8 +2326,8 @@ public:
             uint32 accountFlags = playerTarget->GetSession()->GetAccountFlags();
             handler->PSendSysMessage(LANG_ACCOUNT_FLAGS_PINFO);
             for (uint8 i = 0; i < MAX_ACCOUNT_FLAG; i++)
-                if (accountFlags & static_cast<uint32>(accountFlagText[i].flag))
-                    handler->PSendSysMessage(LANG_SUBCMDS_LIST_ENTRY, accountFlagText[i].text);
+                if (accountFlags & (uint32(1) << i))
+                    handler->PSendSysMessage(LANG_SUBCMDS_LIST_ENTRY, accountFlagNames[i].full);
         }
 
         // Output VI. LANG_PINFO_ACC_LASTLOGIN
@@ -2445,6 +2509,265 @@ public:
             }
         }
 
+        return true;
+    }
+
+    static bool HandleRespawnCreatureByGuidCommand(ChatHandler* handler, ObjectGuid::LowType spawnId)
+    {
+        CreatureData const* creData = sObjectMgr->GetCreatureData(spawnId);
+        if (!creData)
+        {
+            handler->SendErrorMessage(LANG_RESPAWN_GUID_CREATURE_NOT_FOUND, spawnId);
+            return false;
+        }
+
+        Map* map = nullptr;
+        if (handler->GetSession())
+        {
+            Player* player = handler->GetSession()->GetPlayer();
+            if (player->GetMapId() == creData->mapid)
+                map = player->GetMap();
+        }
+        if (!map)
+            map = sMapMgr->FindMap(creData->mapid, 0);
+
+        if (!map)
+        {
+            handler->PSendSysMessage(LANG_RESPAWN_GUID_MAP_NOT_LOADED, creData->mapid);
+            return true;
+        }
+
+        // First pass: check if any instance is alive
+        bool isAlive = false;
+        auto const creBounds = map->GetCreatureBySpawnIdStore().equal_range(spawnId);
+        for (auto itr = creBounds.first; itr != creBounds.second; ++itr)
+        {
+            if (itr->second->IsAlive())
+            {
+                isAlive = true;
+                break;
+            }
+        }
+
+        if (isAlive)
+        {
+            handler->PSendSysMessage(LANG_RESPAWN_GUID_CREATURE_ALIVE, spawnId, creData->id);
+            return true;
+        }
+
+        // Second pass: respawn any dead corpses in the world
+        for (auto itr = creBounds.first; itr != creBounds.second; ++itr)
+        {
+            if (itr->second->isDead())
+                itr->second->Respawn(true);
+        }
+        // Also trigger via respawn time queue for fully-removed spawns
+        if (map->GetCreatureRespawnTime(spawnId) > 0)
+        {
+            time_t now = GameTime::GetGameTime().count();
+            map->SaveCreatureRespawnTime(spawnId, now);
+        }
+        handler->PSendSysMessage(LANG_RESPAWN_GUID_CREATURE_QUEUED, spawnId, creData->id);
+        return true;
+    }
+
+    static bool HandleRespawnGameObjectByGuidCommand(ChatHandler* handler, ObjectGuid::LowType spawnId)
+    {
+        GameObjectData const* goData = sObjectMgr->GetGameObjectData(spawnId);
+        if (!goData)
+        {
+            handler->SendErrorMessage(LANG_RESPAWN_GUID_GAMEOBJECT_NOT_FOUND, spawnId);
+            return false;
+        }
+
+        Map* map = nullptr;
+        if (handler->GetSession())
+        {
+            Player* player = handler->GetSession()->GetPlayer();
+            if (player->GetMapId() == goData->mapid)
+                map = player->GetMap();
+        }
+        if (!map)
+            map = sMapMgr->FindMap(goData->mapid, 0);
+
+        if (!map)
+        {
+            handler->PSendSysMessage(LANG_RESPAWN_GUID_MAP_NOT_LOADED, goData->mapid);
+            return true;
+        }
+
+        // First pass: check if any instance is already active
+        bool isActive = false;
+        auto const goBounds = map->GetGameObjectBySpawnIdStore().equal_range(spawnId);
+        for (auto itr = goBounds.first; itr != goBounds.second; ++itr)
+        {
+            if (itr->second->isSpawned())
+            {
+                isActive = true;
+                break;
+            }
+        }
+
+        if (isActive)
+        {
+            handler->PSendSysMessage(LANG_RESPAWN_GUID_GAMEOBJECT_ACTIVE, spawnId, goData->id);
+            return true;
+        }
+
+        // Second pass: respawn inactive objects in the world
+        for (auto itr = goBounds.first; itr != goBounds.second; ++itr)
+            itr->second->Respawn();
+        // Also trigger via respawn time queue for fully-removed spawns
+        if (map->GetGORespawnTime(spawnId) > 0)
+        {
+            time_t now = GameTime::GetGameTime().count();
+            map->SaveGORespawnTime(spawnId, now);
+        }
+        handler->PSendSysMessage(LANG_RESPAWN_GUID_GAMEOBJECT_QUEUED, spawnId, goData->id);
+        return true;
+    }
+
+    static bool HandleRespawnCreatureByEntryCommand(ChatHandler* handler, uint32 entry, Optional<uint32> mapIdArg, Optional<uint32> instanceIdArg)
+    {
+        if (!sObjectMgr->GetCreatureTemplate(entry))
+        {
+            handler->SendErrorMessage(LANG_RESPAWN_ENTRY_CREATURE_NOT_FOUND, entry);
+            return false;
+        }
+
+        Map* map = nullptr;
+        if (handler->GetSession())
+        {
+            // In-game: always use the player's current map
+            map = handler->GetSession()->GetPlayer()->GetMap();
+        }
+        else
+        {
+            // Console: mapId required, instanceId optional
+            if (!mapIdArg)
+            {
+                handler->SendSysMessage(LANG_LIST_RESPAWNS_NO_MAP);
+                return false;
+            }
+            map = sMapMgr->FindMap(*mapIdArg, instanceIdArg.value_or(0));
+        }
+
+        if (!map)
+        {
+            handler->PSendSysMessage(LANG_RESPAWN_GUID_MAP_NOT_LOADED, mapIdArg.value_or(0));
+            return false;
+        }
+
+        time_t now = GameTime::GetGameTime().count();
+        uint32 count = 0;
+
+        // Phase 1: respawn dead corpses that are still tracked in the spawn-id store.
+        // Collect first to avoid iterator invalidation caused by Respawn().
+        std::vector<Creature*> deadCreatures;
+        for (auto const& [spawnId, creature] : map->GetCreatureBySpawnIdStore())
+        {
+            CreatureData const* data = sObjectMgr->GetCreatureData(spawnId);
+            if (!data || data->id != entry)
+                continue;
+            if (creature->isDead())
+                deadCreatures.push_back(creature);
+        }
+        for (Creature* creature : deadCreatures)
+        {
+            creature->Respawn(true);
+            ++count;
+        }
+
+        // Phase 2: set respawn time to now for fully-removed spawns, skipping pools
+        std::vector<ObjectGuid::LowType> toRespawn;
+        for (auto const& [spawnId, respawnTime] : map->GetCreatureRespawnTimes())
+        {
+            CreatureData const* data = sObjectMgr->GetCreatureData(spawnId);
+            if (!data || data->id != entry)
+                continue;
+            if (sPoolMgr->IsPartOfAPool<Creature>(spawnId))
+                continue;
+            toRespawn.push_back(spawnId);
+        }
+        for (ObjectGuid::LowType spawnId : toRespawn)
+        {
+            map->SaveCreatureRespawnTime(spawnId, now);
+            ++count;
+        }
+
+        handler->PSendSysMessage(LANG_RESPAWN_ENTRY_CREATURE_QUEUED, count, entry);
+        return true;
+    }
+
+    static bool HandleRespawnGameObjectByEntryCommand(ChatHandler* handler, uint32 entry, Optional<uint32> mapIdArg, Optional<uint32> instanceIdArg)
+    {
+        if (!sObjectMgr->GetGameObjectTemplate(entry))
+        {
+            handler->SendErrorMessage(LANG_RESPAWN_ENTRY_GAMEOBJECT_NOT_FOUND, entry);
+            return false;
+        }
+
+        Map* map = nullptr;
+        if (handler->GetSession())
+        {
+            // In-game: always use the player's current map
+            map = handler->GetSession()->GetPlayer()->GetMap();
+        }
+        else
+        {
+            // Console: mapId required, instanceId optional
+            if (!mapIdArg)
+            {
+                handler->SendSysMessage(LANG_LIST_RESPAWNS_NO_MAP);
+                return false;
+            }
+            map = sMapMgr->FindMap(*mapIdArg, instanceIdArg.value_or(0));
+        }
+
+        if (!map)
+        {
+            handler->PSendSysMessage(LANG_RESPAWN_GUID_MAP_NOT_LOADED, mapIdArg.value_or(0));
+            return false;
+        }
+
+        time_t now = GameTime::GetGameTime().count();
+        uint32 count = 0;
+
+        // Phase 1: respawn inactive objects that are still tracked in the spawn-id store.
+        // Collect first to avoid iterator invalidation caused by Respawn().
+        std::vector<GameObject*> inactiveGOs;
+        for (auto const& [spawnId, go] : map->GetGameObjectBySpawnIdStore())
+        {
+            GameObjectData const* data = sObjectMgr->GetGameObjectData(spawnId);
+            if (!data || data->id != entry)
+                continue;
+            if (!go->isSpawned())
+                inactiveGOs.push_back(go);
+        }
+        for (GameObject* go : inactiveGOs)
+        {
+            go->Respawn();
+            ++count;
+        }
+
+        // Phase 2: set respawn time to now for fully-removed spawns, skipping pools
+        std::vector<ObjectGuid::LowType> toRespawn;
+        for (auto const& [spawnId, respawnTime] : map->GetGORespawnTimes())
+        {
+            GameObjectData const* data = sObjectMgr->GetGameObjectData(spawnId);
+            if (!data || data->id != entry)
+                continue;
+            if (sPoolMgr->IsPartOfAPool<GameObject>(spawnId))
+                continue;
+            toRespawn.push_back(spawnId);
+        }
+        for (ObjectGuid::LowType spawnId : toRespawn)
+        {
+            map->SaveGORespawnTime(spawnId, now);
+            ++count;
+        }
+
+        handler->PSendSysMessage(LANG_RESPAWN_ENTRY_GAMEOBJECT_QUEUED, count, entry);
         return true;
     }
 

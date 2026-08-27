@@ -37,7 +37,7 @@ enum ServerHook
 class ServerScript : public ScriptObject
 {
 protected:
-    ServerScript(const char* name, std::vector<uint16> enabledHooks = std::vector<uint16>());
+    ServerScript(char const* name, std::vector<uint16> enabledHooks = std::vector<uint16>());
 
 public:
     // Called when reactive socket I/O is started (WorldSocketMgr).
@@ -71,6 +71,7 @@ public:
      * @param packet Contains information about the WorldPacket
      * @return True if you want to continue receiving the packet, false if you want to disallow receiving the packet
      */
+    [[nodiscard]] virtual bool CanPacketReceive(WorldSession* /*session*/, WorldPacket& /*packet*/) { return true; }
     [[nodiscard]] virtual bool CanPacketReceive(WorldSession* /*session*/, WorldPacket const& /*packet*/) { return true; }
 
     virtual void OnPacketReceived(WorldSession* /*session*/, WorldPacket const& /*packet*/) { }
