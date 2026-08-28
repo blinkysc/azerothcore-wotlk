@@ -9892,8 +9892,8 @@ bool Unit::HasSchoolImmunityForMask(SpellSchoolMask schoolMask, Unit const* cast
     uint32 accumulatedMask = 0;
     for (auto const& [immunitySchoolMask, immunityAuraId] : m_spellImmune[IMMUNITY_SCHOOL])
     {
-        // Skip the spell's own immunity entry
-        if (spellInfo && immunityAuraId == spellInfo->Id)
+        // Skip the spell's own immunity entry only for beneficial spells, so harmful ones like Cyclone cannot be rechained
+        if (spellInfo && immunityAuraId == spellInfo->Id && spellInfo->IsPositive())
             continue;
 
         SpellInfo const* immuneSpellInfo = sSpellMgr->GetSpellInfo(immunityAuraId);
