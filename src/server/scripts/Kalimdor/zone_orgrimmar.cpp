@@ -144,6 +144,10 @@ enum ThrallWarchief : uint32
 
     // Deathknight Starting Zone End
     QUEST_WARCHIEFS_BLESSING       = 13189,
+
+    // Warchief's periodic world buffs
+    SPELL_RALLYING_CRY_OF_THE_DRAGONSLAYER = 22888,
+    SPELL_SPIRIT_OF_ZANDALAR               = 24425,
 };
 
 const Position heraldOfThrallPos = { -462.404f, -2637.68f, 96.0656f, 5.8606f };
@@ -188,6 +192,17 @@ public:
         {
             ChainLightningTimer = 2000;
             ShockTimer = 8000;
+        }
+
+        void InitializeAI() override
+        {
+            ScriptedAI::InitializeAI();
+
+            scheduler.Schedule(10s, [this](TaskContext context)
+            {
+                DoWorldBuffs();
+                context.Repeat(30min);
+            });
         }
 
         void sGossipSelect(Player* player, uint32 menuId, uint32 /*gossipListId*/) override
@@ -249,6 +264,24 @@ public:
                     });
                 });
             }
+        }
+
+        // Warchief's blessing, Rallying Cry of the Dragonslayer and Spirit of Zandalar,
+        // handed out to everyone in the city every half hour.
+        void DoWorldBuffs()
+        {
+            me->HandleEmoteCommand(EMOTE_ONESHOT_SHOUT);
+            me->TextEmote("Thrall bestows powerful blessings upon all in Orgrimmar!", nullptr, true);
+
+            me->GetMap()->DoForAllPlayers([&](Player* player)
+            {
+                if (player->IsAlive() && !player->IsGameMaster() && player->GetAreaId() == AREA_ORGRIMMAR)
+                {
+                    player->CastSpell(player, SPELL_WARCHIEF_BLESSING, true);
+                    player->CastSpell(player, SPELL_RALLYING_CRY_OF_THE_DRAGONSLAYER, true);
+                    player->CastSpell(player, SPELL_SPIRIT_OF_ZANDALAR, true);
+                }
+            });
         }
 
         void UpdateAI(uint32 diff) override
