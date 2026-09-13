@@ -15,10 +15,12 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "AreaDefines.h"
 #include "CreatureScript.h"
 #include "Player.h"
 #include "ScriptedCreature.h"
 #include "ScriptedEscortAI.h"
+#include "TaskScheduler.h"
 
 /*######
 ## npc_lord_gregor_lescovar
@@ -465,6 +467,10 @@ enum KingVarianWrynn : uint32
 {
     // Deathknight Starting Zone End
     QUEST_WHERE_KINGS_WALK       = 13188,
+
+    // The King's periodic world buffs
+    SPELL_RALLYING_CRY_OF_THE_DRAGONSLAYER = 22888,
+    SPELL_SPIRIT_OF_ZANDALAR               = 24425,
 };
 // 29611 - King Varian Wryn
 /// @todo add abilities/timers
@@ -472,13 +478,45 @@ struct npc_king_varian_wrynn : public ScriptedAI
 {
     npc_king_varian_wrynn(Creature* creature) : ScriptedAI(creature) { }
 
+    void InitializeAI() override
+    {
+        ScriptedAI::InitializeAI();
+
+        scheduler.Schedule(10s, [this](TaskContext context)
+        {
+            DoWorldBuffs();
+            context.Repeat(30min);
+        });
+    }
+
     void JustDied(Unit* /*killer*/) override
     {
         DoRewardPlayersInArea();
     }
 
-    void UpdateAI(uint32 /*diff*/) override
+    // Rallying Cry of the Dragonslayer and Spirit of Zandalar, handed out to
+    // everyone in the city every half hour. There is no Alliance counterpart
+    // to the Horde's Warchief's Blessing, so Stormwind gets the two neutral
+    // head/heart turn-in buffs only.
+    void DoWorldBuffs()
     {
+        me->HandleEmoteCommand(EMOTE_ONESHOT_SHOUT);
+        me->TextEmote("King Varian Wrynn bestows powerful blessings upon all in Stormwind!", nullptr, true);
+
+        me->GetMap()->DoForAllPlayers([&](Player* player)
+        {
+            if (player->IsAlive() && !player->IsGameMaster() && player->GetAreaId() == AREA_STORMWIND_CITY)
+            {
+                player->CastSpell(player, SPELL_RALLYING_CRY_OF_THE_DRAGONSLAYER, true);
+                player->CastSpell(player, SPELL_SPIRIT_OF_ZANDALAR, true);
+            }
+        });
+    }
+
+    void UpdateAI(uint32 diff) override
+    {
+        scheduler.Update(diff);
+
         if (!UpdateVictim())
             return;
 
